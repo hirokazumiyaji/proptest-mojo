@@ -3,6 +3,7 @@
 /scratch/
 /tasks/
 /.claude/tasks/
+/workspace/
 *.local.md
 
 # Toolchain / build artifacts
@@ -11,3 +12,11 @@
 *.mojopkg
 *.mojoc
 /build/
+
+# Example database written by the library at test time
+/.proptest-mojo/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

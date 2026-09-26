@@ -1,14 +1,14 @@
 [workspace]
 authors = ["Hirokazu Miyaji <hirokazu.miyaji@gmail.com>"]
-channels = ["https://conda.modular.com/max-nightly", "conda-forge"]
+channels = ["https://conda.modular.com/max-nightly", "conda-forge", "nodefaults"]
 name = "proptest-mojo"
-platforms = ["osx-arm64"]
+platforms = ["osx-arm64", "linux-64"]
 version = "0.1.0"
 
 [tasks]
-test = "bash -c 'status=0; while IFS= read -r f; do echo \"Running $f\"; mojo run -I src \"$f\" || status=1; done < <(find tests -type f -name \"test_*.mojo\" | sort); exit $status'"
+test = "bash -c 'n=0; status=0; while IFS= read -r f; do n=$((n+1)); echo \"Running $f\"; mojo run -I src \"$f\" || status=1; done < <(find tests -type f -name \"test_*.mojo\" | sort); [ \"$n\" -gt 0 ] || { echo \"No test files found under tests/\"; status=1; }; exit $status'"
 format = "mojo format src tests"
-format-check = "bash -c 'mojo format src tests && git diff --exit-code -- src tests'"
+format-check = "bash -c 'mojo format src tests && git add -N -- src tests && git diff --exit-code -- src tests'"
 build = "mojo precompile src/proptest -o proptest.mojoc"
 
 [dependencies]
