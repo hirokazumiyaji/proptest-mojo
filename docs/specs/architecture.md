@@ -64,6 +64,8 @@ examples/                    利用例
 | `format-check` | フォーマット済みか検査 |
 | `build` | `mojo precompile src/proptest -o proptest.mojoc`（成果物は gitignore） |
 
+対応プラットフォームは `osx-arm64` と `linux-64`（ADR-0007 の Linux / macOS CI 前提）。
+
 ## 1 回の `for_all` のデータフロー
 
 ```text
