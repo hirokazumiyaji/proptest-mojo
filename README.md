@@ -3,7 +3,7 @@
 Pure Mojo で書かれた Property-based testing ライブラリです。
 Python の [Hypothesis](https://hypothesis.readthedocs.io/) と Rust の [proptest](https://proptest-rs.github.io/proptest/) に匹敵する表現力と縮小（shrinking）品質を目標にしています。
 
-> Status: 設計フェーズ。実装は [Milestones](https://github.com/hirokazumiyaji/proptest-mojo/milestones) と [Issues](https://github.com/hirokazumiyaji/proptest-mojo/issues) で管理しています。
+> Status: 設計フェーズ。全体計画は [Roadmap (#34)](https://github.com/hirokazumiyaji/proptest-mojo/issues/34)、実装は [Milestones](https://github.com/hirokazumiyaji/proptest-mojo/milestones) と [Issues](https://github.com/hirokazumiyaji/proptest-mojo/issues) で管理しています。
 
 ## 目指す使い心地
 
