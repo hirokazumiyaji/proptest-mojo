@@ -1,0 +1,19 @@
+# Temporary documents (never committed; see docs/README.md)
+/tmp/
+/scratch/
+/tasks/
+/.claude/tasks/
+*.local.md
+
+# Toolchain / build artifacts
+/.pixi/
+*.mojopkg
+/build/
+
+# Example database written by the library at test time
+/.proptest-mojo/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
