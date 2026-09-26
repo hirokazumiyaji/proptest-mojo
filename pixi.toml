@@ -6,9 +6,9 @@ platforms = ["osx-arm64", "linux-64"]
 version = "0.1.0"
 
 [tasks]
-test = "bash -c 'n=0; status=0; while IFS= read -r f; do n=$((n+1)); echo \"Running $f\"; mojo run -I src \"$f\" || status=1; done < <(find tests -type f -name \"test_*.mojo\" | sort); [ \"$n\" -gt 0 ] || { echo \"No test files found under tests/\"; status=1; }; exit $status'"
+test = "bash -c 'n=0; status=0; while IFS= read -r f; do n=$((n+1)); echo \"Running $f\"; mojo run -I src \"$f\" < /dev/null || status=1; done < <(find tests -type f -name \"test_*.mojo\" | sort); [ \"$n\" -gt 0 ] || { echo \"No test files found under tests/\"; status=1; }; exit $status'"
 format = "mojo format src tests"
-format-check = "bash -c 'set -euo pipefail; tmpdir=$(mktemp -d); trap \"rm -rf \\\"$tmpdir\\\"\" EXIT; cp -a src tests \"$tmpdir/\"; mojo format \"$tmpdir/src\" \"$tmpdir/tests\"; diff -ruN src \"$tmpdir/src\"; diff -ruN tests \"$tmpdir/tests\"'"
+format-check = "bash -c 'set -euo pipefail; tmpdir=$(mktemp -d); trap \"rm -rf \\\"$tmpdir\\\"\" EXIT; cp -a src tests \"$tmpdir/\"; mojo format \"$tmpdir/src\" \"$tmpdir/tests\"; status=0; diff -ruN src \"$tmpdir/src\" || status=1; diff -ruN tests \"$tmpdir/tests\" || status=1; exit $status'"
 build = "mojo precompile src/proptest -o proptest.mojoc"
 
 [dependencies]
