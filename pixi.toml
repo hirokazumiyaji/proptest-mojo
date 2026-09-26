@@ -1,0 +1,15 @@
+[workspace]
+authors = ["Hirokazu Miyaji <hirokazu.miyaji@gmail.com>"]
+channels = ["https://conda.modular.com/max-nightly", "conda-forge"]
+name = "proptest-mojo"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+test = "bash -c 'status=0; while IFS= read -r f; do echo \"Running $f\"; mojo run -I src \"$f\" || status=1; done < <(find tests -type f -name \"test_*.mojo\" | sort); exit $status'"
+format = "mojo format src tests"
+format-check = "bash -c 'mojo format src tests && git diff --exit-code -- src tests'"
+build = "mojo precompile src/proptest -o proptest.mojoc"
+
+[dependencies]
+mojo = ">=1.2.0.dev2026092605,<2"

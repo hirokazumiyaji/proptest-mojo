@@ -19,7 +19,9 @@ Pure Mojo の Property-based testing ライブラリ。
 - Mojo は nightly の最新構文を使う（`def` のみ、`comptime`、`std.` import など）。
 - Mojo の言語制約（クロージャを struct に保持できない等）は ADR-0005 と `docs/specs/coding-guidelines.md` を参照。
 
-## コマンド（M0 で整備予定）
+## コマンド
 
-- `pixi run test`: テスト実行
-- `pixi run format`: `mojo format`
+- `pixi run test`: `tests/**/test_*.mojo` を `mojo run -I src` で全実行
+- `pixi run format`: `mojo format src tests`
+- `pixi run format-check`: フォーマット済みか検査（未整形なら非 0）
+- `pixi run build`: `mojo precompile` で `proptest.mojoc` を生成

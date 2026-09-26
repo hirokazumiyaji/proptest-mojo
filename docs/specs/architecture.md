@@ -55,6 +55,15 @@ tests/
 examples/                    利用例
 ```
 
+`pixi.toml` のタスク:
+
+| タスク | 内容 |
+|--------|------|
+| `test` | `tests/**/test_*.mojo` を `mojo run -I src` で全実行（1 つでも失敗したら非 0） |
+| `format` | `mojo format src tests` |
+| `format-check` | フォーマット済みか検査 |
+| `build` | `mojo precompile src/proptest -o proptest.mojoc`（成果物は gitignore） |
+
 ## 1 回の `for_all` のデータフロー
 
 ```text
