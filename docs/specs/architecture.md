@@ -61,7 +61,7 @@ examples/                    利用例
 |--------|------|
 | `test` | `tests/**/test_*.mojo` を `mojo run -I src` で全実行（1 つでも失敗したら非 0） |
 | `format` | `mojo format src tests` |
-| `format-check` | フォーマット済みか検査 |
+| `format-check` | コピー上で `mojo format` し、作業ツリーと diff（index 非破壊） |
 | `build` | `mojo precompile src/proptest -o proptest.mojoc`（成果物は gitignore） |
 
 対応プラットフォームは `osx-arm64` と `linux-64`（ADR-0007 の Linux / macOS CI 前提）。
