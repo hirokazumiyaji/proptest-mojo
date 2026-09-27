@@ -66,6 +66,8 @@ examples/                    利用例
 
 対応プラットフォームは `osx-arm64` と `linux-64`（ADR-0007 の Linux / macOS CI 前提）。
 
+CI（`.github/workflows/ci.yml`）は PR と `main` への push で、`ubuntu-24.04` と `macos-15` の両方で `pixi run format-check` と `pixi run test` を実行する（`prefix-dev/setup-pixi`、キャッシュ有効）。
+
 ## 1 回の `for_all` のデータフロー
 
 ```text
