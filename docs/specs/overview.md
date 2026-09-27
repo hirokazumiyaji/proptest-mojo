@@ -32,6 +32,7 @@ Pure Mojo で、Python の Hypothesis と Rust の proptest に匹敵する Prop
 
 | 機能 | Hypothesis | proptest | proptest-mojo | 状態 |
 |------|-----------|----------|---------------|------|
+| 決定的 PRNG | 内部 | 内部 | `SplitMix64` / `Xoshiro256StarStar` / `derive` | Implemented (M1) |
 | 整数・真偽値 | `integers`, `booleans` | `any::<i32>`, 範囲 | `integers`, `booleans`, `integers_of[DType]` | Planned (M1, M2) |
 | 浮動小数点数 | `floats` | `f64::ANY` など | `floats` | Planned (M2) |
 | 文字列・バイト列 | `text`, `binary` | 正規表現, `vec(u8)` | `text`, `bytes` | Planned (M2) |
