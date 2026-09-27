@@ -74,13 +74,14 @@ struct Xoshiro256StarStar(Copyable, Movable):
         self.s3 = _rotl(self.s3, UInt64(45))
         return result
 
-    def next_below(mut self, bound: UInt64) -> UInt64:
+    def next_below(mut self, bound: UInt64) raises -> UInt64:
         """Unbiased integer in `[0, bound)`.
 
-        `bound == 0` and `bound == 1` both return 0 (`[0, 1)` is `{0}`;
-        `[0, 0)` is empty and treated as a degenerate caller error).
+        Requires `bound >= 1`. `bound == 1` always yields 0.
         """
-        if bound <= 1:
+        if bound == 0:
+            raise Error("next_below: bound must be >= 1")
+        if bound == 1:
             return 0
         # Reject values in the incomplete residue class at the top of UInt64.
         var threshold = (UInt64(0) - bound) % bound
@@ -104,12 +105,15 @@ def derive(run_seed: UInt64, index: UInt64) -> Xoshiro256StarStar:
     """
     var seed_sm = SplitMix64(seed=run_seed ^ _SEED_TAG)
     var index_sm = SplitMix64(seed=index ^ _INDEX_TAG)
-    var s0 = seed_sm.next_u64() ^ index_sm.next_u64()
-    var s1 = seed_sm.next_u64() ^ index_sm.next_u64()
-    var s2 = seed_sm.next_u64() ^ index_sm.next_u64()
-    var s3 = seed_sm.next_u64() ^ index_sm.next_u64()
+    var s0 = seed_sm.next_u64() ^ _rotl(index_sm.next_u64(), UInt64(32))
+    var s1 = seed_sm.next_u64() ^ _rotl(index_sm.next_u64(), UInt64(32))
+    var s2 = seed_sm.next_u64() ^ _rotl(index_sm.next_u64(), UInt64(32))
+    var s3 = seed_sm.next_u64() ^ _rotl(index_sm.next_u64(), UInt64(32))
     var fin = SplitMix64(
-        seed=s0 ^ (s1 << UInt64(1)) ^ (s2 << UInt64(2)) ^ (s3 << UInt64(3))
+        seed=s0
+        ^ _rotl(s1, UInt64(17))
+        ^ _rotl(s2, UInt64(33))
+        ^ _rotl(s3, UInt64(49))
     )
     return Xoshiro256StarStar(
         s0=fin.next_u64(),

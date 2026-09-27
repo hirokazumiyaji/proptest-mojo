@@ -28,17 +28,19 @@ def test_xoshiro256starstar_reference_vector() raises:
 
 
 def test_derive_golden_stream() raises:
+    # Goldens from the domain-separated derive algorithm in prng.mojo
+    # (SEED_TAG/INDEX_TAG + rotl-mix + finalize), cross-checked independently.
     var a = derive(UInt64(0xDEADBEEF), UInt64(7))
-    assert_equal(a.next_u64(), UInt64(0xD5C8C06DB5975AEE))
-    assert_equal(a.next_u64(), UInt64(0x5AA865B590E6F0A9))
-    assert_equal(a.next_u64(), UInt64(0x988F0D6F870E619B))
-    assert_equal(a.next_u64(), UInt64(0x6320011FD6D9AC2F))
+    assert_equal(a.next_u64(), UInt64(0x6DAA5F3DF7D8BD49))
+    assert_equal(a.next_u64(), UInt64(0x325406FD4103F220))
+    assert_equal(a.next_u64(), UInt64(0x2E712EDE182D2060))
+    assert_equal(a.next_u64(), UInt64(0xFA6D7936A553E57E))
 
 
 def test_derive_zero_zero_is_non_degenerate() raises:
     var a = derive(UInt64(0), UInt64(0))
-    assert_equal(a.next_u64(), UInt64(0xEC89F998CB7D61A6))
-    assert_equal(a.next_u64(), UInt64(0xA7A1E72603F5B7B8))
+    assert_equal(a.next_u64(), UInt64(0xFC41243C80E6428C))
+    assert_equal(a.next_u64(), UInt64(0xAA22B11B74D51427))
 
 
 def test_derive_is_deterministic() raises:
@@ -86,9 +88,25 @@ def test_derive_does_not_collapse_additive_aliases() raises:
         )
 
 
+def test_derive_does_not_collapse_tag_swap_symmetry() raises:
+    # derive(a, b) must not equal derive(b ^ C, a ^ C) for C = SEED_TAG ^ INDEX_TAG.
+    var c = UInt64(0x243F6A8885A308D3) ^ UInt64(0x13198A2E03707344)
+    var a = UInt64(3)
+    var b = UInt64(5)
+    var left = derive(a, b)
+    var right = derive(b ^ c, a ^ c)
+    assert_true(
+        (left.s0 ^ right.s0)
+        | (left.s1 ^ right.s1)
+        | (left.s2 ^ right.s2)
+        | (left.s3 ^ right.s3)
+        != 0,
+        msg="tag-swap symmetry must not collapse streams",
+    )
+
+
 def test_next_below_stays_in_range_and_varies() raises:
     var rng = derive(UInt64(42), UInt64(0))
-    assert_equal(rng.next_below(UInt64(0)), UInt64(0))
     assert_equal(rng.next_below(UInt64(1)), UInt64(0))
     var seen0 = False
     var seen_nonzero = False
@@ -105,6 +123,18 @@ def test_next_below_stays_in_range_and_varies() raises:
         rng.next_below(wide) < wide, msg="next_below must honor wide bounds"
     )
     assert_true(rng.next_below(UInt64(256)) < UInt64(256))
+    # Non-power-of-two bounds make threshold > 0 for the rejection path.
+    var almost_max = UInt64(0xFFFFFFFFFFFFFFFD)
+    assert_true(rng.next_below(almost_max) < almost_max)
+
+
+def test_next_below_rejects_zero_bound() raises:
+    var rng = derive(UInt64(1), UInt64(0))
+    try:
+        _ = rng.next_below(UInt64(0))
+        assert_true(False, msg="next_below(0) must raise")
+    except:
+        pass
 
 
 def test_next_float64_matches_mantissa_conversion() raises:
@@ -138,8 +168,12 @@ def test_all_zero_state_is_rewritten() raises:
         s0=UInt64(0), s1=UInt64(0), s2=UInt64(0), s3=UInt64(0)
     )
     assert_equal(rng.s0, UInt64(1))
+    assert_equal(rng.s1, UInt64(0))
+    assert_equal(rng.s2, UInt64(0))
+    assert_equal(rng.s3, UInt64(0))
     # Rewritten state is (1, 0, 0, 0): s1 == 0, so the first draw is 0.
     assert_equal(rng.next_u64(), UInt64(0))
+    # Second draw: rotl(s1*5, 7)*9 with s1==1 → rotl(5,7)*9 = 640*9 = 5760.
     assert_equal(rng.next_u64(), UInt64(5760))
 
 
