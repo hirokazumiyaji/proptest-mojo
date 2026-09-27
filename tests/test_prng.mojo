@@ -14,7 +14,7 @@ def test_splitmix64_reference_vector() raises:
 
 
 def test_xoshiro256starstar_reference_vector() raises:
-    # State expanded from SplitMix64(seed=1), then first outputs of xoshiro256**.
+    # State = first four SplitMix64 outputs from seed 1; then xoshiro256** draws.
     var rng = Xoshiro256StarStar.from_seed(UInt64(1))
     assert_equal(rng.s0, UInt64(0x910A2DEC89025CC1))
     assert_equal(rng.s1, UInt64(0xBEEB8DA1658EEC67))
@@ -45,6 +45,19 @@ def test_derive_differs_by_index() raises:
     assert_true(saw_diff, msg="streams for distinct indices must diverge")
 
 
+def test_derive_does_not_collapse_additive_aliases() raises:
+    # (s, i) must not share a stream with (s + i * golden, 0).
+    var golden = UInt64(0x9E3779B97F4A7C15)
+    var a = derive(UInt64(0), UInt64(1))
+    var b = derive(golden, UInt64(0))
+    var saw_diff = False
+    for _ in range(8):
+        if a.next_u64() != b.next_u64():
+            saw_diff = True
+            break
+    assert_true(saw_diff, msg="additive aliases of (seed, index) must diverge")
+
+
 def test_next_below_stays_in_range() raises:
     var rng = derive(UInt64(42), UInt64(0))
     assert_equal(rng.next_below(UInt64(0)), UInt64(0))
@@ -52,6 +65,18 @@ def test_next_below_stays_in_range() raises:
     for _ in range(256):
         var v = rng.next_below(UInt64(10))
         assert_true(v < UInt64(10), msg="next_below(10) must be in [0, 10)")
+
+
+def test_next_float64_matches_mantissa_conversion() raises:
+    var raw_rng = Xoshiro256StarStar(
+        UInt64(0x0123456789ABCDEF), UInt64(7), UInt64(9), UInt64(11)
+    )
+    var float_rng = Xoshiro256StarStar(
+        UInt64(0x0123456789ABCDEF), UInt64(7), UInt64(9), UInt64(11)
+    )
+    var raw = raw_rng.next_u64()
+    var expected = Float64(raw >> 11) * (1.0 / 9007199254740992.0)
+    assert_equal(float_rng.next_float64(), expected)
 
 
 def test_next_float64_in_unit_interval() raises:
@@ -65,8 +90,9 @@ def test_next_float64_in_unit_interval() raises:
 def test_all_zero_state_is_rewritten() raises:
     var rng = Xoshiro256StarStar(UInt64(0), UInt64(0), UInt64(0), UInt64(0))
     assert_equal(rng.s0, UInt64(1))
-    # Must still produce a defined stream.
-    _ = rng.next_u64()
+    # Rewritten state is (1, 0, 0, 0): s1 == 0, so the first draw is 0.
+    assert_equal(rng.next_u64(), UInt64(0))
+    assert_equal(rng.next_u64(), UInt64(5760))
 
 
 def main() raises:

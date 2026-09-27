@@ -2,6 +2,8 @@
 
 Implements SplitMix64 (seed expansion) and xoshiro256** (generation),
 plus pure `derive(run_seed, index)` for per-example streams (ADR-0006).
+
+All UInt64 arithmetic is wrapping (as required by the reference algorithms).
 """
 
 
@@ -26,7 +28,12 @@ struct SplitMix64(Copyable, Movable):
 
 
 struct Xoshiro256StarStar(Copyable, Movable):
-    """Xoshiro256** generator. State must not be all zeros."""
+    """Xoshiro256** generator.
+
+    Invariant: the four state words must not all be zero. Callers should treat
+    the state as opaque and use `from_seed` / `derive`; the constructor rewrites
+    an all-zero state to `(1, 0, 0, 0)`.
+    """
 
     var s0: UInt64
     var s1: UInt64
@@ -45,7 +52,11 @@ struct Xoshiro256StarStar(Copyable, Movable):
     def from_seed(seed: UInt64) -> Self:
         """Expand a 64-bit seed with SplitMix64 into a 256-bit xoshiro state."""
         var sm = SplitMix64(seed=seed)
-        return Self(sm.next_u64(), sm.next_u64(), sm.next_u64(), sm.next_u64())
+        var s0 = sm.next_u64()
+        var s1 = sm.next_u64()
+        var s2 = sm.next_u64()
+        var s3 = sm.next_u64()
+        return Self(s0, s1, s2, s3)
 
     def next_u64(mut self) -> UInt64:
         var result = _rotl(self.s1 * UInt64(5), UInt64(7)) * UInt64(9)
@@ -76,6 +87,15 @@ struct Xoshiro256StarStar(Copyable, Movable):
 
 
 def derive(run_seed: UInt64, index: UInt64) -> Xoshiro256StarStar:
-    """Purely derive a per-example PRNG from `(run_seed, example_index)`."""
-    var mixed = run_seed + index * UInt64(0x9E3779B97F4A7C15)
-    return Xoshiro256StarStar.from_seed(mixed)
+    """Purely derive a per-example PRNG from `(run_seed, example_index)`.
+
+    Both halves are expanded with SplitMix64 and XOR-mixed so that pairs like
+    `(s, i)` and `(s + i * golden, 0)` do not collapse to the same stream.
+    """
+    var seed_sm = SplitMix64(seed=run_seed)
+    var index_sm = SplitMix64(seed=index)
+    var s0 = seed_sm.next_u64() ^ index_sm.next_u64()
+    var s1 = seed_sm.next_u64() ^ index_sm.next_u64()
+    var s2 = seed_sm.next_u64() ^ index_sm.next_u64()
+    var s3 = seed_sm.next_u64() ^ index_sm.next_u64()
+    return Xoshiro256StarStar(s0, s1, s2, s3)
