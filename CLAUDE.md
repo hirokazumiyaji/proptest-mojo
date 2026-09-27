@@ -25,3 +25,5 @@ Pure Mojo の Property-based testing ライブラリ。
 - `pixi run format`: `mojo format src tests`
 - `pixi run format-check`: フォーマット済みか検査（未整形なら非 0）
 - `pixi run build`: `mojo precompile` で `proptest.mojoc` を生成
+
+CI は `.github/workflows/ci.yml`（Linux / macOS で `format-check` と `test`）。
