@@ -3,11 +3,13 @@
 /scratch/
 /tasks/
 /.claude/tasks/
+/workspace/
 *.local.md
 
 # Toolchain / build artifacts
 /.pixi/
 *.mojopkg
+*.mojoc
 /build/
 
 # Example database written by the library at test time
