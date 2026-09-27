@@ -6,8 +6,13 @@ plus pure `derive(run_seed, index)` for per-example streams (ADR-0006).
 All UInt64 arithmetic is wrapping (as required by the reference algorithms).
 """
 
+comptime _FLOAT_SCALE = 1.0 / 9007199254740992.0
+comptime _SEED_TAG = UInt64(0x243F6A8885A308D3)
+comptime _INDEX_TAG = UInt64(0x13198A2E03707344)
+
 
 def _rotl(x: UInt64, shift: UInt64) -> UInt64:
+    # Precondition: 0 < shift < 64 (call sites use constants 7 and 45).
     return (x << shift) | (x >> (UInt64(64) - shift))
 
 
@@ -30,9 +35,9 @@ struct SplitMix64(Copyable, Movable):
 struct Xoshiro256StarStar(Copyable, Movable):
     """Xoshiro256** generator.
 
-    Invariant: the four state words must not all be zero. Callers should treat
-    the state as opaque and use `from_seed` / `derive`; the constructor rewrites
-    an all-zero state to `(1, 0, 0, 0)`.
+    Invariant: the four state words must not all be zero. Prefer `from_seed`
+    / `derive`; raw construction is keyword-only so word order is explicit.
+    An all-zero state is rewritten to `(1, 0, 0, 0)`.
     """
 
     var s0: UInt64
@@ -40,7 +45,7 @@ struct Xoshiro256StarStar(Copyable, Movable):
     var s2: UInt64
     var s3: UInt64
 
-    def __init__(out self, s0: UInt64, s1: UInt64, s2: UInt64, s3: UInt64):
+    def __init__(out self, *, s0: UInt64, s1: UInt64, s2: UInt64, s3: UInt64):
         self.s0 = s0
         self.s1 = s1
         self.s2 = s2
@@ -56,7 +61,7 @@ struct Xoshiro256StarStar(Copyable, Movable):
         var s1 = sm.next_u64()
         var s2 = sm.next_u64()
         var s3 = sm.next_u64()
-        return Self(s0, s1, s2, s3)
+        return Self(s0=s0, s1=s1, s2=s2, s3=s3)
 
     def next_u64(mut self) -> UInt64:
         var result = _rotl(self.s1 * UInt64(5), UInt64(7)) * UInt64(9)
@@ -70,7 +75,11 @@ struct Xoshiro256StarStar(Copyable, Movable):
         return result
 
     def next_below(mut self, bound: UInt64) -> UInt64:
-        """Unbiased integer in `[0, bound)`. Returns 0 when `bound <= 1`."""
+        """Unbiased integer in `[0, bound)`.
+
+        `bound == 0` and `bound == 1` both return 0 (`[0, 1)` is `{0}`;
+        `[0, 0)` is empty and treated as a degenerate caller error).
+        """
         if bound <= 1:
             return 0
         # Reject values in the incomplete residue class at the top of UInt64.
@@ -82,20 +91,29 @@ struct Xoshiro256StarStar(Copyable, Movable):
 
     def next_float64(mut self) -> Float64:
         """Uniform value in `[0.0, 1.0)` from the top 53 bits."""
-        var mantissa = self.next_u64() >> 11
-        return Float64(mantissa) * (1.0 / 9007199254740992.0)
+        var mantissa = self.next_u64() >> UInt64(11)
+        return Float64(mantissa) * _FLOAT_SCALE
 
 
 def derive(run_seed: UInt64, index: UInt64) -> Xoshiro256StarStar:
     """Purely derive a per-example PRNG from `(run_seed, example_index)`.
 
-    Both halves are expanded with SplitMix64 and XOR-mixed so that pairs like
-    `(s, i)` and `(s + i * golden, 0)` do not collapse to the same stream.
+    Domain-separated SplitMix64 expansions are XOR-mixed, then finalized so
+    pairs like `(s, i)` / `(i, s)` and `(s, s)` (including `(0, 0)`) do not
+    collapse to a shared or all-zero stream.
     """
-    var seed_sm = SplitMix64(seed=run_seed)
-    var index_sm = SplitMix64(seed=index)
+    var seed_sm = SplitMix64(seed=run_seed ^ _SEED_TAG)
+    var index_sm = SplitMix64(seed=index ^ _INDEX_TAG)
     var s0 = seed_sm.next_u64() ^ index_sm.next_u64()
     var s1 = seed_sm.next_u64() ^ index_sm.next_u64()
     var s2 = seed_sm.next_u64() ^ index_sm.next_u64()
     var s3 = seed_sm.next_u64() ^ index_sm.next_u64()
-    return Xoshiro256StarStar(s0, s1, s2, s3)
+    var fin = SplitMix64(
+        seed=s0 ^ (s1 << UInt64(1)) ^ (s2 << UInt64(2)) ^ (s3 << UInt64(3))
+    )
+    return Xoshiro256StarStar(
+        s0=fin.next_u64(),
+        s1=fin.next_u64(),
+        s2=fin.next_u64(),
+        s3=fin.next_u64(),
+    )

@@ -27,6 +27,20 @@ def test_xoshiro256starstar_reference_vector() raises:
     assert_equal(rng.next_u64(), UInt64(0xB27A48E29A233673))
 
 
+def test_derive_golden_stream() raises:
+    var a = derive(UInt64(0xDEADBEEF), UInt64(7))
+    assert_equal(a.next_u64(), UInt64(0xD5C8C06DB5975AEE))
+    assert_equal(a.next_u64(), UInt64(0x5AA865B590E6F0A9))
+    assert_equal(a.next_u64(), UInt64(0x988F0D6F870E619B))
+    assert_equal(a.next_u64(), UInt64(0x6320011FD6D9AC2F))
+
+
+def test_derive_zero_zero_is_non_degenerate() raises:
+    var a = derive(UInt64(0), UInt64(0))
+    assert_equal(a.next_u64(), UInt64(0xEC89F998CB7D61A6))
+    assert_equal(a.next_u64(), UInt64(0xA7A1E72603F5B7B8))
+
+
 def test_derive_is_deterministic() raises:
     var a = derive(UInt64(0xDEADBEEF), UInt64(7))
     var b = derive(UInt64(0xDEADBEEF), UInt64(7))
@@ -37,45 +51,77 @@ def test_derive_is_deterministic() raises:
 def test_derive_differs_by_index() raises:
     var a = derive(UInt64(1), UInt64(0))
     var b = derive(UInt64(1), UInt64(1))
-    var saw_diff = False
     for _ in range(8):
-        if a.next_u64() != b.next_u64():
-            saw_diff = True
-            break
-    assert_true(saw_diff, msg="streams for distinct indices must diverge")
+        assert_true(
+            a.next_u64() != b.next_u64(),
+            msg="streams for distinct indices must diverge each draw",
+        )
+
+
+def test_derive_does_not_collapse_swapped_or_equal_roles() raises:
+    var a = derive(UInt64(3), UInt64(5))
+    var b = derive(UInt64(5), UInt64(3))
+    for _ in range(8):
+        assert_true(
+            a.next_u64() != b.next_u64(),
+            msg="swapped (seed, index) must diverge",
+        )
+    var c = derive(UInt64(9), UInt64(9))
+    var d = derive(UInt64(0), UInt64(0))
+    for _ in range(8):
+        assert_true(
+            c.next_u64() != d.next_u64(),
+            msg="distinct equal-role pairs must diverge",
+        )
 
 
 def test_derive_does_not_collapse_additive_aliases() raises:
-    # (s, i) must not share a stream with (s + i * golden, 0).
     var golden = UInt64(0x9E3779B97F4A7C15)
     var a = derive(UInt64(0), UInt64(1))
     var b = derive(golden, UInt64(0))
-    var saw_diff = False
     for _ in range(8):
-        if a.next_u64() != b.next_u64():
-            saw_diff = True
-            break
-    assert_true(saw_diff, msg="additive aliases of (seed, index) must diverge")
+        assert_true(
+            a.next_u64() != b.next_u64(),
+            msg="additive aliases of (seed, index) must diverge",
+        )
 
 
-def test_next_below_stays_in_range() raises:
+def test_next_below_stays_in_range_and_varies() raises:
     var rng = derive(UInt64(42), UInt64(0))
     assert_equal(rng.next_below(UInt64(0)), UInt64(0))
     assert_equal(rng.next_below(UInt64(1)), UInt64(0))
+    var seen0 = False
+    var seen_nonzero = False
     for _ in range(256):
         var v = rng.next_below(UInt64(10))
         assert_true(v < UInt64(10), msg="next_below(10) must be in [0, 10)")
+        if v == 0:
+            seen0 = True
+        else:
+            seen_nonzero = True
+    assert_true(seen0 and seen_nonzero, msg="next_below must not be degenerate")
+    var wide = UInt64(1) << UInt64(40)
+    assert_true(
+        rng.next_below(wide) < wide, msg="next_below must honor wide bounds"
+    )
+    assert_true(rng.next_below(UInt64(256)) < UInt64(256))
 
 
 def test_next_float64_matches_mantissa_conversion() raises:
     var raw_rng = Xoshiro256StarStar(
-        UInt64(0x0123456789ABCDEF), UInt64(7), UInt64(9), UInt64(11)
+        s0=UInt64(0x0123456789ABCDEF),
+        s1=UInt64(7),
+        s2=UInt64(9),
+        s3=UInt64(11),
     )
     var float_rng = Xoshiro256StarStar(
-        UInt64(0x0123456789ABCDEF), UInt64(7), UInt64(9), UInt64(11)
+        s0=UInt64(0x0123456789ABCDEF),
+        s1=UInt64(7),
+        s2=UInt64(9),
+        s3=UInt64(11),
     )
     var raw = raw_rng.next_u64()
-    var expected = Float64(raw >> 11) * (1.0 / 9007199254740992.0)
+    var expected = Float64(raw >> UInt64(11)) * (1.0 / 9007199254740992.0)
     assert_equal(float_rng.next_float64(), expected)
 
 
@@ -88,7 +134,9 @@ def test_next_float64_in_unit_interval() raises:
 
 
 def test_all_zero_state_is_rewritten() raises:
-    var rng = Xoshiro256StarStar(UInt64(0), UInt64(0), UInt64(0), UInt64(0))
+    var rng = Xoshiro256StarStar(
+        s0=UInt64(0), s1=UInt64(0), s2=UInt64(0), s3=UInt64(0)
+    )
     assert_equal(rng.s0, UInt64(1))
     # Rewritten state is (1, 0, 0, 0): s1 == 0, so the first draw is 0.
     assert_equal(rng.next_u64(), UInt64(0))
