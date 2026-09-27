@@ -1,4 +1,10 @@
-from proptest.prng import SplitMix64, Xoshiro256StarStar, derive
+from proptest.prng import (
+    INDEX_TAG,
+    SEED_TAG,
+    SplitMix64,
+    Xoshiro256StarStar,
+    derive,
+)
 from std.testing import assert_equal, assert_true, TestSuite
 
 
@@ -90,7 +96,7 @@ def test_derive_does_not_collapse_additive_aliases() raises:
 
 def test_derive_does_not_collapse_tag_swap_symmetry() raises:
     # derive(a, b) must not equal derive(b ^ C, a ^ C) for C = SEED_TAG ^ INDEX_TAG.
-    var c = UInt64(0x243F6A8885A308D3) ^ UInt64(0x13198A2E03707344)
+    var c = SEED_TAG ^ INDEX_TAG
     var a = UInt64(3)
     var b = UInt64(5)
     var left = derive(a, b)
@@ -123,18 +129,23 @@ def test_next_below_stays_in_range_and_varies() raises:
         rng.next_below(wide) < wide, msg="next_below must honor wide bounds"
     )
     assert_true(rng.next_below(UInt64(256)) < UInt64(256))
-    # Non-power-of-two bounds make threshold > 0 for the rejection path.
+    # Force the rejection branch: s1 == 0 makes the first raw draw 0, which is
+    # below threshold for this bound, so the loop must draw again.
     var almost_max = UInt64(0xFFFFFFFFFFFFFFFD)
-    assert_true(rng.next_below(almost_max) < almost_max)
+    var forced_reject = Xoshiro256StarStar(
+        s0=UInt64(1), s1=UInt64(0), s2=UInt64(0), s3=UInt64(0)
+    )
+    assert_equal(forced_reject.next_below(almost_max), UInt64(5760))
 
 
 def test_next_below_rejects_zero_bound() raises:
     var rng = derive(UInt64(1), UInt64(0))
+    var raised = False
     try:
         _ = rng.next_below(UInt64(0))
-        assert_true(False, msg="next_below(0) must raise")
     except:
-        pass
+        raised = True
+    assert_true(raised, msg="next_below(0) must raise")
 
 
 def test_next_float64_matches_mantissa_conversion() raises:

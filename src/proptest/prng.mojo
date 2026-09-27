@@ -6,9 +6,9 @@ plus pure `derive(run_seed, index)` for per-example streams (ADR-0006).
 All UInt64 arithmetic is wrapping (as required by the reference algorithms).
 """
 
-comptime _FLOAT_SCALE = 1.0 / 9007199254740992.0
-comptime _SEED_TAG = UInt64(0x243F6A8885A308D3)
-comptime _INDEX_TAG = UInt64(0x13198A2E03707344)
+comptime FLOAT_SCALE = 1.0 / 9007199254740992.0
+comptime SEED_TAG = UInt64(0x243F6A8885A308D3)
+comptime INDEX_TAG = UInt64(0x13198A2E03707344)
 
 
 def _rotl(x: UInt64, shift: UInt64) -> UInt64:
@@ -64,6 +64,8 @@ struct Xoshiro256StarStar(Copyable, Movable):
         return Self(s0=s0, s1=s1, s2=s2, s3=s3)
 
     def next_u64(mut self) -> UInt64:
+        if (self.s0 | self.s1 | self.s2 | self.s3) == 0:
+            self.s0 = 1
         var result = _rotl(self.s1 * UInt64(5), UInt64(7)) * UInt64(9)
         var t = self.s1 << UInt64(17)
         self.s2 ^= self.s0
@@ -93,7 +95,7 @@ struct Xoshiro256StarStar(Copyable, Movable):
     def next_float64(mut self) -> Float64:
         """Uniform value in `[0.0, 1.0)` from the top 53 bits."""
         var mantissa = self.next_u64() >> UInt64(11)
-        return Float64(mantissa) * _FLOAT_SCALE
+        return Float64(mantissa) * FLOAT_SCALE
 
 
 def derive(run_seed: UInt64, index: UInt64) -> Xoshiro256StarStar:
@@ -103,8 +105,8 @@ def derive(run_seed: UInt64, index: UInt64) -> Xoshiro256StarStar:
     pairs like `(s, i)` / `(i, s)` and `(s, s)` (including `(0, 0)`) do not
     collapse to a shared or all-zero stream.
     """
-    var seed_sm = SplitMix64(seed=run_seed ^ _SEED_TAG)
-    var index_sm = SplitMix64(seed=index ^ _INDEX_TAG)
+    var seed_sm = SplitMix64(seed=run_seed ^ SEED_TAG)
+    var index_sm = SplitMix64(seed=index ^ INDEX_TAG)
     var s0 = seed_sm.next_u64() ^ _rotl(index_sm.next_u64(), UInt64(32))
     var s1 = seed_sm.next_u64() ^ _rotl(index_sm.next_u64(), UInt64(32))
     var s2 = seed_sm.next_u64() ^ _rotl(index_sm.next_u64(), UInt64(32))
