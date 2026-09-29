@@ -9,5 +9,6 @@ from proptest.choice import (
     shortlex_compare,
 )
 from proptest.prng import SplitMix64, Xoshiro256StarStar, derive
+from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
 
 comptime VERSION = "0.1.0"

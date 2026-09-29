@@ -41,7 +41,7 @@ Pure Mojo で、Python の Hypothesis と Rust の proptest に匹敵する Prop
 | 選択 | `one_of`, `sampled_from`, `just` | `prop_oneof!`, `select`, `Just` | `one_of`, `sampled_from`, `just` | Planned (M2) |
 | 変換 | `.map`, `.filter`, `.flatmap` | `prop_map`, `prop_filter`, `prop_flat_map` | `map[f]`, `filter[p]`, `flat_map[f]` | Planned (M2) |
 | 合成 | `@composite`, `data()` | `prop_compose!` | 合成 Strategy struct、`tc.draw` | Planned (M1, M2) |
-| 前提条件 | `assume` | `prop_assume!` | `tc.assume` | Planned (M1) |
+| 前提条件 | `assume` | `prop_assume!` | `tc.assume` | Implemented (M1) |
 | 縮小 | 内部縮小 | 値ツリー | 内部縮小 | Planned (M1, M3) |
 | 端値の優先生成 | あり | 一部 | あり | Planned (M4) |
 | 再現 | `@seed`, `@reproduce_failure` | 失敗の永続化ファイル | `Settings(seed=...)`, `Settings(replay=...)` | Planned (M4) |
