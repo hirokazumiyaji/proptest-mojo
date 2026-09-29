@@ -68,6 +68,18 @@ examples/                    利用例
 
 CI（`.github/workflows/ci.yml`）は PR と `main` への push で、`ubuntu-24.04` と `macos-15` の両方で `pixi run format-check` と `pixi run test` を実行する（`prefix-dev/setup-pixi`、キャッシュ有効）。
 
+## PRNG（`prng.mojo`）
+
+値型・グローバル状態なし（ADR-0006）。
+
+| API | 役割 |
+|-----|------|
+| `SplitMix64` | シード展開用。`next_u64()` |
+| `Xoshiro256StarStar` | 生成用。`from_seed` / `next_u64` / `next_below` / `next_float64` |
+| `derive(run_seed, index)` | 各 example の PRNG を純粋に導出 |
+
+`std.random` はライブラリ内で使わない。
+
 ## 1 回の `for_all` のデータフロー
 
 ```text
