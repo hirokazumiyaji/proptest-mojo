@@ -13,3 +13,4 @@
 | [0006](0006-explicit-state-prng.md) | 明示的な状態を持つ自前の PRNG を使う | Accepted | 2026-09-26 |
 | [0007](0007-toolchain-pixi-and-mojo-nightly.md) | ツールチェーンに pixi と Mojo nightly を使う | Accepted | 2026-09-26 |
 | [0008](0008-functional-core-imperative-shell.md) | 関数型コア・命令型シェルで構成する | Accepted | 2026-09-26 |
+| [0009](0009-testcase-draw-module-cycle.md) | TestCase.draw のために testcase と strategy の参照循環を許す | Accepted | 2026-09-30 |

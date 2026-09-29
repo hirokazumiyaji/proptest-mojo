@@ -13,6 +13,7 @@ from std.io import Writer
 
 from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence, Span
 from proptest.prng import Xoshiro256StarStar
+from proptest.strategy import Strategy
 
 comptime DEFAULT_MAX_CHOICES = 8192
 comptime ASSUME_INTERRUPT = "proptest: assume() failed (INVALID)"
@@ -82,6 +83,8 @@ struct TestCase(Sized, Writable):
     var open_spans: List[OpenSpan]
     var status: Status
     var notes: List[String]
+    var draw_labels: List[String]
+    var draw_values: List[String]
     var max_choices: Int
 
     def __init__(
@@ -98,6 +101,8 @@ struct TestCase(Sized, Writable):
         self.open_spans = List[OpenSpan]()
         self.status = Status.RUNNING
         self.notes = List[String]()
+        self.draw_labels = List[String]()
+        self.draw_values = List[String]()
         self.max_choices = max_choices
 
     @staticmethod
@@ -190,6 +195,27 @@ struct TestCase(Sized, Writable):
             self.status = Status.INVALID
             raise Error(ASSUME_INTERRUPT)
 
+    def draw[
+        S: Strategy
+    ](mut self, strategy: S, label: StringSlice = "") raises -> S.Value:
+        """Draw a value through `strategy`, recording one span and report entry.
+
+        Opens a span labeled by the FNV-1a hash of `label` (so draws sharing
+        a reporting label share a span label), delegates to `strategy.draw`,
+        then records `label` with the `Writable` rendering of the value for
+        failure reports. The span closes even when the strategy raises.
+        """
+        self.start_span(_span_label(label))
+        try:
+            var value = strategy.draw(self)
+            self.stop_span()
+            self.draw_labels.append(String(label))
+            self.draw_values.append(String(value))
+            return value^
+        except e:
+            self.stop_span()
+            raise e
+
     def note(mut self, var message: String):
         """Attach a message shown when this example is replayed for a report."""
         self.notes.append(message^)
@@ -234,3 +260,13 @@ struct TestCase(Sized, Writable):
     ) -> UInt64:
         self.choices.append(ChoiceNode(kind, value, max_value, forced))
         return value
+
+
+def _span_label(label: StringSlice) -> UInt64:
+    # FNV-1a over the reporting label so same-role draws share a span label.
+    var text = String(label)
+    var bytes = text.as_bytes()
+    var hash = UInt64(14695981039346656037)
+    for i in range(len(bytes)):
+        hash = (hash ^ UInt64(bytes[i])) * UInt64(1099511628211)
+    return hash

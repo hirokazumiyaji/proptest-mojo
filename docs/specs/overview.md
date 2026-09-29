@@ -33,14 +33,16 @@ Pure Mojo で、Python の Hypothesis と Rust の proptest に匹敵する Prop
 | 機能 | Hypothesis | proptest | proptest-mojo | 状態 |
 |------|-----------|----------|---------------|------|
 | 決定的 PRNG | 内部 | 内部 | `SplitMix64` / `Xoshiro256StarStar` / `derive` | Implemented (M1) |
-| 整数・真偽値 | `integers`, `booleans` | `any::<i32>`, 範囲 | `integers`, `booleans`, `integers_of[DType]` | Planned (M1, M2) |
+| 整数・真偽値 | `integers`, `booleans` | `any::<i32>`, 範囲 | `integers`, `booleans` | Implemented (M1) |
+| 整数型ごと | `integers` の型指定 | `any::<i32>` など | `integers_of[DType]` | Planned (M2) |
 | 浮動小数点数 | `floats` | `f64::ANY` など | `floats` | Planned (M2) |
 | 文字列・バイト列 | `text`, `binary` | 正規表現, `vec(u8)` | `text`, `bytes` | Planned (M2) |
 | コレクション | `lists`, `sets`, `dictionaries` | `vec`, `hash_set`, `hash_map` | `lists`, `unique_lists`, `dicts` | Planned (M2) |
 | タプル・Optional | `tuples`, `none() \| x` | タプル, `option::of` | `tuples`, `optionals` | Planned (M2) |
-| 選択 | `one_of`, `sampled_from`, `just` | `prop_oneof!`, `select`, `Just` | `one_of`, `sampled_from`, `just` | Planned (M2) |
+| 選択 | `one_of`, `sampled_from`, `just` | `prop_oneof!`, `select`, `Just` | `just` | Implemented (M1) |
+| 選択（複数候補） | `one_of`, `sampled_from` | `prop_oneof!`, `select` | `one_of`, `sampled_from` | Planned (M2) |
 | 変換 | `.map`, `.filter`, `.flatmap` | `prop_map`, `prop_filter`, `prop_flat_map` | `map[f]`, `filter[p]`, `flat_map[f]` | Planned (M2) |
-| 合成 | `@composite`, `data()` | `prop_compose!` | 合成 Strategy struct、`tc.draw` | Planned (M1, M2) |
+| 合成 | `@composite`, `data()` | `prop_compose!` | 合成 Strategy struct、`tc.draw` | Implemented (M1) |
 | 前提条件 | `assume` | `prop_assume!` | `tc.assume` | Implemented (M1) |
 | 縮小 | 内部縮小 | 値ツリー | 内部縮小 | Planned (M1, M3) |
 | 端値の優先生成 | あり | 一部 | あり | Planned (M4) |
