@@ -9,12 +9,18 @@ from proptest.choice import (
     shortlex_compare,
 )
 from proptest.prng import SplitMix64, Xoshiro256StarStar, derive
+from proptest.runner import Settings, for_all
 from proptest.shrink.passes import (
     delete_chunks,
     minimize_individual,
     zero_chunks,
 )
-from proptest.shrink.shrinker import Evaluation, ShrinkResult, shrink
+from proptest.shrink.shrinker import (
+    Evaluation,
+    ShrinkResult,
+    shrink,
+    shrink_with,
+)
 from proptest.strategy import Strategy
 from proptest.strategies.primitives import (
     Booleans,
