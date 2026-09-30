@@ -14,6 +14,7 @@ from std.os import getenv
 from std.time import monotonic
 
 from proptest.choice import ChoiceSequence
+from proptest.encoding import decode_sequence, encode_sequence
 from proptest.prng import derive
 from proptest.shrink.shrinker import Evaluation, shrink_with
 from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
@@ -38,6 +39,7 @@ struct Settings(Copyable, Movable, Writable):
     var seed: Optional[UInt64]
     var max_choices: Int
     var max_shrink_evaluations: Int
+    var replay: Optional[String]
 
     def __init__(
         out self,
@@ -45,11 +47,13 @@ struct Settings(Copyable, Movable, Writable):
         seed: Optional[UInt64] = None,
         max_choices: Int = DEFAULT_MAX_CHOICES,
         max_shrink_evaluations: Int = DEFAULT_MAX_SHRINK_EVALUATIONS,
+        replay: Optional[String] = None,
     ):
         self.max_examples = max_examples
         self.seed = seed.copy()
         self.max_choices = max_choices
         self.max_shrink_evaluations = max_shrink_evaluations
+        self.replay = replay.copy()
 
     def effective_seed(self) raises -> UInt64:
         """Explicit seed, else `PROPTEST_SEED`, else time-derived."""
@@ -85,8 +89,10 @@ struct Settings(Copyable, Movable, Writable):
             self.max_choices,
             ", max_shrink_evaluations=",
             self.max_shrink_evaluations,
-            ")",
         )
+        if self.replay is not None:
+            writer.write(', replay="', self.replay.value(), '"')
+        writer.write(")")
 
 
 def for_all[
@@ -99,8 +105,15 @@ def for_all[
     run with no failure raises nothing. The first `INTERESTING`
     execution is shrunk with `shrink_with`, replayed to collect draw
     records, and reported as an `Error` carrying the records, notes,
-    the failure message, and the seed.
+    the failure message, the seed, and the replay string. When
+    `settings.replay` is set, only those choices run once: a reproduced
+    failure is reported as-is with no generation or shrinking, while a
+    run that no longer fails raises instead of searching for a new
+    counterexample.
     """
+    if settings.replay is not None:
+        _replay_only(prop, settings, String(settings.replay.value()))
+        return
     var seed = settings.effective_seed()
     var max_examples = settings.effective_max_examples()
 
@@ -179,8 +192,51 @@ def for_all[
                 message,
                 seed,
                 shrink_result.hit_budget,
+                encode_sequence(report_tc.choices.copy()),
             )
         )
+
+
+def _replay_only[
+    P: def(mut TestCase) raises -> None
+](prop: P, settings: Settings, replay_token: String) raises:
+    """Run recorded choices once, reporting a reproduced failure as-is.
+
+    Generation and shrinking are skipped. A run that no longer fails
+    raises instead of searching for a new counterexample.
+    """
+    var prefix: ChoiceSequence
+    try:
+        prefix = decode_sequence(replay_token)
+    except e:
+        raise Error("invalid replay string: " + String(e))
+    var tc = TestCase.replaying(prefix^, settings.max_choices)
+    var raised = False
+    var message = String("")
+    try:
+        prop(tc)
+    except e:
+        raised = True
+        message = String(e)
+    if not raised or tc.status != Status.RUNNING:
+        raise Error(
+            "replay did not reproduce a failure (status="
+            + String(tc.status)
+            + ")"
+        )
+    raise Error(
+        _format_report(
+            1,
+            0,
+            tc.draw_labels.copy(),
+            tc.draw_values.copy(),
+            tc.notes.copy(),
+            message,
+            settings.effective_seed(),
+            False,
+            replay_token,
+        )
+    )
 
 
 def _fresh_test_case(
@@ -201,6 +257,7 @@ def _format_report(
     message: String,
     seed: UInt64,
     hit_budget: Bool,
+    replay_token: String,
 ) -> String:
     """Render the replayed counterexample as the raised `Error` text."""
     var out = String("Falsifying example (after ")
@@ -227,4 +284,7 @@ def _format_report(
     out += String(seed)
     if hit_budget:
         out += "\nShrink budget exhausted; counterexample may not be minimal"
+    out += '\nReproduce with: Settings(replay="'
+    out += replay_token
+    out += '")'
     return out^

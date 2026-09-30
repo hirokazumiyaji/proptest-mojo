@@ -8,6 +8,12 @@ from proptest.choice import (
     is_shortlex_smaller,
     shortlex_compare,
 )
+from proptest.encoding import (
+    decode_sequence,
+    decode_values,
+    encode_sequence,
+    encode_values,
+)
 from proptest.prng import SplitMix64, Xoshiro256StarStar, derive
 from proptest.runner import Settings, for_all
 from proptest.shrink.passes import (
