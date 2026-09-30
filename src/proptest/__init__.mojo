@@ -15,7 +15,12 @@ from proptest.shrink.passes import (
     minimize_individual,
     zero_chunks,
 )
-from proptest.shrink.span_passes import delete_spans, zero_spans
+from proptest.shrink.span_passes import (
+    delete_spans,
+    sort_spans,
+    swap_adjacent_spans,
+    zero_spans,
+)
 from proptest.shrink.shrinker import (
     Evaluation,
     ShrinkResult,
