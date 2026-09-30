@@ -5,6 +5,20 @@ Python の [Hypothesis](https://hypothesis.readthedocs.io/) と Rust の [propte
 
 > Status: 設計フェーズ。全体計画は [Roadmap (#34)](https://github.com/hirokazumiyaji/proptest-mojo/issues/34)、実装は [Milestones](https://github.com/hirokazumiyaji/proptest-mojo/milestones) と [Issues](https://github.com/hirokazumiyaji/proptest-mojo/issues) で管理しています。
 
+## はじめに（数分で動かす）
+
+前提: [pixi](https://pixi.sh/) が入っていること。
+
+```sh
+git clone https://github.com/hirokazumiyaji/proptest-mojo.git
+cd proptest-mojo
+pixi install
+pixi run mojo run -I src examples/basic.mojo < /dev/null
+```
+
+通る性質と、最小の反例まで縮小される性質の両方が動きます。
+次は [ユーザーガイド](docs/guide/README.md) と [examples](examples/README.md) をどうぞ。
+
 ## 目指す使い心地
 
 ```mojo
@@ -30,6 +44,8 @@ Reproduce with: Settings(replay="AAECAQ==")
 
 ## ドキュメント
 
+- [docs/guide](docs/guide/README.md): ユーザーガイド（セットアップから縮小・再現まで）
+- [examples](examples/README.md): 動く使用例（CI で全実行）
 - [docs/specs](docs/specs/README.md): 現在の設計（living document）
 - [docs/adr](docs/adr/README.md): 設計判断の履歴（Architecture Decision Records）
 - [docs/README.md](docs/README.md): ドキュメント運用ルール
