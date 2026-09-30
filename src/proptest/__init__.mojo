@@ -22,6 +22,13 @@ from proptest.shrink.shrinker import (
     shrink_with,
 )
 from proptest.strategy import Strategy
+from proptest.strategies.floats import (
+    Floats,
+    float_to_lex,
+    floats,
+    lex_to_float,
+    max_finite,
+)
 from proptest.strategies.primitives import (
     Booleans,
     Integers,

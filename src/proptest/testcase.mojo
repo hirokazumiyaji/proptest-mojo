@@ -155,6 +155,22 @@ struct TestCase(Sized, Writable):
         )
         return recorded == UInt64(1)
 
+    def draw_float_bits(mut self) raises -> UInt64:
+        """Draw a lexicographic float-magnitude code, where 0 is simplest.
+
+        Recorded with `ChoiceKind.FLOAT` over the full `UInt64` range.
+        Replay reuses the recorded code and yields 0 past the prefix end,
+        so all-zero choices decode to `0.0` in `floats`.
+        """
+        self._ensure_capacity()
+        var value = self._supply_integer(UInt64(0xFFFFFFFFFFFFFFFF))
+        return self._record(
+            ChoiceKind.FLOAT,
+            value,
+            UInt64(0xFFFFFFFFFFFFFFFF),
+            Bool(False),
+        )
+
     def forced_integer(
         mut self, value: UInt64, max_value: UInt64
     ) raises -> UInt64:

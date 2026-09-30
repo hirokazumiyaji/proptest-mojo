@@ -1,0 +1,110 @@
+from proptest import TestCase
+from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence
+from proptest.prng import derive
+from proptest.runner import Settings, for_all
+from proptest.strategies.floats import (
+    float_to_lex,
+    floats,
+    lex_to_float,
+    max_finite,
+)
+from proptest.strategies.primitives import integers
+from std.math import isinf, isnan
+from std.testing import TestSuite, assert_equal, assert_true
+
+comptime FLOAT_MAX = UInt64(0xFFFFFFFFFFFFFFFF)
+
+
+def _float_prefix(sign: UInt64, code: UInt64) -> ChoiceSequence:
+    var prefix = ChoiceSequence()
+    prefix.append(ChoiceNode(ChoiceKind.BOOLEAN, sign, UInt64(1), Bool(False)))
+    prefix.append(ChoiceNode(ChoiceKind.FLOAT, code, FLOAT_MAX, Bool(False)))
+    return prefix^
+
+
+def test_all_zero_draws_zero() raises:
+    var tc = TestCase.replaying(ChoiceSequence())
+    assert_equal(tc.draw(floats()), 0.0)
+
+
+def test_lex_roundtrip_nonnegative() raises:
+    assert_equal(float_to_lex(0.0), UInt64(0))
+    assert_equal(lex_to_float(UInt64(0)), 0.0)
+    assert_true(
+        float_to_lex(0.5) < float_to_lex(1.0),
+        msg="lex order must match numeric order",
+    )
+    assert_true(
+        float_to_lex(1.0) < float_to_lex(2.0),
+        msg="lex order must match numeric order",
+    )
+    assert_equal(lex_to_float(float_to_lex(0.5)), 0.5)
+    assert_equal(lex_to_float(float_to_lex(123.456)), 123.456)
+    assert_equal(lex_to_float(float_to_lex(max_finite())), max_finite())
+
+
+def test_nan_canonicalized() raises:
+    var nan = lex_to_float(UInt64(0)) / lex_to_float(UInt64(0))
+    assert_true(isnan(nan), msg="need a NaN probe")
+    assert_equal(float_to_lex(nan), UInt64(0x7FF8000000000000))
+    assert_true(isnan(lex_to_float(UInt64(0x7FF8000000000000))))
+
+
+def test_allow_nan_false_never_nan() raises:
+    var codes = List[UInt64]()
+    codes.append(UInt64(0))
+    codes.append(UInt64(1))
+    codes.append(UInt64(0x3FF0000000000000))
+    codes.append(UInt64(0x7FF0000000000000))
+    codes.append(UInt64(0x7FF8000000000000))
+    codes.append(UInt64(0xFFFFFFFFFFFFFFFF))
+    for i in range(len(codes)):
+        var tc = TestCase.replaying(_float_prefix(UInt64(0), codes[i]))
+        assert_true(not isnan(tc.draw(floats(allow_nan=False))))
+
+
+def test_ranges_honored() raises:
+    var s = floats(min_value=1.5, max_value=2.5)
+    var codes = List[UInt64]()
+    codes.append(UInt64(0))
+    codes.append(UInt64(0x3FF0000000000000))
+    codes.append(UInt64(0x4000000000000000))
+    codes.append(UInt64(0x7FF0000000000000))
+    codes.append(UInt64(0x7FF8000000000000))
+    for i in range(len(codes)):
+        for sign in range(2):
+            var tc = TestCase.replaying(_float_prefix(UInt64(sign), codes[i]))
+            var value = tc.draw(s)
+            assert_true(
+                value >= 1.5 and value <= 2.5,
+                msg="ranged floats must stay in range",
+            )
+
+
+def test_no_nan_when_bounded() raises:
+    var s = floats(min_value=0.0, max_value=1.0)
+    var tc = TestCase.replaying(
+        _float_prefix(UInt64(0), UInt64(0x7FF8000000000000))
+    )
+    assert_true(not isnan(tc.draw(s)))
+
+
+def test_generated_values_in_default_range() raises:
+    for i in range(16):
+        var tc = TestCase.generating(derive(UInt64(16), UInt64(i)))
+        var value = tc.draw(floats(allow_nan=False))
+        assert_true(not isnan(value), msg="generated value must not be NaN")
+
+
+def _lex_roundtrip_prop(mut tc: TestCase) raises:
+    var code = tc.draw(integers(0, 1000000))
+    var probe = Float64(code) / 1000.0
+    assert_equal(lex_to_float(float_to_lex(probe)), probe)
+
+
+def test_roundtrip_property() raises:
+    for_all(_lex_roundtrip_prop, Settings(max_examples=20, seed=UInt64(16)))
+
+
+def main() raises:
+    TestSuite.discover_tests[__functions_in_module()]().run()

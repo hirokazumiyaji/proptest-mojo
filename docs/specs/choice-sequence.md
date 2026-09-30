@@ -69,7 +69,7 @@ struct Span(Copyable, Writable):
 ```mojo
 def draw_integer(mut self, max_value: UInt64) raises -> UInt64
 def draw_boolean(mut self, p_true: Float64 = 0.5) raises -> Bool
-def draw_float_bits(mut self) raises -> UInt64          # Planned: M2
+def draw_float_bits(mut self) raises -> UInt64
 def forced_integer(mut self, value: UInt64, max_value: UInt64) raises -> UInt64
 def start_span(mut self, label: UInt64)
 def stop_span(mut self, discard: Bool = False)
