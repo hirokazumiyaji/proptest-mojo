@@ -22,6 +22,14 @@ from proptest.shrink.shrinker import (
     shrink_with,
 )
 from proptest.strategy import Strategy
+from proptest.strategies.choice import (
+    OneOf,
+    OneOf2,
+    SampledFrom,
+    one_of,
+    one_of2,
+    sampled_from,
+)
 from proptest.strategies.primitives import (
     Booleans,
     Integers,
