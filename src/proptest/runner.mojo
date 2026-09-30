@@ -186,10 +186,15 @@ def for_all[
 def _fresh_test_case(
     max_choices: Int, seed: UInt64, attempt: UInt64
 ) -> TestCase:
-    """Attempt zero replays the empty prefix (all-zero choices)."""
+    """Attempt zero replays the empty prefix (all-zero choices).
+
+    Generated attempts carry `attempt` as the example index, so edge
+    bias stays inside `draw_integer` and collection lengths ramp with
+    `tc.size_scale()`; replay paths ignore both and stay deterministic.
+    """
     if attempt == UInt64(0):
-        return TestCase.replaying(ChoiceSequence(), max_choices)
-    return TestCase.generating(derive(seed, attempt), max_choices)
+        return TestCase.replaying(ChoiceSequence(), max_choices, attempt)
+    return TestCase.generating(derive(seed, attempt), max_choices, attempt)
 
 
 def _format_report(

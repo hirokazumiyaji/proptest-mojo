@@ -6,7 +6,9 @@ Implements the collection rows of `docs/specs/strategies.md`
 Each element draws a continue flag inside its own span, so span deletion
 removes one element. Bounds use `forced_integer`, keeping them out of
 shrinking. Smaller choices yield shorter lists of simpler elements;
-all-zero choices draw `min_size` minimal elements.
+all-zero choices draw `min_size` minimal elements. The continue
+probability scales with `tc.size_scale()`, so early examples draw
+shorter lists; replay reuses recorded flags and ignores the scale.
 """
 
 from proptest.strategy import Strategy
@@ -40,9 +42,10 @@ struct ListOf[E: Strategy](Strategy):
 
     def draw(self, mut tc: TestCase) raises -> List[Self.E.Value]:
         var out = List[Self.E.Value]()
+        var effective_average = self.average_size * tc.size_scale()
         var p_continue: Float64 = 0.0
-        if self.average_size > 0.0:
-            p_continue = self.average_size / (1.0 + self.average_size)
+        if effective_average > 0.0:
+            p_continue = effective_average / (1.0 + effective_average)
         while True:
             tc.start_span(_LIST_ELEMENT_LABEL)
             try:
