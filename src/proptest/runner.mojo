@@ -14,6 +14,7 @@ from std.os import getenv
 from std.time import monotonic
 
 from proptest.choice import ChoiceSequence
+from proptest.database import ExampleDatabase
 from proptest.encoding import decode_sequence, encode_sequence
 from proptest.prng import derive
 from proptest.shrink.shrinker import Evaluation, shrink_with
@@ -21,6 +22,7 @@ from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
 
 comptime DEFAULT_MAX_EXAMPLES = 100
 comptime DEFAULT_MAX_SHRINK_EVALUATIONS = 5000
+comptime DEFAULT_DATABASE_DIR = ".proptest-mojo"
 comptime SEED_ENV_VAR = "PROPTEST_SEED"
 comptime MAX_EXAMPLES_ENV_VAR = "PROPTEST_MAX_EXAMPLES"
 
@@ -32,7 +34,9 @@ struct Settings(Copyable, Movable, Writable):
     time-derived seed. A default `max_examples` resolves to
     `PROPTEST_MAX_EXAMPLES` when set, so CI can raise the count without
     code changes; any explicitly different value wins over the
-    environment.
+    environment. An empty `name` disables the example database; a
+    non-empty one persists shrunken counterexamples under
+    `database_dir` and replays them before generation.
     """
 
     var max_examples: Int
@@ -40,6 +44,8 @@ struct Settings(Copyable, Movable, Writable):
     var max_choices: Int
     var max_shrink_evaluations: Int
     var replay: Optional[String]
+    var name: String
+    var database_dir: String
 
     def __init__(
         out self,
@@ -48,12 +54,16 @@ struct Settings(Copyable, Movable, Writable):
         max_choices: Int = DEFAULT_MAX_CHOICES,
         max_shrink_evaluations: Int = DEFAULT_MAX_SHRINK_EVALUATIONS,
         replay: Optional[String] = None,
+        name: String = "",
+        database_dir: String = DEFAULT_DATABASE_DIR,
     ):
         self.max_examples = max_examples
         self.seed = seed.copy()
         self.max_choices = max_choices
         self.max_shrink_evaluations = max_shrink_evaluations
         self.replay = replay.copy()
+        self.name = name.copy()
+        self.database_dir = database_dir.copy()
 
     def effective_seed(self) raises -> UInt64:
         """Explicit seed, else `PROPTEST_SEED`, else time-derived."""
@@ -92,6 +102,10 @@ struct Settings(Copyable, Movable, Writable):
         )
         if self.replay is not None:
             writer.write(', replay="', self.replay.value(), '"')
+        if self.name.byte_length() > 0:
+            writer.write(', name="', self.name, '"')
+        if self.database_dir != DEFAULT_DATABASE_DIR:
+            writer.write(', database_dir="', self.database_dir, '"')
         writer.write(")")
 
 
@@ -106,6 +120,8 @@ def for_all[
     execution is shrunk with `shrink_with`, replayed to collect draw
     records, and reported as an `Error` carrying the records, notes,
     the failure message, the seed, and the replay string. When
+    `settings.name` is set, saved counterexamples replay before
+    generation and the shrunk result is persisted. When
     `settings.replay` is set, only those choices run once: a reproduced
     failure is reported as-is with no generation or shrinking, while a
     run that no longer fails raises instead of searching for a new
@@ -116,19 +132,8 @@ def for_all[
         return
     var seed = settings.effective_seed()
     var max_examples = settings.effective_max_examples()
-
-    def evaluate(
-        candidate: ChoiceSequence,
-    ) raises {imm prop, imm settings} -> Evaluation:
-        var tc = TestCase.replaying(candidate.copy(), settings.max_choices)
-        var raised = False
-        try:
-            prop(tc)
-        except:
-            raised = True
-        return Evaluation(
-            raised and tc.status == Status.RUNNING, tc.choices.copy()
-        )
+    if settings.name.byte_length() > 0:
+        _replay_database(prop, settings, seed)
 
     var valid_count = 0
     var examples_run = 0
@@ -172,29 +177,106 @@ def for_all[
             tc.status = Status.VALID
             valid_count += 1
             continue
-        var shrink_result = shrink_with(
-            evaluate, tc.choices.copy(), settings.max_shrink_evaluations
+        _shrink_and_raise(
+            prop, settings, seed, examples_run, tc.choices.copy(), message
         )
-        var report_tc = TestCase.replaying(
-            shrink_result.best.copy(), settings.max_choices
-        )
+
+
+def _replay_database[
+    P: def(mut TestCase) raises -> None
+](prop: P, settings: Settings, seed: UInt64) raises:
+    """Replay saved counterexamples before generation (spec phase 1).
+
+    The first replay that still fails short-circuits to shrinking and
+    reporting. Replays that no longer fail are stale, so their files are
+    deleted.
+    """
+    var db = ExampleDatabase(settings.database_dir.copy(), settings.name.copy())
+    var saved = db.load()
+    for i in range(len(saved)):
+        var entry = saved[i].copy()
+        var token = entry.replay.copy()
+        var prefix = ChoiceSequence()
         try:
-            prop(report_tc)
+            prefix = decode_sequence(token)
+        except:
+            db.remove_file(entry.filename.copy())
+            continue
+        var tc = TestCase.replaying(prefix^, settings.max_choices)
+        var raised = False
+        var message = String("")
+        try:
+            prop(tc)
         except e:
+            raised = True
             message = String(e)
-        raise Error(
-            _format_report(
-                examples_run,
-                shrink_result.evaluations,
-                report_tc.draw_labels.copy(),
-                report_tc.draw_values.copy(),
-                report_tc.notes.copy(),
-                message,
-                seed,
-                shrink_result.hit_budget,
-                encode_sequence(report_tc.choices.copy()),
+        if raised and tc.status == Status.RUNNING:
+            _shrink_and_raise(
+                prop, settings, seed, i + 1, tc.choices.copy(), message
             )
+        else:
+            db.remove_file(entry.filename.copy())
+
+
+def _shrink_and_raise[
+    P: def(mut TestCase) raises -> None
+](
+    prop: P,
+    settings: Settings,
+    seed: UInt64,
+    examples_run: Int,
+    failing: ChoiceSequence,
+    failure_message: String,
+) raises:
+    """Shrink `failing`, persist the best replay, and raise the report.
+
+    Shared by the database-replay and generation paths so both persist
+    to the example database and report identically.
+    """
+
+    def evaluate(
+        candidate: ChoiceSequence,
+    ) raises {imm prop, imm settings} -> Evaluation:
+        var tc = TestCase.replaying(candidate.copy(), settings.max_choices)
+        var raised = False
+        try:
+            prop(tc)
+        except:
+            raised = True
+        return Evaluation(
+            raised and tc.status == Status.RUNNING, tc.choices.copy()
         )
+
+    var shrink_result = shrink_with(
+        evaluate, failing.copy(), settings.max_shrink_evaluations
+    )
+    var report_tc = TestCase.replaying(
+        shrink_result.best.copy(), settings.max_choices
+    )
+    var replay_message = failure_message.copy()
+    try:
+        prop(report_tc)
+    except e:
+        replay_message = String(e)
+    var replay_token = encode_sequence(report_tc.choices.copy())
+    if settings.name.byte_length() > 0:
+        var db = ExampleDatabase(
+            settings.database_dir.copy(), settings.name.copy()
+        )
+        db.save(replay_token)
+    raise Error(
+        _format_report(
+            examples_run,
+            shrink_result.evaluations,
+            report_tc.draw_labels.copy(),
+            report_tc.draw_values.copy(),
+            report_tc.notes.copy(),
+            replay_message^,
+            seed,
+            shrink_result.hit_budget,
+            replay_token^,
+        )
+    )
 
 
 def _replay_only[

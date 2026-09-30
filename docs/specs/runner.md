@@ -94,4 +94,4 @@ Reproduce with: Settings(replay="AAECAQ==")
 - `settings.name` が空でなければ、縮小後の選択列を `{database_dir}/{sha256(name)の先頭16桁}/{選択列のハッシュ}` に保存する。
 - 次回の実行では、生成の前にそのディレクトリ内の選択列をすべて再生する。`INTERESTING` でなくなったものは削除する。
 - `.proptest-mojo/` はユーザーのリポジトリで `.gitignore` するか、回帰テストとしてコミットするかを選べる。
-- `name` の既定値を呼び出し位置から自動で導出できるか（Mojo の `call_location` 相当の機能の有無）は M4 で調査する。
+- `name` は呼び出し側が明示指定する。呼び出し位置からの自動導出は、Mojo 1.2.0.dev2026092605 の stdlib に `call_location` 相当の機能がないため行わない（[ADR-0010](../adr/0010-example-database-persistence.md)）。
