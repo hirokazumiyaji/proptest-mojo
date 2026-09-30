@@ -202,8 +202,10 @@ struct TestCase(Sized, Writable):
         Opens a span labeled by the FNV-1a hash of `label` (so draws sharing
         a reporting label share a span label), delegates to `strategy.draw`,
         then records `label` with the `Writable` rendering of the value for
-        failure reports. The span closes even when the strategy raises.
+        failure reports. On raise, every span opened during this draw is
+        closed so accounting stays balanced.
         """
+        var depth = len(self.open_spans)
         self.start_span(_span_label(label))
         try:
             var value = strategy.draw(self)
@@ -212,7 +214,8 @@ struct TestCase(Sized, Writable):
             self.draw_values.append(String(value))
             return value^
         except e:
-            self.stop_span()
+            while len(self.open_spans) > depth:
+                self.stop_span()
             raise e
 
     def note(mut self, var message: String):
@@ -263,9 +266,7 @@ struct TestCase(Sized, Writable):
 
 def _span_label(label: StringSlice) -> UInt64:
     # FNV-1a over the reporting label so same-role draws share a span label.
-    var text = String(label)
-    var bytes = text.as_bytes()
     var hash = UInt64(14695981039346656037)
-    for i in range(len(bytes)):
-        hash = (hash ^ UInt64(bytes[i])) * UInt64(1099511628211)
+    for b in label.as_bytes():
+        hash = (hash ^ UInt64(b)) * UInt64(1099511628211)
     return hash
