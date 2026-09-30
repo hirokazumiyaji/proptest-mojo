@@ -29,7 +29,8 @@ def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
 
     Tries chunk lengths 8, 4, 2, 1 at every start position. Deletion
     always shortens the sequence, hence every candidate is
-    shortlex-smaller. Empty results are skipped.
+    shortlex-smaller. Empty results, and chunks that would drop any
+    `forced` node, are skipped.
     """
     var out = List[ChoiceSequence]()
     var n = len(seq)
@@ -37,6 +38,13 @@ def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
         if size > n:
             continue
         for start in range(n - size + 1):
+            var has_forced = False
+            for k in range(start, start + size):
+                if seq.nodes[k].forced:
+                    has_forced = True
+                    break
+            if has_forced:
+                continue
             var cand = seq.deleted(start, start + size)
             if len(cand) == 0:
                 continue
@@ -90,7 +98,7 @@ def minimize_individual[
         var lo = UInt64(0)
         var hi = current
         while hi - lo > UInt64(1):
-            var mid = (lo + hi) // UInt64(2)
+            var mid = lo + (hi - lo) // UInt64(2)
             var cand = best.with_value_at(i, mid)
             if is_interesting(cand.copy()):
                 hi = mid
