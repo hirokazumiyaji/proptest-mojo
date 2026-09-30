@@ -1,6 +1,6 @@
 # Strategy
 
-背景は [ADR-0003](../adr/0003-strategy-trait-with-static-dispatch.md) と [ADR-0005](../adr/0005-thin-functions-as-comptime-parameters.md)。
+背景は [ADR-0003](../adr/0003-strategy-trait-with-static-dispatch.md) と [ADR-0005](../adr/0005-thin-functions-as-comptime-parameters.md) と [ADR-0011](../adr/0011-recursive-strategy-with-runtime-depth.md)。
 
 ## Strategy トレイト
 
@@ -42,6 +42,7 @@ trait Strategy(Copyable, Deinitable):
 | `optionals(s)` | `Optional[T]` | `None` | M2 |
 | `one_of(strategies: List[S])` | `S.Value` | 先頭の Strategy | M2 |
 | `one_of2(a: A, b: B) where A.Value == B.Value` | `A.Value` | 先頭の Strategy（`a`） | M2 |
+| `json_tree(max_depth, max_width, minimum, maximum)` | `JsonValue` | `null` | M2 |
 
 `Optional` や `Tuple` など標準ライブラリの型が `Writable` を満たさない場合は、このライブラリが `Writable` を実装した薄い値型を提供する（M2 の実装時に確認し、この表を更新する）。
 
@@ -106,6 +107,32 @@ var sized = flat_map[lists_up_to](integers(0, 10))
 - `filter` は述語を満たさない値を引いた試行の span を `discarded` として記録し、最大 3 回まで引き直す。それでも満たさなければ `tc.assume(False)` 相当で `INVALID` にする。
 - `flat_map` は外側の値に応じて内側の Strategy を作る。内側の Strategy の **型** はコンパイル時に 1 つに決まっている必要がある（値のパラメータだけが変わる）。
 
+## 再帰的な Strategy（`json_tree`）
+
+静的ディスパッチでは `Tree = OneOf[Leaf, Node[Tree]]` のように型が無限に入れ子になるため、再帰は型レベルでなく値レベルで行う（[ADR-0011](../adr/0011-recursive-strategy-with-runtime-depth.md)）。
+
+```mojo
+from proptest.strategies.recursive import JsonValue, json_tree
+
+var tree = json_tree(max_depth=3, max_width=3, minimum=-5, maximum=5)
+var value: JsonValue = tc.draw(tree.copy(), "tree")
+```
+
+- 値 `JsonValue` は `null`・整数・配列の具体的な再帰値である。子は `ArcPointer` の間接参照で持ち、`draw` 後は不変として扱う。
+- Strategy `JsonTree` は 1 つの具体型で、実行時の `max_depth` 予算で再帰を打ち切る。汎用の `prop_recursive(leaf, branch)` コンビネータは提供しない。形状ごとに `JsonTree` と同じ形の Strategy を書く。
+- 符号化は次の通りで、小さい選択ほど単純になる。全選択 0 は `null` を引く。深さ 0 では分岐旗を消費せず葉だけを引く。
+
+```text
+node(depth):
+  depth == 0 -> leaf
+  depth > 0  -> branch_flag in 0..1 (0 = leaf, 1 = array)
+leaf  -> kind in 0..1 (0 = null, 1 = minimum..maximum の整数)
+array -> width in 0..max_width, then one child per element
+```
+
+- 子の描画は `JSON_CHILD_SPAN` の span で囲む。現行の縮小パス（M1）は span を見ないが、M3 の span 系パスで要素単位の操作ができる。
+- `max_depth < 0`、`max_width < 1`、空の整数範囲は `json_tree` が `raise` する。
+
 ## 合成 Strategy（`@composite` / `prop_compose!` 相当）
 
 捕捉が必要な変換や、複数の値を組み合わせる生成は、`Strategy` を実装する struct として書く。
@@ -133,5 +160,5 @@ property の中で直接 `tc.draw` を重ねてもよい。再利用したい組
 ## 計画中（Planned）
 
 - `Arbitrary` トレイト（M5）: 型ごとの既定 Strategy。`arbitrary[Int]()` で `integers_of[DType.int64]()` を返すなど。
-- 再帰的な Strategy（M5）: 静的ディスパッチでは型が無限に入れ子になるため、深さを型パラメータで区切る方式か、限定的な型消去を調査する。
 - 異種の Strategy の組み合わせ（M2 で実装済み）: `Value` が同じ異なる型の Strategy は `one_of2(a, b)` で組み合わせる（[ADR-0010](../adr/0010-heterogeneous-one-of.md)）。等価性は trailing `where A.Value == B.Value` で保証され、不一致はコンパイルエラーになる。3 分岐以上は `one_of2` の入れ子、または分岐を 1 つの Strategy 型に寄せてから `one_of` を使う。
+- 再帰的な Strategy（M2 で実装済み）: 値レベルの再帰と実行時深さ制限で行う（[ADR-0011](../adr/0011-recursive-strategy-with-runtime-depth.md)）。`json_tree` が JSON 風の木を生成し、全選択 0 で `null` に縮小する。

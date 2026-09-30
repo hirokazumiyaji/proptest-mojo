@@ -15,3 +15,4 @@
 | [0008](0008-functional-core-imperative-shell.md) | 関数型コア・命令型シェルで構成する | Accepted | 2026-09-26 |
 | [0009](0009-testcase-draw-module-cycle.md) | TestCase.draw のために testcase と strategy の参照循環を許す | Accepted | 2026-09-30 |
 | [0010](0010-heterogeneous-one-of.md) | 異種 Strategy の one_of を `where` 句と `rebind` で実現する | Accepted | 2026-09-30 |
+| [0011](0011-recursive-strategy-with-runtime-depth.md) | 再帰的 Strategy を実行時深さ制限の単一 struct で実現する | Accepted | 2026-09-30 |

@@ -39,6 +39,7 @@ from proptest.strategies.primitives import (
     integers,
     just,
 )
+from proptest.strategies.recursive import JsonTree, JsonValue, json_tree
 from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
 
 comptime VERSION = "0.1.0"
