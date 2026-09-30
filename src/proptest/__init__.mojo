@@ -25,10 +25,13 @@ from proptest.strategy import Strategy
 from proptest.strategies.primitives import (
     Booleans,
     Integers,
+    IntegersOf,
     Just,
     booleans,
     decode_integer_choice,
+    decode_integers_of_choice,
     integers,
+    integers_of,
     just,
 )
 from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
