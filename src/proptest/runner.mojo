@@ -114,7 +114,9 @@ def for_all[
         except:
             raised = True
         return Evaluation(
-            raised and tc.status == Status.RUNNING, tc.choices.copy()
+            raised and tc.status == Status.RUNNING,
+            tc.choices.copy(),
+            tc.spans.copy(),
         )
 
     var valid_count = 0
@@ -160,7 +162,10 @@ def for_all[
             valid_count += 1
             continue
         var shrink_result = shrink_with(
-            evaluate, tc.choices.copy(), settings.max_shrink_evaluations
+            evaluate,
+            tc.choices.copy(),
+            tc.spans.copy(),
+            settings.max_shrink_evaluations,
         )
         var report_tc = TestCase.replaying(
             shrink_result.best.copy(), settings.max_choices
