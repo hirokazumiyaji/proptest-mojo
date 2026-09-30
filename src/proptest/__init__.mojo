@@ -23,6 +23,14 @@ from proptest.shrink.shrinker import (
 )
 from proptest.strategy import Strategy
 from proptest.strategies.collections import ListOf, lists
+from proptest.strategies.unique import (
+    DictEntry,
+    DictList,
+    DictOf,
+    UniqueListOf,
+    dicts,
+    unique_lists,
+)
 from proptest.strategies.primitives import (
     Booleans,
     Integers,
