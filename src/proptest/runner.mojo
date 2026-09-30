@@ -14,7 +14,7 @@ from std.os import getenv
 from std.time import monotonic
 
 from proptest.choice import ChoiceSequence
-from proptest.prng import derive
+from proptest.prng import Xoshiro256StarStar, derive
 from proptest.shrink.shrinker import Evaluation, shrink_with
 from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
 
@@ -22,6 +22,7 @@ comptime DEFAULT_MAX_EXAMPLES = 100
 comptime DEFAULT_MAX_SHRINK_EVALUATIONS = 5000
 comptime SEED_ENV_VAR = "PROPTEST_SEED"
 comptime MAX_EXAMPLES_ENV_VAR = "PROPTEST_MAX_EXAMPLES"
+comptime TARGET_MUTATION_PROBABILITY = 0.1
 
 
 struct Settings(Copyable, Movable, Writable):
@@ -95,11 +96,13 @@ def for_all[
     """Run `prop` against generated examples, raising the counterexample.
 
     Attempt zero replays the empty prefix, so every draw sees the
-    simplest choice; attempt `i >= 1` draws from `derive(seed, i)`. A
-    run with no failure raises nothing. The first `INTERESTING`
-    execution is shrunk with `shrink_with`, replayed to collect draw
-    records, and reported as an `Error` carrying the records, notes,
-    the failure message, and the seed.
+    simplest choice; attempt `i >= 1` draws from `derive(seed, i)`,
+    except the second half of generation replays a targeted mutant of
+    the highest-`target` valid sequence when one exists. A run with no
+    failure raises nothing. The first `INTERESTING` execution is
+    shrunk with `shrink_with`, replayed to collect draw records, and
+    reported as an `Error` carrying the records, notes, the failure
+    message, and the seed.
     """
     var seed = settings.effective_seed()
     var max_examples = settings.effective_max_examples()
@@ -122,8 +125,17 @@ def for_all[
     var invalid_count = 0
     var overrun_count = 0
     var attempt = UInt64(0)
+    var has_best = False
+    var best_score = 0.0
+    var best_seq = ChoiceSequence()
     while valid_count < max_examples:
-        var tc = _fresh_test_case(settings.max_choices, seed, attempt)
+        var tc: TestCase
+        if _use_targeted_mutation(valid_count, max_examples, has_best):
+            tc = _mutated_test_case(
+                best_seq, seed, attempt, settings.max_choices, attempt
+            )
+        else:
+            tc = _fresh_test_case(settings.max_choices, seed, attempt)
         var raised = False
         var message = String("")
         try:
@@ -158,6 +170,10 @@ def for_all[
         if not raised:
             tc.status = Status.VALID
             valid_count += 1
+            if tc.has_target and (not has_best or tc.target_score > best_score):
+                has_best = True
+                best_score = tc.target_score
+                best_seq = tc.choices.copy()
             continue
         var shrink_result = shrink_with(
             evaluate, tc.choices.copy(), settings.max_shrink_evaluations
@@ -195,6 +211,83 @@ def _fresh_test_case(
     if attempt == UInt64(0):
         return TestCase.replaying(ChoiceSequence(), max_choices, attempt)
     return TestCase.generating(derive(seed, attempt), max_choices, attempt)
+
+
+def _use_targeted_mutation(
+    valid_count: Int, max_examples: Int, has_best: Bool
+) -> Bool:
+    """Whether generation should mutate the best-scoring sequence.
+
+    The first half explores with fresh PRNG draws; the second half
+    exploits the highest `target` score seen so far. Empty best
+    sequences (no draws) fall back to fresh generation.
+    """
+    if not has_best:
+        return False
+    if max_examples <= 1:
+        return False
+    return valid_count * 2 >= max_examples
+
+
+def _mutated_test_case(
+    best: ChoiceSequence,
+    seed: UInt64,
+    attempt: UInt64,
+    max_choices: Int,
+    example_index: UInt64,
+) raises -> TestCase:
+    """Replay a targeted mutant of `best`, falling back when not mutable."""
+    if len(best) == 0:
+        return _fresh_test_case(max_choices, seed, attempt)
+    var prng = derive(seed, attempt)
+    var mutated = _mutate_target_sequence(best, prng^)
+    return TestCase.replaying(mutated^, max_choices, example_index)
+
+
+def _mutate_target_sequence(
+    best: ChoiceSequence, var prng: Xoshiro256StarStar
+) raises -> ChoiceSequence:
+    """Copy `best` with each mutable choice uniformly re-rolled.
+
+    Each non-forced choice is replaced with a uniform value in
+    `0..=max_value` with `TARGET_MUTATION_PROBABILITY`, without
+    consuming extra recorded choices. At least one mutable choice is
+    re-rolled so mutants explore even when no coin lands. Forced
+    choices are preserved.
+    """
+    var out = ChoiceSequence()
+    var mutated_any = False
+    for i in range(len(best)):
+        var node = best[i]
+        if node.forced:
+            out.append(node^)
+            continue
+        var fresh = node.value
+        var do_mutate = prng.next_float64() < TARGET_MUTATION_PROBABILITY
+        if do_mutate and node.max_value != UInt64(0):
+            if node.max_value == UInt64(0xFFFFFFFFFFFFFFFF):
+                fresh = prng.next_u64()
+            else:
+                fresh = prng.next_below(node.max_value + UInt64(1))
+            mutated_any = True
+        node.value = fresh
+        out.append(node^)
+    if not mutated_any and len(best) > 0:
+        var idx = Int(prng.next_u64() % UInt64(len(best)))
+        for _ in range(len(best)):
+            var candidate = best[idx]
+            if not candidate.forced and candidate.max_value != UInt64(0):
+                var forced_fresh: UInt64
+                if candidate.max_value == UInt64(0xFFFFFFFFFFFFFFFF):
+                    forced_fresh = prng.next_u64()
+                else:
+                    forced_fresh = prng.next_below(
+                        candidate.max_value + UInt64(1)
+                    )
+                out = out.with_value_at(idx, forced_fresh)
+                break
+            idx = (idx + 1) % len(best)
+    return out^
 
 
 def _format_report(

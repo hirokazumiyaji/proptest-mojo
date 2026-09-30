@@ -83,10 +83,12 @@ def stop_span(mut self, discard: Bool = False)
 def draw[S: Strategy](mut self, strategy: S, label: StringSlice = "") raises -> S.Value
 def assume(mut self, condition: Bool) raises
 def note(mut self, message: String)
-def target(mut self, score: Float64, label: String = "")   # Planned: M5
+def target(mut self, score: Float64, label: StringSlice = "")
 ```
 
 `draw` は値の `Writable` 表現をラベルとともに記録し、反例の報告に使う。
+
+`target` はスコア最大化のための誘導操作である。1 回の実行内で最大の有限スコアを保持し（NaN は無視）、`label` は将来の報告用の区分で選択には影響しない。ランナーは `VALID` な実行の最高スコア選択列を保持し、生成フェーズの後半（`VALID` が `max_examples` の半数に達した後）でその選択列の変異体を再生して探索する。変異は非 `forced` の各選択を確率 0.1 で `0..=max_value` の一様値に置き換え（少なくとも 1 箇所は変異）、`forced` は保存する。`target` を呼ばない実行は従来どおりの生成を行い、再現性（同一シードで同一報告）は保たれる。
 
 ### 状態
 
