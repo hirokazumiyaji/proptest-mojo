@@ -24,6 +24,36 @@ comptime SEED_ENV_VAR = "PROPTEST_SEED"
 comptime MAX_EXAMPLES_ENV_VAR = "PROPTEST_MAX_EXAMPLES"
 
 
+@fieldwise_init
+struct Verbosity(Equatable, TrivialRegisterPassable, Writable):
+    """How much of the generation loop `for_all` reports.
+
+    `QUIET` and `NORMAL` stay silent on success; the distinction is
+    reserved for future replay/database notices. `VERBOSE` prints every
+    example as it runs, so a passing run still shows what was tried.
+    """
+
+    var value: UInt8
+
+    comptime QUIET = Verbosity(0)
+    comptime NORMAL = Verbosity(1)
+    comptime VERBOSE = Verbosity(2)
+
+    def __eq__(self, other: Self) -> Bool:
+        return self.value == other.value
+
+    def __ne__(self, other: Self) -> Bool:
+        return self.value != other.value
+
+    def write_to(self, mut writer: Some[Writer]):
+        if self == Self.QUIET:
+            writer.write("QUIET")
+        elif self == Self.NORMAL:
+            writer.write("NORMAL")
+        else:
+            writer.write("VERBOSE")
+
+
 struct Settings(Copyable, Movable, Writable):
     """Immutable run parameters for `for_all`.
 
@@ -38,6 +68,7 @@ struct Settings(Copyable, Movable, Writable):
     var seed: Optional[UInt64]
     var max_choices: Int
     var max_shrink_evaluations: Int
+    var verbosity: Verbosity
 
     def __init__(
         out self,
@@ -45,11 +76,13 @@ struct Settings(Copyable, Movable, Writable):
         seed: Optional[UInt64] = None,
         max_choices: Int = DEFAULT_MAX_CHOICES,
         max_shrink_evaluations: Int = DEFAULT_MAX_SHRINK_EVALUATIONS,
+        verbosity: Verbosity = Verbosity.NORMAL,
     ):
         self.max_examples = max_examples
         self.seed = seed.copy()
         self.max_choices = max_choices
         self.max_shrink_evaluations = max_shrink_evaluations
+        self.verbosity = verbosity
 
     def effective_seed(self) raises -> UInt64:
         """Explicit seed, else `PROPTEST_SEED`, else time-derived."""
@@ -85,6 +118,8 @@ struct Settings(Copyable, Movable, Writable):
             self.max_choices,
             ", max_shrink_evaluations=",
             self.max_shrink_evaluations,
+            ", verbosity=",
+            self.verbosity,
             ")",
         )
 
@@ -99,10 +134,15 @@ def for_all[
     run with no failure raises nothing. The first `INTERESTING`
     execution is shrunk with `shrink_with`, replayed to collect draw
     records, and reported as an `Error` carrying the records, notes,
-    the failure message, and the seed.
+    the failure message, and the seed. Executions rejected by `assume`
+    (or an unsatisfiable `filter`, which rejects the same way) are
+    skipped; too many rejections or overruns fail the run with a
+    health-check `Error` naming the rejection rate. `VERBOSE` settings
+    print every example as it runs.
     """
     var seed = settings.effective_seed()
     var max_examples = settings.effective_max_examples()
+    var verbose = settings.verbosity == Verbosity.VERBOSE
 
     def evaluate(
         candidate: ChoiceSequence,
@@ -135,30 +175,65 @@ def for_all[
         attempt += 1
         if tc.status == Status.INVALID:
             invalid_count += 1
+            if verbose:
+                print(
+                    _format_example_line(
+                        examples_run,
+                        tc.status,
+                        tc.draw_labels.copy(),
+                        tc.draw_values.copy(),
+                    )
+                )
             if invalid_count > 10 * max_examples:
                 raise Error(
-                    "gave up after "
-                    + String(examples_run)
-                    + " examples ("
-                    + String(invalid_count)
-                    + " rejected by assume): condition too strict"
+                    _too_many_rejects_message(
+                        examples_run, invalid_count, valid_count
+                    )
                 )
             continue
         if tc.status == Status.OVERRUN:
             overrun_count += 1
+            if verbose:
+                print(
+                    _format_example_line(
+                        examples_run,
+                        tc.status,
+                        tc.draw_labels.copy(),
+                        tc.draw_values.copy(),
+                    )
+                )
             if examples_run >= 10 and overrun_count * 5 > examples_run:
                 raise Error(
-                    "gave up after "
-                    + String(examples_run)
-                    + " examples ("
-                    + String(overrun_count)
-                    + " overran max_choices): generated data too large"
+                    _too_many_overruns_message(
+                        examples_run,
+                        overrun_count,
+                        valid_count,
+                        settings.max_choices,
+                    )
                 )
             continue
         if not raised:
             tc.status = Status.VALID
             valid_count += 1
+            if verbose:
+                print(
+                    _format_example_line(
+                        examples_run,
+                        tc.status,
+                        tc.draw_labels.copy(),
+                        tc.draw_values.copy(),
+                    )
+                )
             continue
+        if verbose:
+            print(
+                _format_example_line(
+                    examples_run,
+                    Status.INTERESTING,
+                    tc.draw_labels.copy(),
+                    tc.draw_values.copy(),
+                )
+            )
         var shrink_result = shrink_with(
             evaluate, tc.choices.copy(), settings.max_shrink_evaluations
         )
@@ -190,6 +265,71 @@ def _fresh_test_case(
     if attempt == UInt64(0):
         return TestCase.replaying(ChoiceSequence(), max_choices)
     return TestCase.generating(derive(seed, attempt), max_choices)
+
+
+def _format_example_line(
+    index: Int,
+    status: Status,
+    labels: List[String],
+    values: List[String],
+) -> String:
+    """Render one generation-loop execution for `VERBOSE` output."""
+    var out = String("example ") + String(index) + ": " + String(status)
+    if len(labels) > 0:
+        out += " ("
+        for i in range(len(labels)):
+            if i > 0:
+                out += ", "
+            var label = String(labels[i])
+            if label.byte_length() == 0:
+                label = "draw #" + String(i + 1)
+            out += label
+            out += " = "
+            out += values[i]
+        out += ")"
+    return out^
+
+
+def _too_many_rejects_message(
+    examples_run: Int, invalid_count: Int, valid_count: Int
+) -> String:
+    """Health-check failure naming the rejection rate.
+
+    With no valid execution at all, the diagnosis is the inability to
+    generate a satisfying input rather than mere strictness.
+    """
+    var rate = 0
+    if examples_run > 0:
+        rate = invalid_count * 100 // examples_run
+    var out = String("gave up after ") + String(examples_run) + " examples"
+    if valid_count == 0:
+        out += " without a single valid execution"
+    out += " (" + String(invalid_count) + " rejected by assume/filter, "
+    out += String(rate) + "% rejection rate)"
+    if valid_count == 0:
+        out += ": unable to generate input satisfying the condition"
+    else:
+        out += ": assume/filter condition too strict"
+    return out^
+
+
+def _too_many_overruns_message(
+    examples_run: Int, overrun_count: Int, valid_count: Int, max_choices: Int
+) -> String:
+    """Health-check failure for runs exceeding the choice budget."""
+    var rate = 0
+    if examples_run > 0:
+        rate = overrun_count * 100 // examples_run
+    var out = String("gave up after ") + String(examples_run) + " examples"
+    if valid_count == 0:
+        out += " without a single valid execution"
+    out += " (" + String(overrun_count) + " overran max_choices="
+    out += String(max_choices) + ", " + String(rate) + "% overrun rate)"
+    if valid_count == 0:
+        out += ": unable to generate input satisfying the condition"
+    else:
+        out += ": generated data too large"
+    return out^
 
 
 def _format_report(

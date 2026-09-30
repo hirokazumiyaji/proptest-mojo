@@ -52,7 +52,8 @@ def test_settings_defaults_match_spec() raises:
         String(settings),
         (
             "Settings(max_examples=100, seed=None,"
-            " max_choices=8192, max_shrink_evaluations=5000)"
+            " max_choices=8192, max_shrink_evaluations=5000,"
+            " verbosity=NORMAL)"
         ),
     )
 

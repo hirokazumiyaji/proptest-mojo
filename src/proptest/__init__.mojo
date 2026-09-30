@@ -9,7 +9,7 @@ from proptest.choice import (
     shortlex_compare,
 )
 from proptest.prng import SplitMix64, Xoshiro256StarStar, derive
-from proptest.runner import Settings, for_all
+from proptest.runner import Settings, Verbosity, for_all
 from proptest.shrink.passes import (
     delete_chunks,
     minimize_individual,
