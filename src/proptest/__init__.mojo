@@ -32,6 +32,13 @@ from proptest.strategies.primitives import (
     integers,
     just,
 )
+from proptest.strategies.text import (
+    Bytes,
+    Text,
+    bytes,
+    decode_codepoint_choice,
+    text,
+)
 from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
 
 comptime VERSION = "0.1.0"
