@@ -14,3 +14,4 @@
 | [0007](0007-toolchain-pixi-and-mojo-nightly.md) | ツールチェーンに pixi と Mojo nightly を使う | Accepted | 2026-09-26 |
 | [0008](0008-functional-core-imperative-shell.md) | 関数型コア・命令型シェルで構成する | Accepted | 2026-09-26 |
 | [0009](0009-testcase-draw-module-cycle.md) | TestCase.draw のために testcase と strategy の参照循環を許す | Accepted | 2026-09-30 |
+| [0010](0010-state-machine-op-sequence-encoding.md) | StateMachine トレイトと操作列の符号化で状態機械テストを行う | Accepted | 2026-09-30 |

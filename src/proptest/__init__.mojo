@@ -22,6 +22,7 @@ from proptest.shrink.shrinker import (
     shrink,
     shrink_with,
 )
+from proptest.stateful import StateMachine, run_state_machine
 from proptest.strategy import Strategy
 from proptest.strategies.collections import ListOf, lists
 from proptest.strategies.primitives import (
