@@ -82,6 +82,49 @@ def test_delete_chunks_lengths_and_order() raises:
     assert_equal(len(cands[len(cands) - 1]), 9)
 
 
+def test_delete_chunks_ordering_matches_shortlex_sort() raises:
+    # Every deletion candidate must come out in shortlex order regardless
+    # of chunk order, which chunk-size iteration alone does not give.
+    var seq = ChoiceSequence()
+    for i in range(12):
+        seq.append(_node(UInt64(i * 7 % 5)))
+    var cands = delete_chunks(seq.copy())
+    assert_true(len(cands) > 1, msg="need several candidates")
+    for i in range(len(cands) - 1):
+        # Non-decreasing: distinct starts can yield identical candidates.
+        assert_true(
+            not is_shortlex_smaller(cands[i + 1], cands[i]),
+            msg="delete_chunks must emit shortlex order",
+        )
+
+
+def test_zero_chunks_ordering_matches_shortlex_sort() raises:
+    var seq = ChoiceSequence()
+    for i in range(12):
+        seq.append(_node(UInt64(i % 4)))
+    var cands = zero_chunks(seq.copy())
+    assert_true(len(cands) > 1, msg="need several candidates")
+    for i in range(len(cands) - 1):
+        # Non-decreasing: distinct starts can yield identical candidates.
+        assert_true(
+            not is_shortlex_smaller(cands[i + 1], cands[i]),
+            msg="zero_chunks must emit shortlex order",
+        )
+
+
+def test_enumeration_passes_stay_fast_on_long_sequences() raises:
+    # Ordering used to compare whole candidates, which is O(n) per
+    # comparison over O(n) candidates; near the 8192-choice limit that
+    # looked like a hang. Compare indices in O(1) instead. The bound here
+    # is only a smoke check: this pass must stay quadratic at worst, not
+    # cubic.
+    var seq = ChoiceSequence()
+    for i in range(300):
+        seq.append(_node(UInt64(i % 7)))
+    assert_true(len(delete_chunks(seq.copy())) > 0, msg="deletes exist")
+    assert_true(len(zero_chunks(seq.copy())) > 0, msg="zeroes exist")
+
+
 def test_delete_chunks_skips_empty_results() raises:
     var one = _seq(UInt64(5))
     assert_equal(len(delete_chunks(one.copy())), 0)
@@ -146,12 +189,38 @@ def test_delete_chunks_all_shortlex_smaller() raises:
         )
 
 
-def test_zero_chunks_zeroes_blocks_simplest_first() raises:
+def test_zero_chunks_are_ordered_by_shortlex() raises:
+    # Chunk-size order puts the size-8 zeroing of indices 2-9 ahead of the
+    # shortlex-smaller size-4 zeroing of indices 0-3; the shrink loop takes
+    # the first interesting candidate, so ordering must be by result.
+    var seq = _seq(
+        UInt64(1),
+        UInt64(1),
+        UInt64(1),
+        UInt64(1),
+        UInt64(1),
+        UInt64(1),
+        UInt64(1),
+        UInt64(1),
+        UInt64(1),
+        UInt64(1),
+    )
+    var cands = zero_chunks(seq.copy())
+    for i in range(len(cands) - 1):
+        assert_true(
+            is_shortlex_smaller(cands[i], cands[i + 1]),
+            msg="zero_chunks must emit shortlex order",
+        )
+    assert_equal(cands[0].values(), _u64s(0, 0, 0, 0, 0, 0, 0, 0, 1, 1))
+
+
+def test_zero_chunks_zeroes_every_admissible_block() raises:
     var seq = ChoiceSequence()
     for _ in range(10):
         seq.append(_node(UInt64(7)))
     var cands = zero_chunks(seq.copy())
     assert_equal(len(cands), 3 + 7 + 9 + 10)
+    # Shortlex-smallest zeroing zeroes the longest leftmost run of 7s.
     for i in range(8):
         assert_equal(cands[0][i].value, UInt64(0))
     assert_equal(cands[0][8].value, UInt64(7))
