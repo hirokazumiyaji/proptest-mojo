@@ -215,14 +215,16 @@ struct TestCase(Sized, Writable):
     ](mut self, strategy: S, label: StringSlice = "") raises -> S.Value:
         """Draw a value through `strategy`, recording one span and report entry.
 
-        Opens a span labeled by the FNV-1a hash of `label` (so draws sharing
-        a reporting label share a span label), delegates to `strategy.draw`,
-        then records `label` with the `Writable` rendering of the value for
-        failure reports. On raise, every span opened during this draw is
-        closed so accounting stays balanced.
+        Opens a span labeled by the strategy kind (`strategy.span_label`),
+        never by `label`, so the shrink passes only swap blocks that are
+        structurally interchangeable; `label` is kept solely in
+        `draw_labels`. Then delegates to `strategy.draw` and records
+        `label` with the `Writable` rendering of the value for failure
+        reports. On raise, every span opened during this draw is closed so
+        accounting stays balanced.
         """
         var depth = len(self.open_spans)
-        self.start_span(_span_label(label))
+        self.start_span(strategy.span_label())
         try:
             var value = strategy.draw(self)
             self.stop_span()
@@ -278,11 +280,3 @@ struct TestCase(Sized, Writable):
     ) -> UInt64:
         self.choices.append(ChoiceNode(kind, value, max_value, forced))
         return value
-
-
-def _span_label(label: StringSlice) -> UInt64:
-    # FNV-1a over the reporting label so same-role draws share a span label.
-    var hash = UInt64(14695981039346656037)
-    for b in label.as_bytes():
-        hash = (hash ^ UInt64(b)) * UInt64(1099511628211)
-    return hash
