@@ -24,7 +24,7 @@ def _chunk_sizes() -> List[Int]:
     return sizes^
 
 
-def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
+def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     """Contiguous-block deletions, simplest-first.
 
     Tries chunk lengths 8, 4, 2, 1 at every start position. Deletion
@@ -52,7 +52,7 @@ def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
     return out^
 
 
-def zero_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
+def zero_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     """Contiguous-block zeroings, simplest-first.
 
     Same chunk sizes and positions as `delete_chunks`. `forced`

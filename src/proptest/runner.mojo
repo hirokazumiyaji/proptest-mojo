@@ -65,14 +65,19 @@ struct Settings(Copyable, Movable, Writable):
             return self.seed.value()
         var from_env = getenv(SEED_ENV_VAR)
         if from_env.byte_length() > 0:
-            try:
-                return UInt64(Int(from_env))
-            except:
+            # Parsed digit by digit: routing through signed `Int`
+            # rejects valid seeds above `Int.MAX`, which is half the
+            # domain `Settings.seed` and the reports accept.
+            var ok = False
+            var parsed = UInt64(0)
+            ok, parsed = _parse_u64(from_env)
+            if not ok:
                 raise Error(
                     "PROPTEST_SEED is not a valid integer: '"
                     + String(from_env)
                     + "'"
                 )
+            return parsed
         return UInt64(abs(Int(monotonic())))
 
     def effective_max_examples(self) raises -> Int:
@@ -106,6 +111,31 @@ struct Settings(Copyable, Movable, Writable):
             self.max_shrink_evaluations,
             ")",
         )
+
+
+comptime U64_MAX = UInt64(0xFFFFFFFFFFFFFFFF)
+
+
+def _parse_u64(text: String) -> Tuple[Bool, UInt64]:
+    """Parse a decimal string into a `UInt64`.
+
+    Returns `(False, 0)` for a non-numeric or out-of-range value.
+    Accumulating in `UInt64` keeps the whole `0..=UInt64.MAX` domain
+    reachable; a signed `Int` accumulator would reject the upper half of
+    it before the seed could be reported or replayed.
+    """
+    var digits = text.as_bytes()
+    if len(digits) == 0:
+        return (False, UInt64(0))
+    var acc = UInt64(0)
+    for b in digits:
+        if b < 48 or b > 57:
+            return (False, UInt64(0))
+        var digit = UInt64(b - 48)
+        if acc > (U64_MAX - digit) // UInt64(10):
+            return (False, UInt64(0))
+        acc = acc * UInt64(10) + digit
+    return (True, acc)
 
 
 def for_all[
