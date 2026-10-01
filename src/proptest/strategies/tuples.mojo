@@ -18,7 +18,7 @@ The standard `Tuple` and `Optional` types already satisfy
 counterexample display.
 """
 
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.testcase import TestCase
 
 
@@ -29,6 +29,9 @@ struct Tuple2[A: Strategy, B: Strategy](Strategy):
     comptime Value = Tuple[Self.A.Value, Self.B.Value]
     var first: Self.A
     var second: Self.B
+
+    def span_label(self) -> UInt64:
+        return kind_label("tuple2")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         var a = tc.draw(self.first)
@@ -44,6 +47,9 @@ struct Tuple3[A: Strategy, B: Strategy, C: Strategy](Strategy):
     var first: Self.A
     var second: Self.B
     var third: Self.C
+
+    def span_label(self) -> UInt64:
+        return kind_label("tuple3")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         var a = tc.draw(self.first)
@@ -63,6 +69,9 @@ struct OptionalOf[S: Strategy](Strategy):
 
     comptime Value = Optional[Self.S.Value]
     var inner: Self.S
+
+    def span_label(self) -> UInt64:
+        return kind_label("optional_of")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         if not tc.draw_boolean():
