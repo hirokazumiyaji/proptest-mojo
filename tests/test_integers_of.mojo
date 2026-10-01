@@ -514,6 +514,34 @@ def test_decode_is_monotone_around_target() raises:
     )
 
 
+def test_decode_clamps_choice_above_width() raises:
+    # Any choice past the biased distance between the bounds must clamp to
+    # the maximum reachable value, keeping the result in range.
+    var i8min = Scalar[DType.int8](-5)
+    var i8max = Scalar[DType.int8](5)
+    var edge = decode_integers_of_choice[DType.int8](UInt64(10), i8min, i8max)
+    for over in range(11, 20):
+        var value = decode_integers_of_choice[DType.int8](
+            UInt64(over), i8min, i8max
+        )
+        assert_true(
+            i8min <= value and value <= i8max,
+            msg="clamped decode must stay in range",
+        )
+        assert_equal(value, edge)
+    var u8min = Scalar[DType.uint8](3)
+    var u8max = Scalar[DType.uint8](9)
+    var uedge = decode_integers_of_choice[DType.uint8](UInt64(6), u8min, u8max)
+    var huge = decode_integers_of_choice[DType.uint8](
+        UInt64(0xFFFFFFFFFFFFFFFF), u8min, u8max
+    )
+    assert_equal(huge, uedge)
+    assert_true(
+        u8min <= huge and huge <= u8max,
+        msg="clamped decode must stay in range",
+    )
+
+
 def test_invalid_range_raises() raises:
     var raised8 = False
     try:

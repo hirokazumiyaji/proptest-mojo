@@ -88,18 +88,12 @@ def integers(minimum: Int, maximum: Int) raises -> Integers:
 
 
 def _biased_of[dtype: DType](value: Scalar[dtype]) -> UInt64:
-    comptime assert (
-        dtype.is_integral()
-    ), "integers_of requires an integral dtype"
     if dtype.is_signed():
         return UInt64(Int64(value)) ^ _SIGN_BIT
     return UInt64(value)
 
 
 def _unbiased_of[dtype: DType](biased: UInt64) -> Scalar[dtype]:
-    comptime assert (
-        dtype.is_integral()
-    ), "integers_of requires an integral dtype"
     if dtype.is_signed():
         return Scalar[dtype](Int64(biased ^ _SIGN_BIT))
     return Scalar[dtype](biased)
@@ -116,8 +110,9 @@ def decode_integers_of_choice[
     draws the value in range nearest 0, larger choices alternate outward as
     `t+1, t-1, t+2, t-2, ...`, skipping the side that leaves the range. All
     arithmetic stays in `UInt64`, so the full `Int64`/`UInt64` ranges decode
-    without overflow. Precondition: `minimum <= maximum` and
-    `choice <= width` where `width` is the biased distance between the bounds.
+    without overflow. Choices past the biased distance between the bounds
+    are clamped so the result always stays in range. Precondition:
+    `minimum <= maximum`.
     """
     comptime assert (
         dtype.is_integral()
@@ -131,17 +126,21 @@ def decode_integers_of_choice[
         target = maximum_biased
     if choice == 0:
         return _unbiased_of[dtype](target)
+    var width = maximum_biased - minimum_biased
+    var clamped = choice
+    if clamped > width:
+        clamped = width
     var up = maximum_biased - target
     var down = target - minimum_biased
     var paired = up
     if down < paired:
         paired = down
-    if choice <= 2 * paired:
-        var step = (choice + 1) // 2
-        if choice % 2 == 1:
+    if clamped <= 2 * paired:
+        var step = (clamped + 1) // 2
+        if clamped % 2 == 1:
             return _unbiased_of[dtype](target + step)
         return _unbiased_of[dtype](target - step)
-    var rest = choice - 2 * paired
+    var rest = clamped - 2 * paired
     if up > down:
         return _unbiased_of[dtype](target + paired + rest)
     return _unbiased_of[dtype](target - paired - rest)
@@ -156,9 +155,6 @@ struct IntegersOf[dtype: DType](Strategy):
     var maximum: Scalar[Self.dtype]
 
     def draw(self, mut tc: TestCase) raises -> Scalar[Self.dtype]:
-        comptime assert (
-            Self.dtype.is_integral()
-        ), "integers_of requires an integral dtype"
         var width = _biased_of[Self.dtype](self.maximum) - _biased_of[
             Self.dtype
         ](self.minimum)
