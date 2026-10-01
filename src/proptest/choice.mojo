@@ -24,16 +24,15 @@ struct ChoiceKind(Equatable, TrivialRegisterPassable, Writable):
     def __eq__(self, other: Self) -> Bool:
         return self.value == other.value
 
-    def __ne__(self, other: Self) -> Bool:
-        return self.value != other.value
-
     def write_to(self, mut writer: Some[Writer]):
         if self == Self.INTEGER:
             writer.write("INTEGER")
         elif self == Self.BOOLEAN:
             writer.write("BOOLEAN")
-        else:
+        elif self == Self.FLOAT:
             writer.write("FLOAT")
+        else:
+            writer.write("ChoiceKind(", self.value, ")")
 
 
 @fieldwise_init
@@ -56,9 +55,6 @@ struct ChoiceNode(Copyable, Equatable, Movable, Writable):
             and self.max_value == other.max_value
             and self.forced == other.forced
         )
-
-    def __ne__(self, other: Self) -> Bool:
-        return not (self == other)
 
     def write_to(self, mut writer: Some[Writer]):
         writer.write(
@@ -92,11 +88,10 @@ struct Span(Copyable, Equatable, Movable, Writable):
             and self.discarded == other.discarded
         )
 
-    def __ne__(self, other: Self) -> Bool:
-        return not (self == other)
-
     def length(self) -> Int:
-        """Number of choices covered (`end - start`)."""
+        """Number of choices covered (`end - start`, clamped to 0)."""
+        if self.end <= self.start:
+            return 0
         return self.end - self.start
 
     def is_empty(self) -> Bool:
@@ -146,9 +141,6 @@ struct ChoiceSequence(Copyable, Equatable, Movable, Sized, Writable):
                 return False
         return True
 
-    def __ne__(self, other: Self) -> Bool:
-        return not (self == other)
-
     def __lt__(self, other: Self) -> Bool:
         return shortlex_compare(self, other) < 0
 
@@ -161,9 +153,9 @@ struct ChoiceSequence(Copyable, Equatable, Movable, Sized, Writable):
     def __ge__(self, other: Self) -> Bool:
         return shortlex_compare(self, other) >= 0
 
-    def append(mut self, node: ChoiceNode):
+    def append(mut self, var node: ChoiceNode):
         """Push one recorded choice while building a sequence."""
-        self.nodes.append(node.copy())
+        self.nodes.append(node^)
 
     def values(self) -> List[UInt64]:
         """Value column only, used as the cache key and for comparisons."""
@@ -174,20 +166,20 @@ struct ChoiceSequence(Copyable, Equatable, Movable, Sized, Writable):
 
     def truncated(self, length: Int) -> Self:
         """First `length` choices (clamped to the sequence length)."""
-        var n = length
-        if n < 0:
-            n = 0
-        if n > len(self.nodes):
-            n = len(self.nodes)
+        var n = _clamp_index(length, len(self.nodes))
         var out = List[ChoiceNode]()
         for i in range(n):
             out.append(self.nodes[i].copy())
         return Self(out^)
 
     def deleted(self, start: Int, end: Int) -> Self:
-        """Copy without the half-open range `[start, end)` (clamped)."""
-        var lo = _clamp_index(start, len(self.nodes))
-        var hi = _clamp_index(end, len(self.nodes))
+        """Copy without the half-open range `[start, end)` (clamped).
+
+        A reversed range (`start > end`) is treated as empty.
+        """
+        var bounds = _normalize_range(start, end, len(self.nodes))
+        var lo = bounds[0]
+        var hi = bounds[1]
         var out = List[ChoiceNode]()
         for i in range(len(self.nodes)):
             if i < lo or i >= hi:
@@ -197,10 +189,11 @@ struct ChoiceSequence(Copyable, Equatable, Movable, Sized, Writable):
     def zeroed(self, start: Int, end: Int) -> Self:
         """Copy with values in `[start, end)` set to 0.
 
-        `forced` nodes keep their value.
+        `forced` nodes keep their value. A reversed range is treated as empty.
         """
-        var lo = _clamp_index(start, len(self.nodes))
-        var hi = _clamp_index(end, len(self.nodes))
+        var bounds = _normalize_range(start, end, len(self.nodes))
+        var lo = bounds[0]
+        var hi = bounds[1]
         var out = List[ChoiceNode]()
         for i in range(len(self.nodes)):
             var node = self.nodes[i].copy()
@@ -210,7 +203,10 @@ struct ChoiceSequence(Copyable, Equatable, Movable, Sized, Writable):
         return Self(out^)
 
     def with_value_at(self, index: Int, value: UInt64) -> Self:
-        """Copy with one value replaced (out-of-range index is a no-op)."""
+        """Copy with one value replaced.
+
+        Out-of-range indices and `forced` nodes are no-ops.
+        """
         var out = List[ChoiceNode]()
         for i in range(len(self.nodes)):
             var node = self.nodes[i].copy()
@@ -222,9 +218,13 @@ struct ChoiceSequence(Copyable, Equatable, Movable, Sized, Writable):
     def replaced_range(
         self, start: Int, end: Int, replacement: List[ChoiceNode]
     ) -> Self:
-        """Copy with `[start, end)` spliced out for `replacement`."""
-        var lo = _clamp_index(start, len(self.nodes))
-        var hi = _clamp_index(end, len(self.nodes))
+        """Copy with `[start, end)` spliced out for `replacement`.
+
+        A reversed range is treated as empty (insertion at `start`).
+        """
+        var bounds = _normalize_range(start, end, len(self.nodes))
+        var lo = bounds[0]
+        var hi = bounds[1]
         var out = List[ChoiceNode]()
         for i in range(lo):
             out.append(self.nodes[i].copy())
@@ -249,6 +249,20 @@ def _clamp_index(index: Int, length: Int) -> Int:
     if index > length:
         return length
     return index
+
+
+def _normalize_range(start: Int, end: Int, length: Int) -> Tuple[Int, Int]:
+    """Clamp `[start, end)` to `[0, length]` and enforce `lo <= hi`.
+
+    A reversed range collapses to empty at `lo` so that transforms
+    treat it as a no-op instead of silently duplicating or dropping
+    elements.
+    """
+    var lo = _clamp_index(start, length)
+    var hi = _clamp_index(end, length)
+    if hi < lo:
+        hi = lo
+    return (lo, hi)
 
 
 def shortlex_compare(a: ChoiceSequence, b: ChoiceSequence) -> Int:
