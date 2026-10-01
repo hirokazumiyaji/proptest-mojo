@@ -42,7 +42,7 @@ def test_all_zero_draws_null() raises:
 
 def test_depth_zero_draws_leaf_only() raises:
     assert_equal(_draw_empty(json_tree(0, 3, -5, 5)), String("null"))
-    var tc = _replaying(UInt64(1), UInt64(1), UInt64(1))
+    var tc = _replaying(UInt64(1), UInt64(1))
     var value = tc.draw(json_tree(0, 3, -5, 5))
     assert_true(not value.is_array(), msg="depth 0 must not draw arrays")
     assert_equal(value.depth(), 0)

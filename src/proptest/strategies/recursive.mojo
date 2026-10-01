@@ -120,8 +120,8 @@ struct JsonTree(Strategy):
             tc.start_span(JSON_CHILD_SPAN)
             try:
                 var child = self._draw_at_depth(tc, depth - 1)
-                tc.stop_span()
                 kids.append(ArcPointer[JsonValue](child^))
+                tc.stop_span()
             except e:
                 tc.stop_span()
                 raise e
@@ -150,5 +150,7 @@ def json_tree(
         raise Error("json_tree: max_depth must be >= 0")
     if max_width < 1:
         raise Error("json_tree: max_width must be >= 1")
+    if maximum < minimum:
+        raise Error("json_tree: integer leaf range must be non-empty")
     var leaf_ints = integers(minimum, maximum)
     return JsonTree(max_depth, max_width, leaf_ints^)
