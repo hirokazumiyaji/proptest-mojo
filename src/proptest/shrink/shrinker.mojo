@@ -13,12 +13,7 @@ Phases run in spec order, restarting from the top after any adoption:
 
 from std.io import Writer
 
-from proptest.choice import (
-    ChoiceKind,
-    ChoiceSequence,
-    Span,
-    is_shortlex_smaller,
-)
+from proptest.choice import ChoiceKind, ChoiceSequence, Span
 from proptest.shrink.passes import delete_chunks, zero_chunks
 from proptest.shrink.span_passes import (
     delete_spans,
@@ -106,9 +101,6 @@ def shrink[
         return ShrinkResult(best^, 0, False)
 
     var entries = List[_CacheEntry]()
-    entries.append(
-        _CacheEntry(best.values(), False, best.copy(), best_spans.copy())
-    )
     var evaluations = 0
     var hit_budget = False
 
@@ -215,7 +207,7 @@ def shrink[
                 if evaluations >= max_evaluations:
                     hit_budget = True
                     break
-                var mid = (lo + hi) // UInt64(2)
+                var mid = lo + (hi - lo) // UInt64(2)
                 var probe = best.with_value_at(i, mid)
                 var pkey = probe.values()
                 var pidx = _lookup(entries, pkey)
@@ -757,9 +749,6 @@ def shrink_with[
         return ShrinkResult(best^, 0, False)
 
     var entries = List[_CacheEntry]()
-    entries.append(
-        _CacheEntry(best.values(), False, best.copy(), best_spans.copy())
-    )
     var evaluations = 0
     var hit_budget = False
 
@@ -866,7 +855,7 @@ def shrink_with[
                 if evaluations >= max_evaluations:
                     hit_budget = True
                     break
-                var mid = (lo + hi) // UInt64(2)
+                var mid = lo + (hi - lo) // UInt64(2)
                 var probe = best.with_value_at(i, mid)
                 var pkey = probe.values()
                 var pidx = _lookup(entries, pkey)

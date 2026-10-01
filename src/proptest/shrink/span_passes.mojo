@@ -25,8 +25,6 @@ from proptest.choice import (
 struct _SiblingRun(Copyable, Movable):
     var start_idx: Int
     var count: Int
-    var depth: Int
-    var start_pos: Int
 
 
 def _ordered_indices(spans: List[Span]) -> List[Int]:
@@ -54,24 +52,63 @@ def _ordered_indices(spans: List[Span]) -> List[Int]:
     return order^
 
 
-def _is_reorderable(span: Span, n: Int) -> Bool:
-    """Whether `span` covers an exact non-empty block of a length-`n` sequence.
+@fieldwise_init
+struct _SpanRanges(Movable):
+    var starts: List[Int]
+    var ends: List[Int]
+
+
+def _valid_span_ranges(n: Int, spans: List[Span]) -> _SpanRanges:
+    """Deepest-first, deduped, bounds-clipped `[start, end)` pairs.
+
+    Discarded, empty, and out-of-range spans drop out here so each pass
+    only has to apply its own progress check.
     """
-    if span.discarded:
-        return False
-    if span.start < 0 or span.start >= n:
-        return False
-    if span.end <= span.start or span.end > n:
-        return False
-    return True
+    var starts = List[Int]()
+    var ends = List[Int]()
+    var order = _ordered_indices(spans)
+    for k in range(len(order)):
+        var idx = order[k]
+        if spans[idx].discarded:
+            continue
+        var start = spans[idx].start
+        if start < 0 or start >= n:
+            continue
+        var end = spans[idx].end
+        if end > n:
+            end = n
+        if end <= start:
+            continue
+        var duplicate = False
+        for s in range(len(starts)):
+            if starts[s] == start and ends[s] == end:
+                duplicate = True
+                break
+        if duplicate:
+            continue
+        starts.append(start)
+        ends.append(end)
+    return _SpanRanges(starts^, ends^)
 
 
 def _valid_spans_sorted(spans: List[Span], n: Int) -> List[Span]:
-    """Valid reorderable spans de-duplicated and sorted by start position."""
+    """Reorderable spans de-duplicated and sorted by `(start, end)`.
+
+    Start-ties break shorter-end-first so a parent span sorts before its
+    children; `_collect_sibling_runs` then walks past the parent before
+    reaching the sibling blocks. Reordering splices whole `[start, end)`
+    blocks, so `end > n` spans are rejected outright rather than
+    clipped: a clipped block would no longer align with any recorded
+    sibling boundary.
+    """
     var out = List[Span]()
     for i in range(len(spans)):
         var span = spans[i].copy()
-        if not _is_reorderable(span.copy(), n):
+        if span.discarded:
+            continue
+        if span.start < 0 or span.start >= n:
+            continue
+        if span.end <= span.start or span.end > n:
             continue
         var duplicate = False
         for s in range(len(out)):
@@ -115,50 +152,47 @@ def _collect_sibling_runs(sorted: List[Span]) -> List[_SiblingRun]:
     var run_depth = sorted[0].depth
     var prev_end = sorted[0].end
     for i in range(1, len(sorted)):
-        var span = sorted[i].copy()
         if (
-            span.start == prev_end
-            and span.label == run_label
-            and span.depth == run_depth
+            sorted[i].start == prev_end
+            and sorted[i].label == run_label
+            and sorted[i].depth == run_depth
         ):
-            prev_end = span.end
+            prev_end = sorted[i].end
             continue
         var count = i - run_start
         if count >= 2:
-            runs.append(
-                _SiblingRun(
-                    run_start, count, run_depth, sorted[run_start].start
-                )
-            )
+            runs.append(_SiblingRun(run_start, count))
         run_start = i
-        run_label = span.label
-        run_depth = span.depth
-        prev_end = span.end
+        run_label = sorted[i].label
+        run_depth = sorted[i].depth
+        prev_end = sorted[i].end
     var tail = len(sorted) - run_start
     if tail >= 2:
-        runs.append(
-            _SiblingRun(run_start, tail, run_depth, sorted[run_start].start)
-        )
+        runs.append(_SiblingRun(run_start, tail))
     return runs^
 
 
-def _order_run_indices(runs: List[_SiblingRun]) -> List[Int]:
+def _order_run_indices(
+    runs: List[_SiblingRun], sorted: List[Span]
+) -> List[Int]:
     """Run indices deepest-first, ties broken leftmost-first."""
     var order = List[Int]()
     for i in range(len(runs)):
         order.append(i)
     for i in range(1, len(order)):
         var key = order[i]
-        var key_depth = runs[key].depth
-        var key_start = runs[key].start_pos
+        var key_depth = sorted[runs[key].start_idx].depth
+        var key_start = sorted[runs[key].start_idx].start
         var j = i - 1
         while j >= 0:
             var cur = order[j]
+            var cur_depth = sorted[runs[cur].start_idx].depth
+            var cur_start = sorted[runs[cur].start_idx].start
             var before: Bool
-            if key_depth != runs[cur].depth:
-                before = key_depth > runs[cur].depth
+            if key_depth != cur_depth:
+                before = key_depth > cur_depth
             else:
-                before = key_start < runs[cur].start_pos
+                before = key_start < cur_start
             if not before:
                 break
             order[j + 1] = cur
@@ -199,9 +233,7 @@ def _run_sort_order(
             var cur_idx = run.start_idx + cur
             var cur_start = sorted[cur_idx].start
             var cur_end = sorted[cur_idx].end
-            if not _block_less(
-                values.copy(), key_start, key_end, cur_start, cur_end
-            ):
+            if not _block_less(values, key_start, key_end, cur_start, cur_end):
                 break
             order[j + 1] = cur
             j -= 1
@@ -225,8 +257,9 @@ def _splice_run(
     var run_end = sorted[run.start_idx + run.count - 1].end
     var replacement = List[ChoiceNode]()
     for k in range(len(order)):
-        var block = sorted[run.start_idx + order[k]].copy()
-        for i in range(block.start, block.end):
+        var block_start = sorted[run.start_idx + order[k]].start
+        var block_end = sorted[run.start_idx + order[k]].end
+        for i in range(block_start, block_end):
             replacement.append(seq.nodes[i].copy())
     return seq.replaced_range(run_start, run_end, replacement^)
 
@@ -255,30 +288,9 @@ def delete_spans(
     var n = len(seq)
     if n == 0:
         return out^
-    var order = _ordered_indices(spans.copy())
-    var seen_starts = List[Int]()
-    var seen_ends = List[Int]()
-    for k in range(len(order)):
-        var span = spans[order[k]].copy()
-        if span.discarded:
-            continue
-        if span.start < 0 or span.start >= n:
-            continue
-        var end = span.end
-        if end > n:
-            end = n
-        if end <= span.start:
-            continue
-        var duplicate = False
-        for s in range(len(seen_starts)):
-            if seen_starts[s] == span.start and seen_ends[s] == end:
-                duplicate = True
-                break
-        if duplicate:
-            continue
-        seen_starts.append(span.start)
-        seen_ends.append(end)
-        var cand = seq.deleted(span.start, end)
+    var ranges = _valid_span_ranges(n, spans)
+    for i in range(len(ranges.starts)):
+        var cand = seq.deleted(ranges.starts[i], ranges.ends[i])
         if len(cand) == 0:
             continue
         out.append(cand^)
@@ -298,30 +310,9 @@ def zero_spans(seq: ChoiceSequence, spans: List[Span]) -> List[ChoiceSequence]:
     var n = len(seq)
     if n == 0:
         return out^
-    var order = _ordered_indices(spans.copy())
-    var seen_starts = List[Int]()
-    var seen_ends = List[Int]()
-    for k in range(len(order)):
-        var span = spans[order[k]].copy()
-        if span.discarded:
-            continue
-        if span.start < 0 or span.start >= n:
-            continue
-        var end = span.end
-        if end > n:
-            end = n
-        if end <= span.start:
-            continue
-        var duplicate = False
-        for s in range(len(seen_starts)):
-            if seen_starts[s] == span.start and seen_ends[s] == end:
-                duplicate = True
-                break
-        if duplicate:
-            continue
-        seen_starts.append(span.start)
-        seen_ends.append(end)
-        var cand = seq.zeroed(span.start, end)
+    var ranges = _valid_span_ranges(n, spans)
+    for i in range(len(ranges.starts)):
+        var cand = seq.zeroed(ranges.starts[i], ranges.ends[i])
         if not is_shortlex_smaller(cand, seq):
             continue
         out.append(cand^)
@@ -342,24 +333,17 @@ def sort_spans(seq: ChoiceSequence, spans: List[Span]) -> List[ChoiceSequence]:
     var n = len(seq)
     if n == 0:
         return out^
-    var sorted = _valid_spans_sorted(spans.copy(), n)
-    var runs = _collect_sibling_runs(sorted.copy())
-    var order = _order_run_indices(runs.copy())
+    var sorted = _valid_spans_sorted(spans, n)
+    var runs = _collect_sibling_runs(sorted)
+    var order = _order_run_indices(runs, sorted)
     var values = seq.values()
     for k in range(len(order)):
         var run = runs[order[k]].copy()
-        var perm = _run_sort_order(values.copy(), sorted.copy(), run.copy())
-        if _is_identity(perm.copy()):
+        var perm = _run_sort_order(values, sorted, run)
+        if _is_identity(perm):
             continue
-        var cand = _splice_run(seq.copy(), sorted.copy(), run^, perm^)
-        if not is_shortlex_smaller(cand.copy(), seq.copy()):
-            continue
-        var duplicate = False
-        for s in range(len(out)):
-            if out[s].copy() == cand.copy():
-                duplicate = True
-                break
-        if duplicate:
+        var cand = _splice_run(seq, sorted, run, perm^)
+        if not is_shortlex_smaller(cand, seq):
             continue
         out.append(cand^)
     return out^
@@ -380,23 +364,18 @@ def swap_adjacent_spans(
     var n = len(seq)
     if n == 0:
         return out^
-    var sorted = _valid_spans_sorted(spans.copy(), n)
-    var runs = _collect_sibling_runs(sorted.copy())
-    var order = _order_run_indices(runs.copy())
+    var sorted = _valid_spans_sorted(spans, n)
+    var runs = _collect_sibling_runs(sorted)
+    var order = _order_run_indices(runs, sorted)
     for k in range(len(order)):
         var run = runs[order[k]].copy()
         for j in range(run.count - 1):
-            var a = sorted[run.start_idx + j].copy()
-            var b = sorted[run.start_idx + j + 1].copy()
-            var cand = _splice_swap(seq.copy(), a.copy(), b.copy())
-            if not is_shortlex_smaller(cand.copy(), seq.copy()):
-                continue
-            var duplicate = False
-            for s in range(len(out)):
-                if out[s].copy() == cand.copy():
-                    duplicate = True
-                    break
-            if duplicate:
+            var cand = _splice_swap(
+                seq,
+                sorted[run.start_idx + j],
+                sorted[run.start_idx + j + 1],
+            )
+            if not is_shortlex_smaller(cand, seq):
                 continue
             out.append(cand^)
     return out^
