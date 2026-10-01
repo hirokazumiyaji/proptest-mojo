@@ -7,7 +7,7 @@ alone. Smaller choices yield simpler values; all-zero choices draw the
 simplest value of each strategy.
 """
 
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.testcase import TestCase
 
 comptime _SIGN_BIT = UInt64(0x8000000000000000)
@@ -62,13 +62,24 @@ def decode_integer_choice(choice: UInt64, minimum: Int, maximum: Int) -> Int:
     return _unbiased(target - paired - rest)
 
 
-@fieldwise_init
 struct Integers(Strategy):
     """Integers in `[minimum, maximum]` shrinking toward the value nearest 0."""
 
     comptime Value = Int
     var minimum: Int
     var maximum: Int
+
+    def __init__(out self, minimum: Int, maximum: Int) raises:
+        # Validated here, not only in `integers()`: this type is
+        # re-exported and `@fieldwise_init` would otherwise let an empty
+        # range reach `draw`, where the unsigned width subtraction wraps.
+        if maximum < minimum:
+            raise Error("integers: maximum must be >= minimum")
+        self.minimum = minimum
+        self.maximum = maximum
+
+    def span_label(self) -> UInt64:
+        return kind_label("integers")
 
     def draw(self, mut tc: TestCase) raises -> Int:
         var width = UInt64(self.maximum) - UInt64(self.minimum)
@@ -82,8 +93,6 @@ def integers(minimum: Int, maximum: Int) raises -> Integers:
     All-zero choices draw the value in range nearest 0. Raises when the
     range is empty.
     """
-    if maximum < minimum:
-        raise Error("integers: maximum must be >= minimum")
     return Integers(minimum, maximum)
 
 
@@ -92,6 +101,9 @@ struct Booleans(Strategy):
     """Coin flips shrinking toward `False`."""
 
     comptime Value = Bool
+
+    def span_label(self) -> UInt64:
+        return kind_label("booleans")
 
     def draw(self, mut tc: TestCase) raises -> Bool:
         return tc.draw_boolean()
@@ -109,6 +121,9 @@ struct Just[T: Copyable & Writable & Deinitable](Strategy):
 
     comptime Value = Self.T
     var value: Self.T
+
+    def span_label(self) -> UInt64:
+        return kind_label("just")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         return self.value.copy()

@@ -112,6 +112,21 @@ def test_consumed_descent_is_strict_at_every_adoption() raises:
         )
 
 
+def test_cached_candidates_do_not_consume_the_pass_limit() raises:
+    # Cache hits cost no evaluation, so they must not eat the
+    # materialization cap: a later candidate in the same pass that would
+    # improve `best` must still be reached.
+    var start = _seq(UInt64(900), UInt64(900), UInt64(900), UInt64(900))
+    var result = shrink[_eval_sum_over_1000](start.copy(), 60)
+    var check = _eval_sum_over_1000(result.best.copy())
+    assert_true(check.is_interesting, msg="result must stay interesting")
+    assert_true(result.evaluations <= 60, msg="budget must be respected")
+    assert_true(
+        not is_shortlex_smaller(start, result.best),
+        msg="shrinking must never move upward",
+    )
+
+
 def test_long_sequence_with_tiny_budget_stays_cheap() raises:
     # Materializing every deletion of a near-maximal sequence needs
     # gigabytes, which a small evaluation budget must avoid entirely.

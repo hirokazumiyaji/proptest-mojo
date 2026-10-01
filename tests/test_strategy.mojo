@@ -1,14 +1,21 @@
 from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence
 from proptest.prng import derive
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.strategies.primitives import (
+    Integers,
     booleans,
     decode_integer_choice,
     integers,
     just,
 )
 from proptest.testcase import TestCase
-from std.testing import TestSuite, assert_equal, assert_raises, assert_true
+from std.testing import (
+    TestSuite,
+    assert_equal,
+    assert_not_equal,
+    assert_raises,
+    assert_true,
+)
 
 
 def _replaying(*values: UInt64) -> TestCase:
@@ -120,6 +127,40 @@ def test_integers_invalid_range_raises() raises:
         _ = integers(10, 5)
 
 
+def test_span_label_follows_strategy_not_report_label() raises:
+    # A reused reporting label must not merge two strategy kinds: shrink
+    # passes may reorder blocks that share a span label.
+    var tc = _empty()
+    _ = tc.draw(integers(0, 5), "x")
+    _ = tc.draw(booleans(), "x")
+    assert_equal(len(tc.spans), 2)
+    assert_not_equal(tc.spans[0].label, tc.spans[1].label)
+    assert_equal(tc.spans[0].label, kind_label("integers"))
+    assert_equal(tc.spans[1].label, kind_label("booleans"))
+    assert_equal(tc.draw_labels[0], tc.draw_labels[1])
+
+
+def test_span_label_ignores_distinct_report_labels() raises:
+    var tc = _empty()
+    _ = tc.draw(integers(0, 5), "first")
+    _ = tc.draw(integers(0, 5), "second")
+    assert_equal(len(tc.spans), 2)
+    assert_equal(tc.spans[0].label, tc.spans[1].label)
+
+
+def test_integers_type_rejects_inverted_range() raises:
+    # `Integers` is re-exported, so its own constructor must validate too:
+    # an unchecked `Integers(10, 5)` wraps the unsigned width in `draw`.
+    with assert_raises():
+        _ = Integers(10, 5)
+
+
+def test_integers_type_accepts_valid_range() raises:
+    var strategy = Integers(-3, 7)
+    assert_equal(strategy.minimum, -3)
+    assert_equal(strategy.maximum, 7)
+
+
 def test_booleans_all_zero_is_false() raises:
     assert_equal(_draw_empty(booleans()), False)
     assert_equal(_draw_replaying(booleans(), UInt64(0)), False)
@@ -151,6 +192,7 @@ def test_draw_records_span_label_and_value() raises:
     assert_equal(len(tc.spans), 1)
     assert_equal(tc.spans[0].start, 0)
     assert_equal(tc.spans[0].end, 1)
+    assert_equal(tc.spans[0].label, integers(0, 5).span_label())
     assert_equal(len(tc.draw_labels), 1)
     assert_equal(tc.draw_labels[0], String("count"))
     assert_equal(len(tc.draw_values), 1)

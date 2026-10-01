@@ -88,48 +88,67 @@ def shrink[
     while True:
         var improved = False
 
-        # Only candidates within the remaining budget can ever be
-        # evaluated, and each one is a full copy of the sequence.
-        var removals = delete_chunks(best.copy(), max_evaluations - evaluations)
-        for j in range(len(removals)):
+        # Candidates are materialized in batches bounded by the remaining
+        # budget, since each one is a full copy of the sequence. The batch
+        # is refetched when it held only cache hits: those cost no
+        # evaluation, so they must not shrink the cap and hide a later
+        # candidate that would have been adopted.
+        var fetched = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = removals[j].copy()
-            var key = cand.values()
-            if _lookup(entries, key) >= 0:
-                continue
-            evaluations += 1
-            var result = evaluate(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            entries.append(_CacheEntry(key^, interesting, consumed.copy()))
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                improved = True
+            var want = fetched + (max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), want)
+            while fetched < len(removals):
+                var cand = removals[fetched].copy()
+                fetched += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = evaluate(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(removals) < want:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        var zeroings = zero_chunks(best.copy(), max_evaluations - evaluations)
-        for j in range(len(zeroings)):
+        var zeroed_count = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = zeroings[j].copy()
-            var key = cand.values()
-            if _lookup(entries, key) >= 0:
-                continue
-            evaluations += 1
-            var result = evaluate(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            entries.append(_CacheEntry(key^, interesting, consumed.copy()))
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                improved = True
+            var want = zeroed_count + (max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), want)
+            while zeroed_count < len(zeroings):
+                var cand = zeroings[zeroed_count].copy()
+                zeroed_count += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = evaluate(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(zeroings) < want:
                 break
         if hit_budget:
             break
