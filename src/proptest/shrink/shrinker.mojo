@@ -8,7 +8,7 @@ fixed point or when `max_evaluations` is reached.
 
 from std.io import Writer
 
-from proptest.choice import ChoiceSequence
+from proptest.choice import ChoiceSequence, is_shortlex_smaller
 from proptest.shrink.passes import delete_chunks, zero_chunks
 
 
@@ -102,7 +102,7 @@ def shrink[
             var interesting = result.is_interesting
             var consumed = result.consumed.copy()
             entries.append(_CacheEntry(key^, interesting, consumed.copy()))
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 improved = True
                 break
@@ -125,7 +125,7 @@ def shrink[
             var interesting = result.is_interesting
             var consumed = result.consumed.copy()
             entries.append(_CacheEntry(key^, interesting, consumed.copy()))
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 improved = True
                 break
@@ -160,7 +160,7 @@ def shrink[
                 entries.append(
                     _CacheEntry(key^, zero_interesting, zero_consumed.copy())
                 )
-            if zero_interesting:
+            if zero_interesting and is_shortlex_smaller(zero_consumed, best):
                 best = zero_consumed^
                 improved = True
                 break
@@ -188,12 +188,17 @@ def shrink[
                     entries.append(
                         _CacheEntry(pkey^, p_interesting, p_consumed.copy())
                     )
-                if p_interesting:
+                if p_interesting and is_shortlex_smaller(p_consumed, best):
                     hi = mid
                     best = p_consumed^
                     changed = True
-                else:
+                elif not p_interesting:
                     lo = mid
+                else:
+                    # Interesting but not smaller: the property drew
+                    # extra choices, so this probe is unusable and the
+                    # interval is exhausted rather than narrowed.
+                    break
             if hit_budget:
                 break
             if changed:
@@ -246,7 +251,7 @@ def shrink_with[
             var interesting = result.is_interesting
             var consumed = result.consumed.copy()
             entries.append(_CacheEntry(key^, interesting, consumed.copy()))
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 improved = True
                 break
@@ -269,7 +274,7 @@ def shrink_with[
             var interesting = result.is_interesting
             var consumed = result.consumed.copy()
             entries.append(_CacheEntry(key^, interesting, consumed.copy()))
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 improved = True
                 break
@@ -304,7 +309,7 @@ def shrink_with[
                 entries.append(
                     _CacheEntry(key^, zero_interesting, zero_consumed.copy())
                 )
-            if zero_interesting:
+            if zero_interesting and is_shortlex_smaller(zero_consumed, best):
                 best = zero_consumed^
                 improved = True
                 break
@@ -332,12 +337,17 @@ def shrink_with[
                     entries.append(
                         _CacheEntry(pkey^, p_interesting, p_consumed.copy())
                     )
-                if p_interesting:
+                if p_interesting and is_shortlex_smaller(p_consumed, best):
                     hi = mid
                     best = p_consumed^
                     changed = True
-                else:
+                elif not p_interesting:
                     lo = mid
+                else:
+                    # Interesting but not smaller: the property drew
+                    # extra choices, so this probe is unusable and the
+                    # interval is exhausted rather than narrowed.
+                    break
             if hit_budget:
                 break
             if changed:
