@@ -54,24 +54,60 @@ def _ordered_indices(spans: List[Span]) -> List[Int]:
     return order^
 
 
-def _is_reorderable(span: Span, n: Int) -> Bool:
-    """Whether `span` covers an exact non-empty block of a length-`n` sequence.
+@fieldwise_init
+struct _SpanRanges(Movable):
+    var starts: List[Int]
+    var ends: List[Int]
+
+
+def _valid_span_ranges(n: Int, spans: List[Span]) -> _SpanRanges:
+    """Deepest-first, deduped, bounds-clipped `[start, end)` pairs.
+
+    Discarded, empty, and out-of-range spans drop out here so each pass
+    only has to apply its own progress check.
     """
-    if span.discarded:
-        return False
-    if span.start < 0 or span.start >= n:
-        return False
-    if span.end <= span.start or span.end > n:
-        return False
-    return True
+    var starts = List[Int]()
+    var ends = List[Int]()
+    var order = _ordered_indices(spans)
+    for k in range(len(order)):
+        var idx = order[k]
+        if spans[idx].discarded:
+            continue
+        var start = spans[idx].start
+        if start < 0 or start >= n:
+            continue
+        var end = spans[idx].end
+        if end > n:
+            end = n
+        if end <= start:
+            continue
+        var duplicate = False
+        for s in range(len(starts)):
+            if starts[s] == start and ends[s] == end:
+                duplicate = True
+                break
+        if duplicate:
+            continue
+        starts.append(start)
+        ends.append(end)
+    return _SpanRanges(starts^, ends^)
 
 
 def _valid_spans_sorted(spans: List[Span], n: Int) -> List[Span]:
-    """Valid reorderable spans de-duplicated and sorted by start position."""
+    """Reorderable spans de-duplicated and sorted by start position.
+
+    Reordering splices whole `[start, end)` blocks, so `end > n` spans
+    are rejected outright rather than clipped: a clipped block would no
+    longer align with any recorded sibling boundary.
+    """
     var out = List[Span]()
     for i in range(len(spans)):
         var span = spans[i].copy()
-        if not _is_reorderable(span.copy(), n):
+        if span.discarded:
+            continue
+        if span.start < 0 or span.start >= n:
+            continue
+        if span.end <= span.start or span.end > n:
             continue
         var duplicate = False
         for s in range(len(out)):
@@ -255,30 +291,9 @@ def delete_spans(
     var n = len(seq)
     if n == 0:
         return out^
-    var order = _ordered_indices(spans.copy())
-    var seen_starts = List[Int]()
-    var seen_ends = List[Int]()
-    for k in range(len(order)):
-        var span = spans[order[k]].copy()
-        if span.discarded:
-            continue
-        if span.start < 0 or span.start >= n:
-            continue
-        var end = span.end
-        if end > n:
-            end = n
-        if end <= span.start:
-            continue
-        var duplicate = False
-        for s in range(len(seen_starts)):
-            if seen_starts[s] == span.start and seen_ends[s] == end:
-                duplicate = True
-                break
-        if duplicate:
-            continue
-        seen_starts.append(span.start)
-        seen_ends.append(end)
-        var cand = seq.deleted(span.start, end)
+    var ranges = _valid_span_ranges(n, spans)
+    for i in range(len(ranges.starts)):
+        var cand = seq.deleted(ranges.starts[i], ranges.ends[i])
         if len(cand) == 0:
             continue
         out.append(cand^)
@@ -298,30 +313,9 @@ def zero_spans(seq: ChoiceSequence, spans: List[Span]) -> List[ChoiceSequence]:
     var n = len(seq)
     if n == 0:
         return out^
-    var order = _ordered_indices(spans.copy())
-    var seen_starts = List[Int]()
-    var seen_ends = List[Int]()
-    for k in range(len(order)):
-        var span = spans[order[k]].copy()
-        if span.discarded:
-            continue
-        if span.start < 0 or span.start >= n:
-            continue
-        var end = span.end
-        if end > n:
-            end = n
-        if end <= span.start:
-            continue
-        var duplicate = False
-        for s in range(len(seen_starts)):
-            if seen_starts[s] == span.start and seen_ends[s] == end:
-                duplicate = True
-                break
-        if duplicate:
-            continue
-        seen_starts.append(span.start)
-        seen_ends.append(end)
-        var cand = seq.zeroed(span.start, end)
+    var ranges = _valid_span_ranges(n, spans)
+    for i in range(len(ranges.starts)):
+        var cand = seq.zeroed(ranges.starts[i], ranges.ends[i])
         if not is_shortlex_smaller(cand, seq):
             continue
         out.append(cand^)

@@ -9,6 +9,8 @@ shrinking. Smaller choices yield shorter lists of simpler elements;
 all-zero choices draw `min_size` minimal elements.
 """
 
+from std.math import max, min
+
 from proptest.strategy import Strategy
 from proptest.testcase import TestCase
 
@@ -16,16 +18,9 @@ comptime _LIST_ELEMENT_LABEL = UInt64(0x6C697374456C656D)
 
 
 def _default_average_size(min_size: Int, max_size: Int) -> Float64:
-    # min(max(min_size * 2, min_size + 5), (min_size + max_size) / 2).
-    var lo = min_size * 2
-    var shifted = min_size + 5
-    if shifted > lo:
-        lo = shifted
+    var lo = Float64(max(min_size * 2, min_size + 5))
     var mid = Float64(min_size + max_size) / 2.0
-    var lof = Float64(lo)
-    if lof < mid:
-        return lof
-    return mid
+    return min(lo, mid)
 
 
 @fieldwise_init
@@ -62,7 +57,7 @@ struct ListOf[E: Strategy](Strategy):
                 tc.stop_span()
                 out.append(element^)
             except e:
-                tc.stop_span()
+                tc.stop_span(discard=True)
                 raise e
         return out^
 
@@ -92,6 +87,4 @@ def lists[
     var avg = average_size
     if avg < 0.0:
         avg = _default_average_size(min_size, max_size)
-    if avg < 0.0:
-        raise Error("lists: average_size must be >= 0")
     return ListOf[E](elements^, min_size, max_size, avg)
