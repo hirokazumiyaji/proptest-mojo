@@ -63,14 +63,24 @@ def test_settings_explicit_values_win_over_env() raises:
     var saved_count = getenv("PROPTEST_MAX_EXAMPLES")
     _ = setenv("PROPTEST_SEED", "777")
     _ = setenv("PROPTEST_MAX_EXAMPLES", "7")
-    var defaulted = Settings()
-    var default_seed = defaulted.effective_seed()
-    var default_count = defaulted.effective_max_examples()
-    var explicit = Settings(seed=UInt64(1), max_examples=3)
-    var explicit_seed = explicit.effective_seed()
-    var explicit_count = explicit.effective_max_examples()
+    var default_seed = UInt64(0)
+    var default_count = 0
+    var explicit_seed = UInt64(0)
+    var explicit_count = 0
+    var failure = String("")
+    try:
+        var defaulted = Settings()
+        default_seed = defaulted.effective_seed()
+        default_count = defaulted.effective_max_examples()
+        var explicit = Settings(seed=UInt64(1), max_examples=3)
+        explicit_seed = explicit.effective_seed()
+        explicit_count = explicit.effective_max_examples()
+    except e:
+        failure = String(e)
     _ = setenv("PROPTEST_SEED", saved_seed)
     _ = setenv("PROPTEST_MAX_EXAMPLES", saved_count)
+    if failure.byte_length() > 0:
+        raise Error(failure)
     assert_equal(default_seed, UInt64(777))
     assert_equal(default_count, 7)
     assert_equal(explicit_seed, UInt64(1))

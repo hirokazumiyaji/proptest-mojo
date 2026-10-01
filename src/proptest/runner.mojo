@@ -90,11 +90,15 @@ struct Settings(Copyable, Movable, Writable):
             return self.seed.value()
         var from_env = getenv(SEED_ENV_VAR)
         if from_env.byte_length() > 0:
-            return UInt64(Int(from_env))
-        var now = Int(monotonic())
-        if now < 0:
-            now = -now
-        return UInt64(now)
+            try:
+                return UInt64(Int(from_env))
+            except:
+                raise Error(
+                    "PROPTEST_SEED is not a valid integer: '"
+                    + String(from_env)
+                    + "'"
+                )
+        return UInt64(abs(Int(monotonic())))
 
     def effective_max_examples(self) raises -> Int:
         """Explicit count, else `PROPTEST_MAX_EXAMPLES` over the default."""
@@ -102,9 +106,16 @@ struct Settings(Copyable, Movable, Writable):
             return self.max_examples
         var from_env = getenv(MAX_EXAMPLES_ENV_VAR)
         if from_env.byte_length() > 0:
-            var parsed = Int(from_env)
-            if parsed > 0:
-                return parsed
+            try:
+                var parsed = Int(from_env)
+                if parsed > 0:
+                    return parsed
+            except:
+                raise Error(
+                    "PROPTEST_MAX_EXAMPLES is not a valid integer: '"
+                    + String(from_env)
+                    + "'"
+                )
         return self.max_examples
 
     def write_to(self, mut writer: Some[Writer]):
@@ -213,7 +224,6 @@ def for_all[
                 )
             continue
         if not raised:
-            tc.status = Status.VALID
             valid_count += 1
             if verbose:
                 print(
