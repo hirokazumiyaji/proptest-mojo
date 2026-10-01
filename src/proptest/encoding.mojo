@@ -36,26 +36,20 @@ def decode_values(encoded: String) raises -> List[UInt64]:
     var out = List[UInt64]()
     var value = UInt64(0)
     var shift = 0
-    var in_value = False
     for i in range(len(raw)):
-        if shift > 63:
-            raise Error("encoding: LEB128 overflows UInt64")
         var byte = raw[i]
         var continued = (byte & UInt8(0x80)) != UInt8(0)
         var low = UInt64(byte & UInt8(0x7F))
-        if shift == 63:
-            if continued or low > UInt64(1):
-                raise Error("encoding: LEB128 overflows UInt64")
+        if shift == 63 and (continued or low > UInt64(1)):
+            raise Error("encoding: LEB128 overflows UInt64")
         value |= low << UInt64(shift)
         if continued:
             shift += 7
-            in_value = True
         else:
             out.append(value)
             value = UInt64(0)
             shift = 0
-            in_value = False
-    if in_value:
+    if shift != 0:
         raise Error("encoding: truncated LEB128 sequence")
     return out^
 

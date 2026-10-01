@@ -32,10 +32,7 @@ def _values(*values: UInt64) -> List[UInt64]:
 
 
 def _assert_values_roundtrip(values: List[UInt64]) raises:
-    var decoded = decode_values(encode_values(values))
-    assert_equal(len(decoded), len(values))
-    for i in range(len(values)):
-        assert_equal(decoded[i], values[i])
+    assert_equal(decode_values(encode_values(values)), values)
 
 
 def _extract_replay(report: String) raises -> String:
@@ -68,10 +65,7 @@ def _prop_encoding_roundtrip(mut tc: TestCase) raises:
     var values = List[UInt64]()
     for _ in range(count):
         values.append(UInt64(tc.draw(integers(0, 100000), "v")))
-    var decoded = decode_values(encode_values(values))
-    assert_equal(len(decoded), len(values))
-    for i in range(len(values)):
-        assert_equal(decoded[i], values[i])
+    assert_equal(decode_values(encode_values(values)), values)
 
 
 def test_empty_sequence_encodes_to_empty_string() raises:

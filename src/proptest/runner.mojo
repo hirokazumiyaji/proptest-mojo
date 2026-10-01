@@ -202,9 +202,9 @@ def for_all[
                 report_tc.draw_values.copy(),
                 report_tc.notes.copy(),
                 message,
-                seed,
+                Optional[UInt64](seed),
                 shrink_result.hit_budget,
-                encode_sequence(report_tc.choices.copy()),
+                encode_sequence(report_tc.choices),
             )
         )
 
@@ -244,7 +244,7 @@ def _replay_only[
             tc.draw_values.copy(),
             tc.notes.copy(),
             message,
-            settings.effective_seed(),
+            None,
             False,
             replay_token,
         )
@@ -267,7 +267,7 @@ def _format_report(
     values: List[String],
     notes: List[String],
     message: String,
-    seed: UInt64,
+    seed: Optional[UInt64],
     hit_budget: Bool,
     replay_token: String,
 ) -> String:
@@ -292,8 +292,9 @@ def _format_report(
         out += "\n"
     out += "Error: "
     out += message
-    out += "\nSeed: "
-    out += String(seed)
+    if seed is not None:
+        out += "\nSeed: "
+        out += String(seed.value())
     if hit_budget:
         out += "\nShrink budget exhausted; counterexample may not be minimal"
     out += '\nReproduce with: Settings(replay="'
