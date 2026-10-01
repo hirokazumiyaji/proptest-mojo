@@ -154,10 +154,14 @@ struct ExampleDatabase(Copyable, Movable):
 
     var database_dir: String
     var name: String
+    var _dir: String
 
     def __init__(out self, database_dir: String, name: String):
         self.database_dir = database_dir.copy()
         self.name = name.copy()
+        self._dir = name_dir(
+            database_dir, name
+        ) if name.byte_length() > 0 else String("")
 
     def enabled(self) -> Bool:
         """Whether `name` selects database use (empty disables)."""
@@ -175,12 +179,12 @@ struct ExampleDatabase(Copyable, Movable):
             return out^
         var entries: List[String]
         try:
-            entries = listdir(name_dir(self.database_dir, self.name))
+            entries = listdir(self._dir)
         except:
             return out^
         for i in range(len(entries)):
             var filename = String(entries[i])
-            var full = name_dir(self.database_dir, self.name) + "/" + filename
+            var full = self._dir + "/" + filename
             if not Path(full).is_file():
                 continue
             var content = String("")
@@ -200,11 +204,8 @@ struct ExampleDatabase(Copyable, Movable):
         if replay.byte_length() == 0:
             return
         _ensure_dir(self.database_dir)
-        var dir = name_dir(self.database_dir, self.name)
-        _ensure_dir(dir)
-        Path(entry_path(self.database_dir, self.name, replay)).write_text(
-            replay.copy()
-        )
+        _ensure_dir(self._dir)
+        Path(self._dir + "/" + sha256_hex(replay)).write_text(replay.copy())
 
     def remove(self, replay: String) raises:
         """Delete the file addressed by `replay`; missing files are ignored."""
@@ -220,7 +221,7 @@ struct ExampleDatabase(Copyable, Movable):
         """
         if not self.enabled():
             return
-        var full = name_dir(self.database_dir, self.name) + "/" + filename
+        var full = self._dir + "/" + filename
         if not Path(full).is_file():
             return
         remove(full)

@@ -6,16 +6,8 @@ generation with pruning of stale entries, and the disabled-by-default
 `name`. SHA-256 itself is checked against `sha256sum` reference vectors.
 """
 
-from proptest import (
-    ExampleDatabase,
-    Settings,
-    TestCase,
-    entry_path,
-    for_all,
-    integers,
-    name_dir,
-    sha256_hex,
-)
+from proptest import ExampleDatabase, Settings, TestCase, for_all, integers
+from proptest.database import entry_path, name_dir, sha256_hex
 from std.os import listdir, remove
 from std.pathlib import Path
 from std.testing import TestSuite, assert_equal, assert_true

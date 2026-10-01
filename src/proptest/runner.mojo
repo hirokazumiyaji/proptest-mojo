@@ -143,8 +143,8 @@ def for_all[
         return
     var seed = settings.effective_seed()
     var max_examples = settings.effective_max_examples()
-    if settings.name.byte_length() > 0:
-        _replay_database(prop, settings, seed)
+    var db = ExampleDatabase(settings.database_dir.copy(), settings.name.copy())
+    _replay_database(prop, settings, seed, db)
 
     var valid_count = 0
     var examples_run = 0
@@ -190,20 +190,19 @@ def for_all[
             valid_count += 1
             continue
         _shrink_and_raise(
-            prop, settings, seed, examples_run, tc.choices.copy(), message
+            prop, settings, seed, examples_run, tc.choices.copy(), message, db
         )
 
 
 def _replay_database[
     P: def(mut TestCase) raises -> None
-](prop: P, settings: Settings, seed: UInt64) raises:
+](prop: P, settings: Settings, seed: UInt64, db: ExampleDatabase) raises:
     """Replay saved counterexamples before generation (spec phase 1).
 
     The first replay that still fails short-circuits to shrinking and
     reporting. Replays that no longer fail are stale, so their files are
     deleted.
     """
-    var db = ExampleDatabase(settings.database_dir.copy(), settings.name.copy())
     var saved = db.load()
     for i in range(len(saved)):
         var entry = saved[i].copy()
@@ -224,7 +223,7 @@ def _replay_database[
             message = String(e)
         if raised and tc.status == Status.RUNNING:
             _shrink_and_raise(
-                prop, settings, seed, i + 1, tc.choices.copy(), message
+                prop, settings, seed, i + 1, tc.choices.copy(), message, db
             )
         else:
             db.remove_file(entry.filename.copy())
@@ -239,6 +238,7 @@ def _shrink_and_raise[
     examples_run: Int,
     failing: ChoiceSequence,
     failure_message: String,
+    db: ExampleDatabase,
 ) raises:
     """Shrink `failing`, persist the best replay, and raise the report.
 
@@ -271,11 +271,7 @@ def _shrink_and_raise[
     except e:
         replay_message = String(e)
     var replay_token = encode_sequence(report_tc.choices.copy())
-    if settings.name.byte_length() > 0:
-        var db = ExampleDatabase(
-            settings.database_dir.copy(), settings.name.copy()
-        )
-        db.save(replay_token)
+    db.save(replay_token)
     raise Error(
         _format_report(
             examples_run,

@@ -8,13 +8,7 @@ from proptest.choice import (
     is_shortlex_smaller,
     shortlex_compare,
 )
-from proptest.database import (
-    ExampleDatabase,
-    SavedEntry,
-    entry_path,
-    name_dir,
-    sha256_hex,
-)
+from proptest.database import ExampleDatabase
 from proptest.encoding import (
     decode_sequence,
     decode_values,
