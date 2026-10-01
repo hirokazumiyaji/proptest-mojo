@@ -141,9 +141,9 @@ def for_all[
     var best_seq = ChoiceSequence()
     while valid_count < max_examples:
         var tc: TestCase
-        if _use_targeted_mutation(valid_count, max_examples, has_best):
+        if has_best and valid_count * 2 >= max_examples:
             tc = _mutated_test_case(
-                best_seq, seed, attempt, settings.max_choices, attempt
+                best_seq, seed, attempt, settings.max_choices
             )
         else:
             tc = _fresh_test_case(settings.max_choices, seed, attempt)
@@ -224,80 +224,53 @@ def _fresh_test_case(
     return TestCase.generating(derive(seed, attempt), max_choices, attempt)
 
 
-def _use_targeted_mutation(
-    valid_count: Int, max_examples: Int, has_best: Bool
-) -> Bool:
-    """Whether generation should mutate the best-scoring sequence.
-
-    The first half explores with fresh PRNG draws; the second half
-    exploits the highest `target` score seen so far. Empty best
-    sequences (no draws) fall back to fresh generation.
-    """
-    if not has_best:
-        return False
-    if max_examples <= 1:
-        return False
-    return valid_count * 2 >= max_examples
-
-
 def _mutated_test_case(
     best: ChoiceSequence,
     seed: UInt64,
     attempt: UInt64,
     max_choices: Int,
-    example_index: UInt64,
 ) raises -> TestCase:
     """Replay a targeted mutant of `best`, falling back when not mutable."""
     if len(best) == 0:
         return _fresh_test_case(max_choices, seed, attempt)
     var prng = derive(seed, attempt)
     var mutated = _mutate_target_sequence(best, prng^)
-    return TestCase.replaying(mutated^, max_choices, example_index)
+    return TestCase.replaying(mutated^, max_choices, attempt)
 
 
 def _mutate_target_sequence(
     best: ChoiceSequence, var prng: Xoshiro256StarStar
 ) raises -> ChoiceSequence:
-    """Copy `best` with each mutable choice uniformly re-rolled.
+    """Copy `best` with mutable choices uniformly re-rolled.
 
-    Each non-forced choice is replaced with a uniform value in
-    `0..=max_value` with `TARGET_MUTATION_PROBABILITY`, without
-    consuming extra recorded choices. At least one mutable choice is
-    re-rolled so mutants explore even when no coin lands. Forced
-    choices are preserved.
+    Each non-forced choice with `max_value > 0` is re-rolled with
+    probability `TARGET_MUTATION_PROBABILITY`. One such choice is
+    picked up front and re-rolled unconditionally so mutants explore
+    even when no coin lands. Forced and zero-range choices are
+    preserved.
     """
-    var out = ChoiceSequence()
-    var mutated_any = False
+    var mutable_indices = List[Int]()
     for i in range(len(best)):
         var node = best[i]
-        if node.forced:
+        if not node.forced and node.max_value != UInt64(0):
+            mutable_indices.append(i)
+    var mandatory_idx = -1
+    if len(mutable_indices) > 0:
+        mandatory_idx = mutable_indices[
+            Int(prng.next_below(UInt64(len(mutable_indices))))
+        ]
+    var out = ChoiceSequence()
+    for i in range(len(best)):
+        var node = best[i]
+        if node.forced or node.max_value == UInt64(0):
             out.append(node^)
             continue
-        var fresh = node.value
-        var do_mutate = prng.next_float64() < TARGET_MUTATION_PROBABILITY
-        if do_mutate and node.max_value != UInt64(0):
-            if node.max_value == UInt64(0xFFFFFFFFFFFFFFFF):
-                fresh = prng.next_u64()
-            else:
-                fresh = prng.next_below(node.max_value + UInt64(1))
-            mutated_any = True
-        node.value = fresh
+        var mutate = (i == mandatory_idx) or (
+            prng.next_float64() < TARGET_MUTATION_PROBABILITY
+        )
+        if mutate:
+            node.value = prng.next_at_most(node.max_value)
         out.append(node^)
-    if not mutated_any and len(best) > 0:
-        var idx = Int(prng.next_u64() % UInt64(len(best)))
-        for _ in range(len(best)):
-            var candidate = best[idx]
-            if not candidate.forced and candidate.max_value != UInt64(0):
-                var forced_fresh: UInt64
-                if candidate.max_value == UInt64(0xFFFFFFFFFFFFFFFF):
-                    forced_fresh = prng.next_u64()
-                else:
-                    forced_fresh = prng.next_below(
-                        candidate.max_value + UInt64(1)
-                    )
-                out = out.with_value_at(idx, forced_fresh)
-                break
-            idx = (idx + 1) % len(best)
     return out^
 
 

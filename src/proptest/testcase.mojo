@@ -248,14 +248,14 @@ struct TestCase(Sized, Writable):
     def target(mut self, score: Float64, label: StringSlice = ""):
         """Record a score to maximize toward interesting inputs.
 
-        Keeps the maximum finite score seen in this execution; NaN is
-        ignored. The label distinguishes call sites in future reports
-        but does not affect selection. The runner keeps the
-        highest-scoring valid sequence and mutates it in the second
-        half of generation.
+        Keeps the maximum finite score seen in this execution; non-finite
+        scores (NaN, infinities) are ignored. The label distinguishes
+        call sites in future reports but does not affect selection. The
+        runner keeps the highest-scoring valid sequence and mutates it in
+        the second half of generation.
         """
         _ = label
-        if score != score:
+        if (score - score) != 0.0:
             return
         if not self.has_target or score > self.target_score:
             self.target_score = score
@@ -302,9 +302,7 @@ struct TestCase(Sized, Writable):
             return value
         if self.prng.next_u64() < EDGE_BIAS_U64_THRESHOLD:
             return _edge_value(max_value, self.prng.next_u64())
-        if max_value == UInt64(0xFFFFFFFFFFFFFFFF):
-            return self.prng.next_u64()
-        return self.prng.next_below(max_value + UInt64(1))
+        return self.prng.next_at_most(max_value)
 
     def _record(
         mut self,

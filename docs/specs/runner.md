@@ -67,7 +67,7 @@ def main() raises:
 
 ### 標的生成（M5）
 
-- `tc.target(score)` を呼ぶと、その実行の最高スコアが記録される（NaN は無視）。
+- `tc.target(score)` を呼ぶと、その実行の最高スコアが記録される（NaN と無限大は無視）。
 - ランナーは `VALID` な実行の最高スコア選択列を保持し、`VALID` が `max_examples` の半数に達した後の生成では、その選択列の変異体（各非 `forced` 選択を確率 0.1 で一様に置き換え、少なくとも 1 箇所は変異）を `derive(seed, attempt)` の PRNG で作って再生する。
 - `target` を使わない実行の生成経路・再現性は変わらない。
 
