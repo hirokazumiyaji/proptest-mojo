@@ -61,20 +61,15 @@ def test_tuples2_is_deterministic_for_same_prefix() raises:
 def test_tuples2_elements_shrink_independently() raises:
     # Choice 3 draws 2 in [-10, 10] (0, 1, -1, 2, ...); each side follows
     # only its own choice.
-    var left = _draw_replaying(
-        tuples(integers(-10, 10), integers(-10, 10)), UInt64(3), UInt64(0)
-    )
+    var strategy = tuples(integers(-10, 10), integers(-10, 10))
+    var left = _draw_replaying(strategy, UInt64(3), UInt64(0))
     assert_equal(left[0], 2)
     assert_equal(left[1], 0)
-    var right = _draw_replaying(
-        tuples(integers(-10, 10), integers(-10, 10)), UInt64(0), UInt64(3)
-    )
+    var right = _draw_replaying(strategy, UInt64(0), UInt64(3))
     assert_equal(right[0], 0)
     assert_equal(right[1], 2)
     # Widening the second choice leaves the first element unchanged.
-    var widened = _draw_replaying(
-        tuples(integers(-10, 10), integers(-10, 10)), UInt64(3), UInt64(5)
-    )
+    var widened = _draw_replaying(strategy, UInt64(3), UInt64(5))
     assert_equal(widened[0], 2)
     assert_equal(widened[1], 3)
 
@@ -193,16 +188,19 @@ def test_for_all_reports_none_readably() raises:
     assert_true(("maybe = None" in report), msg="readable None, got: " + report)
 
 
-def test_for_all_shrinks_each_element_independently() raises:
-    def prop(mut tc: TestCase) raises:
-        var pair = tc.draw(tuples(integers(0, 100), integers(0, 100)), "pair")
-        if pair[0] < 5 or pair[1] < 7:
-            return
-        raise Error("too big: pair=" + String(pair))
+def _fails_above_threshold(mut tc: TestCase) raises:
+    var pair = tc.draw(tuples(integers(0, 100), integers(0, 100)), "pair")
+    if pair[0] < 5 or pair[1] < 7:
+        return
+    raise Error("too big: pair=" + String(pair))
 
+
+def test_for_all_shrinks_each_element_independently() raises:
     var report = String("")
     try:
-        for_all(prop, Settings(seed=UInt64(11), max_examples=100))
+        for_all(
+            _fails_above_threshold, Settings(seed=UInt64(11), max_examples=100)
+        )
     except e:
         report = String(e)
     assert_true(("pair = (5, 7)" in report), msg="minimal pair, got: " + report)
