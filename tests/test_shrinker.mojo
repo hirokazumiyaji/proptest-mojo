@@ -4,7 +4,7 @@ from proptest.choice import (
     ChoiceSequence,
     is_shortlex_smaller,
 )
-from proptest.shrink.shrinker import Evaluation, shrink
+from proptest.shrink.shrinker import Evaluation, shrink, shrink_with
 from std.testing import TestSuite, assert_equal, assert_true
 
 
@@ -66,6 +66,74 @@ def test_adopts_consumed_prefix() raises:
     var result = shrink[_eval_first_over_5](start.copy(), 5000)
     assert_equal(len(result.best), 1)
     assert_equal(result.best[0].value, UInt64(6))
+
+
+def _eval_two_draws_fail_over_1(seq: ChoiceSequence) -> Evaluation:
+    """Always draws twice; interesting when the first value is above 0.
+
+    Replaying a shorter prefix appends a synthesized zero, so `consumed`
+    can be shortlex-larger than the candidate that produced it.
+    """
+    var first = UInt64(0)
+    if len(seq) >= 1:
+        first = seq.nodes[0].value
+    var consumed = ChoiceSequence()
+    consumed.append(_node(first))
+    consumed.append(_node(UInt64(0)))
+    return Evaluation(first > UInt64(0), consumed^)
+
+
+def test_rejects_consumed_sequence_that_is_not_smaller() raises:
+    # Deleting index 0 of [0, 1] yields candidate [1], but the property
+    # consumes [1, 0], which is shortlex-larger than [0, 1]. Adopting it
+    # would report a worse counterexample than the input.
+    var start = _seq(UInt64(0), UInt64(1))
+    var result = shrink[_eval_two_draws_fail_over_1](start.copy(), 5000)
+    assert_true(
+        not is_shortlex_smaller(start, result.best),
+        msg="shrinking must never return a larger sequence",
+    )
+
+
+def test_shrink_with_rejects_consumed_sequence_that_is_not_smaller() raises:
+    # `shrink_with` is the loop `for_all` actually runs, and it carries
+    # the same duplicated adoption sites.
+    var start = _seq(UInt64(0), UInt64(1))
+    var result = shrink_with(_eval_two_draws_fail_over_1, start.copy(), 5000)
+    assert_true(
+        not is_shortlex_smaller(start, result.best),
+        msg="shrink_with must never return a larger sequence",
+    )
+
+
+def test_shrink_with_matches_shrink_on_guarded_inputs() raises:
+    # The guarded loops still shrink ordinary inputs to the same result.
+    var start = _seq(UInt64(9), UInt64(99), UInt64(99))
+    var thin = shrink[_eval_first_over_5](start.copy(), 5000)
+    var runtime = shrink_with(_eval_first_over_5, start.copy(), 5000)
+    assert_equal(runtime.best, thin.best)
+
+
+def test_consumed_descent_is_strict_at_every_adoption() raises:
+    # Whatever branch shape the property takes, neither loop may end up
+    # above its input in shortlex order.
+    var starts = List[ChoiceSequence]()
+    starts.append(_seq(UInt64(0), UInt64(1)))
+    starts.append(_seq(UInt64(1), UInt64(0)))
+    starts.append(_seq(UInt64(0), UInt64(0), UInt64(3)))
+    for i in range(len(starts)):
+        var thin = shrink[_eval_two_draws_fail_over_1](starts[i].copy(), 200)
+        assert_true(
+            not is_shortlex_smaller(starts[i], thin.best),
+            msg="shrink must never move upward in shortlex order",
+        )
+        var runtime = shrink_with(
+            _eval_two_draws_fail_over_1, starts[i].copy(), 200
+        )
+        assert_true(
+            not is_shortlex_smaller(starts[i], runtime.best),
+            msg="shrink_with must never move upward in shortlex order",
+        )
 
 
 def test_cache_avoids_duplicate_evaluations() raises:
