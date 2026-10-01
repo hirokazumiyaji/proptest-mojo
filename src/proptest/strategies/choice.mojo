@@ -8,7 +8,7 @@ alone. The index choice is drawn first as an integer in `0..<n` where 0 is
 simplest, so shrinking drives the choice to the front.
 """
 
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.testcase import TestCase
 
 
@@ -18,6 +18,9 @@ struct SampledFrom[T: Copyable & Writable & Deinitable](Strategy):
 
     comptime Value = Self.T
     var values: List[Self.T]
+
+    def span_label(self) -> UInt64:
+        return kind_label("sampled_from")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         var index = tc.draw_integer(UInt64(len(self.values) - 1))
@@ -42,6 +45,9 @@ struct OneOf[S: Strategy](Strategy):
 
     comptime Value = Self.S.Value
     var strategies: List[Self.S]
+
+    def span_label(self) -> UInt64:
+        return kind_label("one_of")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         var index = tc.draw_integer(UInt64(len(self.strategies) - 1))
@@ -73,6 +79,9 @@ struct OneOf2[A: Strategy, B: Strategy](Strategy) where A.Value == B.Value:
     comptime Value = Self.A.Value
     var a: Self.A
     var b: Self.B
+
+    def span_label(self) -> UInt64:
+        return kind_label("one_of2")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         var index = tc.draw_integer(UInt64(1))
