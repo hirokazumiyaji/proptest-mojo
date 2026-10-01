@@ -42,9 +42,6 @@ struct Verbosity(Equatable, TrivialRegisterPassable, Writable):
     def __eq__(self, other: Self) -> Bool:
         return self.value == other.value
 
-    def __ne__(self, other: Self) -> Bool:
-        return self.value != other.value
-
     def write_to(self, mut writer: Some[Writer]):
         if self == Self.QUIET:
             writer.write("QUIET")
@@ -184,17 +181,19 @@ def for_all[
             message = String(e)
         examples_run += 1
         attempt += 1
+        if tc.status == Status.RUNNING:
+            tc.status = Status.INTERESTING if raised else Status.VALID
+        if verbose:
+            print(
+                _format_example_line(
+                    examples_run,
+                    tc.status,
+                    tc.draw_labels.copy(),
+                    tc.draw_values.copy(),
+                )
+            )
         if tc.status == Status.INVALID:
             invalid_count += 1
-            if verbose:
-                print(
-                    _format_example_line(
-                        examples_run,
-                        tc.status,
-                        tc.draw_labels.copy(),
-                        tc.draw_values.copy(),
-                    )
-                )
             if invalid_count > 10 * max_examples:
                 raise Error(
                     _too_many_rejects_message(
@@ -204,15 +203,6 @@ def for_all[
             continue
         if tc.status == Status.OVERRUN:
             overrun_count += 1
-            if verbose:
-                print(
-                    _format_example_line(
-                        examples_run,
-                        tc.status,
-                        tc.draw_labels.copy(),
-                        tc.draw_values.copy(),
-                    )
-                )
             if examples_run >= 10 and overrun_count * 5 > examples_run:
                 raise Error(
                     _too_many_overruns_message(
@@ -225,25 +215,7 @@ def for_all[
             continue
         if not raised:
             valid_count += 1
-            if verbose:
-                print(
-                    _format_example_line(
-                        examples_run,
-                        tc.status,
-                        tc.draw_labels.copy(),
-                        tc.draw_values.copy(),
-                    )
-                )
             continue
-        if verbose:
-            print(
-                _format_example_line(
-                    examples_run,
-                    Status.INTERESTING,
-                    tc.draw_labels.copy(),
-                    tc.draw_values.copy(),
-                )
-            )
         var shrink_result = shrink_with(
             evaluate, tc.choices.copy(), settings.max_shrink_evaluations
         )
@@ -277,6 +249,14 @@ def _fresh_test_case(
     return TestCase.generating(derive(seed, attempt), max_choices)
 
 
+def _draw_label(labels: List[String], i: Int) -> String:
+    """`labels[i]` with the `draw #i+1` fallback for an empty entry."""
+    var label = String(labels[i])
+    if label.byte_length() == 0:
+        label = "draw #" + String(i + 1)
+    return label^
+
+
 def _format_example_line(
     index: Int,
     status: Status,
@@ -290,56 +270,67 @@ def _format_example_line(
         for i in range(len(labels)):
             if i > 0:
                 out += ", "
-            var label = String(labels[i])
-            if label.byte_length() == 0:
-                label = "draw #" + String(i + 1)
-            out += label
+            out += _draw_label(labels, i)
             out += " = "
             out += values[i]
         out += ")"
     return out^
 
 
-def _too_many_rejects_message(
-    examples_run: Int, invalid_count: Int, valid_count: Int
+def _health_check_message(
+    examples_run: Int,
+    bad_count: Int,
+    valid_count: Int,
+    reason: String,
+    rate_label: String,
+    strict_diagnosis: String,
 ) -> String:
-    """Health-check failure naming the rejection rate.
+    """Shared skeleton for health-check failure messages.
 
     With no valid execution at all, the diagnosis is the inability to
     generate a satisfying input rather than mere strictness.
     """
     var rate = 0
     if examples_run > 0:
-        rate = invalid_count * 100 // examples_run
+        rate = bad_count * 100 // examples_run
     var out = String("gave up after ") + String(examples_run) + " examples"
     if valid_count == 0:
         out += " without a single valid execution"
-    out += " (" + String(invalid_count) + " rejected by assume/filter, "
-    out += String(rate) + "% rejection rate)"
+    out += " (" + String(bad_count) + " " + reason + ", "
+    out += String(rate) + "% " + rate_label + " rate)"
     if valid_count == 0:
         out += ": unable to generate input satisfying the condition"
     else:
-        out += ": assume/filter condition too strict"
+        out += ": " + strict_diagnosis
     return out^
+
+
+def _too_many_rejects_message(
+    examples_run: Int, invalid_count: Int, valid_count: Int
+) -> String:
+    """Health-check failure naming the rejection rate."""
+    return _health_check_message(
+        examples_run,
+        invalid_count,
+        valid_count,
+        "rejected by assume/filter",
+        "rejection",
+        "assume/filter condition too strict",
+    )
 
 
 def _too_many_overruns_message(
     examples_run: Int, overrun_count: Int, valid_count: Int, max_choices: Int
 ) -> String:
     """Health-check failure for runs exceeding the choice budget."""
-    var rate = 0
-    if examples_run > 0:
-        rate = overrun_count * 100 // examples_run
-    var out = String("gave up after ") + String(examples_run) + " examples"
-    if valid_count == 0:
-        out += " without a single valid execution"
-    out += " (" + String(overrun_count) + " overran max_choices="
-    out += String(max_choices) + ", " + String(rate) + "% overrun rate)"
-    if valid_count == 0:
-        out += ": unable to generate input satisfying the condition"
-    else:
-        out += ": generated data too large"
-    return out^
+    return _health_check_message(
+        examples_run,
+        overrun_count,
+        valid_count,
+        "overran max_choices=" + String(max_choices),
+        "overrun",
+        "generated data too large",
+    )
 
 
 def _format_report(
@@ -359,11 +350,8 @@ def _format_report(
     out += String(shrink_evaluations)
     out += " shrink evaluations):\n"
     for i in range(len(labels)):
-        var label = String(labels[i])
-        if label.byte_length() == 0:
-            label = "draw #" + String(i + 1)
         out += "  "
-        out += label
+        out += _draw_label(labels, i)
         out += " = "
         out += values[i]
         out += "\n"
