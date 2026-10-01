@@ -55,8 +55,10 @@ var w = tc.draw(flat_map[capped](integers(0, 10)), "w")
 フィールドに持つ struct に `Strategy` を実装します。
 
 ```mojo
+from proptest import TestCase, booleans, integers
 from proptest.strategy import Strategy
 
+# `User` は例示用の自作型。実装側で定義済みと仮定します。
 @fieldwise_init
 struct Users(Strategy):
     comptime Value = User

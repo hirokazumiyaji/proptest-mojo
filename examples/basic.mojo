@@ -1,4 +1,7 @@
-"""Minimal proptest-mojo usage: one passing and one shrinking property."""
+"""Minimal proptest-mojo usage: one passing and one shrinking property.
+
+Run with: pixi run mojo run -I src examples/basic.mojo
+"""
 
 from proptest import Settings, TestCase, for_all, integers
 
@@ -19,9 +22,12 @@ def _too_big(mut tc: TestCase) raises:
 def main() raises:
     for_all(_commutes, Settings(seed=UInt64(1), max_examples=20))
     print("passing property held: addition commutes")
+    var raised = False
     try:
-        for_all(_too_big, Settings(seed=UInt64(1), max_examples=100))
-        print("ERROR: failing property unexpectedly passed")
+        for_all(_too_big, Settings(seed=UInt64(1), max_examples=200))
     except e:
+        raised = True
         print("failing property shrunk to minimal counterexample:")
         print(String(e))
+    if not raised:
+        raise Error("expected _too_big to raise but it passed")

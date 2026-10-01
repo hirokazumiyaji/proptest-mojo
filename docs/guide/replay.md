@@ -12,16 +12,19 @@ for_all(prop, Settings(seed=UInt64(3)))
 ```
 
 環境変数でも固定できます。`Settings(seed=None)` (既定) のときだけ有効で、
-コードで明示した値は環境変数より優先されます。
+コードで明示した値は環境変数より優先されます (`basic.mojo` のように
+`Settings(seed=UInt64(1))` を書いた example では、環境変数は無視されます)。
 
 ```sh
-PROPTEST_SEED=3 pixi run mojo run -I src examples/basic.mojo < /dev/null
+# Settings(seed=None) で書かれた自作テストでのみ有効:
+PROPTEST_SEED=3 pixi run mojo run -I src path/to/my_property_test.mojo < /dev/null
 ```
 
 ## 生成数を変える
 
 既定の `max_examples` (100) は `PROPTEST_MAX_EXAMPLES` で上書きできます。
-CI で回数を増やす用途です。コードで明示した値は優先されます。
+CI で回数を増やす用途です。既定値 (100) と異なる値をコードで明示したときは、
+その値が環境変数より優先されます。
 
 ```sh
 PROPTEST_MAX_EXAMPLES=1000 pixi run test

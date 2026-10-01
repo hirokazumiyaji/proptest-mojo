@@ -42,7 +42,8 @@ pixi run mojo run -I src path/to/my_property_test.mojo < /dev/null
 ## CI での回し方
 
 生成数を増やしたいときはコードを変えずに環境変数で上書きできます
-(明示した値は環境変数より優先されます)。
+(既定と異なる値を明示したときは、その値が環境変数より優先されます。
+既定値と同じ値を明示した場合は環境変数が有効です)。
 
 ```sh
 PROPTEST_MAX_EXAMPLES=1000 PROPTEST_SEED=42 pixi run test

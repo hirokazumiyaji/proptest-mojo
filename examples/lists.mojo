@@ -61,8 +61,12 @@ def main() raises:
         _double_reverse_is_identity, Settings(seed=UInt64(3), max_examples=50)
     )
     print("composite: double reverse is the identity on small int lists")
+    var raised = False
     try:
         for_all(_every_list_is_sorted, Settings(seed=UInt64(3)))
     except e:
+        raised = True
         print("composite: the sortedness claim shrinks to:")
         print(String(e))
+    if not raised:
+        raise Error("expected _every_list_is_sorted to raise but it passed")

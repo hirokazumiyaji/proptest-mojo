@@ -42,8 +42,12 @@ def main() raises:
     print("map: doubled draws are always even")
     for_all(_filtered_is_even, Settings(seed=UInt64(7), max_examples=50))
     print("filter: rejected odds never reach the property")
+    var raised = False
     try:
         for_all(_capped_reaches_five, Settings(seed=UInt64(7)))
     except e:
+        raised = True
         print("flat_map: dependent bound shrinks to the minimal failure:")
         print(String(e))
+    if not raised:
+        raise Error("expected _capped_reaches_five to raise but it passed")

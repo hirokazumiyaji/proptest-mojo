@@ -24,9 +24,12 @@ def _stack_matches_model(mut tc: TestCase) raises:
             sut.push(v.copy())
         else:
             tc.assume(len(model) > 0)
-            if sut.pop() != model.pop():
+            var expected = model.pop()
+            if sut.pop() != expected:
                 raise Error("model mismatch after ops=" + String(ops))
 
+
+def main() raises:
     for_all(_stack_matches_model, Settings(seed=UInt64(9)))
 ```
 

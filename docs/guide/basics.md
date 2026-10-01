@@ -43,8 +43,8 @@ def _nonzero_divides(mut tc: TestCase) raises:
         raise Error("division broke")
 ```
 
-捨てすぎると `for_all` が諦めます (`gave up after ... rejected by
-assume: condition too strict`)。その場合は範囲を絞った Strategy
+捨てすぎると `for_all` が諦めます (`gave up after N examples (M rejected
+by assume): condition too strict`)。その場合は範囲を絞った Strategy
 (`integers(1, 100)` など) に書き換えてください。
 
 ## `tc.note(message)`
