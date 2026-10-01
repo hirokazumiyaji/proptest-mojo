@@ -50,11 +50,14 @@ struct Filter[S: Strategy, p: def(S.Value) thin -> Bool](Strategy):
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         for _ in range(MAX_FILTER_ATTEMPTS):
             tc.start_span(FILTER_SPAN_LABEL)
-            var value = self.base.draw(tc)
-            var accepted = Self.p(value.copy())
-            if accepted:
-                tc.stop_span()
-                return value^
+            try:
+                var value = self.base.draw(tc)
+                if Self.p(value.copy()):
+                    tc.stop_span()
+                    return value^
+            except e:
+                tc.stop_span(discard=True)
+                raise e
             tc.stop_span(discard=True)
         tc.assume(False)
         raise Error("unreachable")
