@@ -14,17 +14,12 @@ from std.math import isinf, isnan
 from proptest.choice import ChoiceKind, ChoiceSequence
 from proptest.strategies.floats import float_to_lex, lex_to_float
 
+comptime SAFE_INT_FLOAT = Float64(9007199254740992.0)
+
 
 def _denominators() -> List[Int]:
-    """Small denominators tried simplest-first for fraction rounding."""
-    var ds = List[Int]()
-    ds.append(2)
-    ds.append(3)
-    ds.append(4)
-    ds.append(5)
-    ds.append(8)
-    ds.append(10)
-    ds.append(16)
+    """Denominators tried simplest-first; 1 is integer truncation."""
+    var ds: List[Int] = [1, 2, 3, 4, 5, 8, 10, 16]
     return ds^
 
 
@@ -62,29 +57,14 @@ def _simplify_one_at[
     if is_interesting(zeroed.copy()):
         return zeroed^
     var value = lex_to_float(current)
-    if isnan(value) or isinf(value):
+    if isnan(value) or isinf(value) or value >= SAFE_INT_FLOAT:
         return _refine_lex[is_interesting](best^, index)
-    if value >= 9007199254740992.0:
-        return _refine_lex[is_interesting](best^, index)
-    var truncated = Float64(Int(value))
-    if truncated != value and truncated >= 0.0:
-        var tcode = float_to_lex(truncated)
-        if tcode < current and tcode != UInt64(0):
-            var cand = best.with_value_at(index, tcode)
-            if is_interesting(cand.copy()):
-                best = cand^
-                current = tcode
-                value = truncated
     for d in _denominators():
         var scaled = value * Float64(d)
-        if isinf(scaled) or isnan(scaled):
-            continue
-        if scaled >= 9007199254740992.0:
+        if scaled >= SAFE_INT_FLOAT:
             continue
         var floored = Float64(Int(scaled)) / Float64(d)
-        if not (floored < value):
-            continue
-        if floored < 0.0:
+        if not (floored < value) or floored < 0.0:
             continue
         var fcode = float_to_lex(floored)
         if fcode >= current or fcode == UInt64(0):

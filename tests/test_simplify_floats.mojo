@@ -38,7 +38,8 @@ def _always_interesting(seq: ChoiceSequence) -> Bool:
 
 
 def _never_interesting(seq: ChoiceSequence) -> Bool:
-    return len(seq) < 0
+    _ = seq
+    return False
 
 
 def test_threshold_1_5_yields_1_5() raises:
