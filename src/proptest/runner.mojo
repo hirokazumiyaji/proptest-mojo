@@ -83,19 +83,27 @@ struct Settings(Copyable, Movable, Writable):
     def effective_max_examples(self) raises -> Int:
         """Explicit count, else `PROPTEST_MAX_EXAMPLES` over the default."""
         if self.max_examples_set:
+            if self.max_examples <= 0:
+                raise Error("Settings: max_examples must be positive")
             return self.max_examples
         var from_env = getenv(MAX_EXAMPLES_ENV_VAR)
         if from_env.byte_length() > 0:
+            var parsed = 0
             try:
-                var parsed = Int(from_env)
-                if parsed > 0:
-                    return parsed
+                parsed = Int(from_env)
             except:
                 raise Error(
                     "PROPTEST_MAX_EXAMPLES is not a valid integer: '"
                     + String(from_env)
                     + "'"
                 )
+            if parsed <= 0:
+                raise Error(
+                    "PROPTEST_MAX_EXAMPLES must be positive: '"
+                    + String(from_env)
+                    + "'"
+                )
+            return parsed
         return self.max_examples
 
     def write_to(self, mut writer: Some[Writer]):
