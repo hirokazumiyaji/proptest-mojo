@@ -35,7 +35,6 @@ from proptest.strategies.primitives import (
     Integers,
     Just,
     booleans,
-    decode_integer_choice,
     integers,
     just,
 )
