@@ -112,6 +112,22 @@ def test_zero_chunks_ordering_matches_shortlex_sort() raises:
         )
 
 
+def test_enumeration_passes_order_many_candidates() raises:
+    # A monotonically increasing sequence sorts every new candidate ahead
+    # of all earlier ones, the worst case for an insertion sort: it must
+    # still produce shortlex order without shifting O(n^2) indices.
+    var seq = ChoiceSequence()
+    for i in range(400):
+        seq.append(_node(UInt64(i)))
+    var cands = delete_chunks(seq.copy())
+    assert_true(len(cands) > 100, msg="need many candidates")
+    for i in range(len(cands) - 1):
+        assert_true(
+            not is_shortlex_smaller(cands[i + 1], cands[i]),
+            msg="delete_chunks must emit shortlex order",
+        )
+
+
 def test_enumeration_passes_stay_fast_on_long_sequences() raises:
     # Ordering used to compare whole candidates, which is O(n) per
     # comparison over O(n) candidates; near the 8192-choice limit that

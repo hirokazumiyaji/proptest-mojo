@@ -74,8 +74,96 @@ def _zero_runs(values: List[UInt64]) -> List[Int]:
     return runs^
 
 
+trait _Precedes:
+    """Total order over candidate indices for `_merge_sort`."""
+
+    def precedes(self, a: Int, b: Int) -> Bool:
+        ...
+
+
+def _merge_sort[P: _Precedes](mut order: List[Int], order_by: P):
+    """Stable bottom-up merge sort of `order` by `order_by.precedes`.
+
+    Insertion sort moved O(n) entries per candidate, which is O(n^2) even
+    once the comparisons themselves are O(1): for a monotonically
+    increasing sequence every new deletion sorts ahead of all earlier
+    ones, so near the 8192-choice limit the shifting alone dominated.
+    Merge sort moves indices in O(n log n) and keeps only indices live;
+    candidates are materialized after the order is fixed.
+    """
+    var n = len(order)
+    if n < 2:
+        return
+    var scratch = List[Int]()
+    for _ in range(n):
+        scratch.append(0)
+    var width = 1
+    while width < n:
+        var i = 0
+        while i < n:
+            var mid = i + width
+            if mid > n:
+                mid = n
+            var hi = i + 2 * width
+            if hi > n:
+                hi = n
+            var lo_i = i
+            var hi_i = mid
+            var k = i
+            while lo_i < mid and hi_i < hi:
+                # Take from the right run only on a strict `precedes`, so
+                # equal candidates keep their generation order.
+                if order_by.precedes(order[hi_i], order[lo_i]):
+                    scratch[k] = order[hi_i]
+                    hi_i += 1
+                else:
+                    scratch[k] = order[lo_i]
+                    lo_i += 1
+                k += 1
+            while lo_i < mid:
+                scratch[k] = order[lo_i]
+                lo_i += 1
+                k += 1
+            while hi_i < hi:
+                scratch[k] = order[hi_i]
+                hi_i += 1
+                k += 1
+            i += 2 * width
+        for j in range(n):
+            order[j] = scratch[j]
+        width *= 2
+
+
+@fieldwise_init
+struct _DeletionOrder(_Precedes):
+    """Shortlex order of equal-length deletion candidates."""
+
+    var values: List[UInt64]
+    var lcp: List[Int]
+    var r: Int
+
+    def precedes(self, a: Int, b: Int) -> Bool:
+        return _deletion_precedes(self.values, self.lcp, self.r, a, b)
+
+
+@fieldwise_init
+struct _ZeroingOrder(_Precedes):
+    """Shortlex order of zeroing candidates."""
+
+    var values: List[UInt64]
+    var runs: List[Int]
+    var starts: List[Int]
+    var ends: List[Int]
+    var n: Int
+
+    def precedes(self, a: Int, b: Int) -> Bool:
+        return _zeroing_precedes(
+            self.values, self.runs, self.starts, self.ends, self.n, a, b
+        )
+
+
 def _deletion_order(
-    values: List[UInt64], starts: List[Int], r: Int
+    var values: List[UInt64], var starts: List[Int], r: Int
 ) -> List[Int]:
     """Order deletion starts by the shortlex value of their candidates.
 
@@ -86,24 +174,10 @@ def _deletion_order(
     `[a, b)`, which `lcp[a]` answers in O(1). Ordering a few thousand
     candidates by full sequence comparison instead costs O(n) per
     comparison and makes a long sequence look like a hang.
-
-    Only indices are moved; candidates are materialized afterwards.
     """
     var lcp = _shift_lcp(values, r)
     var order = starts.copy()
-    for i in range(1, len(order)):
-        var cand = order[i]
-        var lo = 0
-        var hi = i
-        while lo < hi:
-            var mid = lo + (hi - lo) // 2
-            if _deletion_precedes(values, lcp, r, cand, order[mid]):
-                hi = mid
-            else:
-                lo = mid + 1
-        for j in range(i, lo, -1):
-            order[j] = order[j - 1]
-        order[lo] = cand
+    _merge_sort[_DeletionOrder](order, _DeletionOrder(values^, lcp^, r))
     return order^
 
 
@@ -138,7 +212,10 @@ def _deletion_precedes(
 
 
 def _zeroing_order(
-    values: List[UInt64], starts: List[Int], ends: List[Int], n: Int
+    var values: List[UInt64],
+    var starts: List[Int],
+    var ends: List[Int],
+    n: Int,
 ) -> List[Int]:
     """Order zeroing starts by the shortlex value of their candidates.
 
@@ -151,21 +228,9 @@ def _zeroing_order(
     var order = List[Int]()
     for i in range(len(starts)):
         order.append(i)
-    for i in range(1, len(order)):
-        var cand = order[i]
-        var lo = 0
-        var hi = i
-        while lo < hi:
-            var mid = lo + (hi - lo) // 2
-            if _zeroing_precedes(
-                values, runs, starts, ends, n, cand, order[mid]
-            ):
-                hi = mid
-            else:
-                lo = mid + 1
-        for j in range(i, lo, -1):
-            order[j] = order[j - 1]
-        order[lo] = cand
+    _merge_sort[_ZeroingOrder](
+        order, _ZeroingOrder(values^, runs^, starts^, ends^, n)
+    )
     return order^
 
 
@@ -282,7 +347,7 @@ def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
         if group_sizes[i] == 0 or group_sizes[i] == n:
             continue
         var ordered = _deletion_order(
-            values, group_starts[i].copy(), group_sizes[i]
+            values.copy(), group_starts[i].copy(), group_sizes[i]
         )
         for k in range(len(ordered)):
             var start = ordered[k]
@@ -322,7 +387,9 @@ def zero_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
             starts.append(start)
             ends.append(end)
     var out = List[ChoiceSequence]()
-    var ordered = _zeroing_order(values, starts.copy(), ends.copy(), n)
+    var ordered = _zeroing_order(values.copy(), starts.copy(), ends.copy(), n)
+    # `ordered` indexes the local copies, so re-derive from them rather
+    # than the (now transferred) originals.
     for i in range(len(ordered)):
         var k = ordered[i]
         out.append(seq.zeroed(starts[k], ends[k]))
