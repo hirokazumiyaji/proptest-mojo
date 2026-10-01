@@ -71,8 +71,9 @@ struct Floats(Strategy):
     """Floats drawn from a sign bit plus a lexicographic magnitude code.
 
     All-zero choices draw `+0.0`. Finite draws are clamped into
-    `[min_value, max_value]`; NaN bypasses the range because it is
-    unordered, and is only drawn when `allow_nan` holds.
+    `[min_value, max_value]`. NaN is only drawn when `allow_nan` is True,
+    which requires both bounds to be unset (enforced by `floats()`), so a
+    bounded strategy never returns NaN.
     """
 
     comptime Value = Float64
@@ -89,20 +90,12 @@ struct Floats(Strategy):
                 return _bits_to_float(CANON_NAN_BITS)
             magnitude = 0.0
         var value = magnitude
-        if negative and magnitude != 0.0:
+        if negative:
             value = -magnitude
-        var lo = self.min_value
-        var hi = self.max_value
-        if not self.allow_infinity:
-            var finite_max = max_finite()
-            if isinf(lo) and lo < 0.0:
-                lo = -finite_max
-            if isinf(hi) and hi > 0.0:
-                hi = finite_max
-        if value < lo:
-            value = lo
-        if value > hi:
-            value = hi
+        if value < self.min_value:
+            value = self.min_value
+        if value > self.max_value:
+            value = self.max_value
         return value
 
 
@@ -118,7 +111,10 @@ def floats(
     `min_value` / `max_value` default to `-inf` / `+inf` (unbounded).
     `allow_nan` defaults to true only when both bounds are unset;
     `allow_infinity` defaults to true. An explicit flag always wins.
-    NaN bounds or `max_value < min_value` raise.
+    `allow_nan=True` is rejected together with explicit bounds — NaN is
+    unordered, so a bounded range cannot contain it. NaN bounds,
+    `max_value < min_value`, and the degenerate `allow_infinity=False`
+    endpoints (`min_value=+inf` or `max_value=-inf`) raise.
     """
     var lo = -inf[DType.float64]()
     if min_value is not None:
@@ -130,12 +126,32 @@ def floats(
         raise Error("floats: min_value and max_value must not be NaN")
     if hi < lo:
         raise Error("floats: max_value must be >= min_value")
-    var nan_ok = False
-    if allow_nan is not None:
-        nan_ok = allow_nan.value()
-    else:
-        nan_ok = (min_value is None) and (max_value is None)
     var inf_ok = True
     if allow_infinity is not None:
         inf_ok = allow_infinity.value()
+    if not inf_ok:
+        var finite_max = _bits_to_float(MAX_FINITE_BITS)
+        if isinf(lo):
+            if lo > 0.0:
+                raise Error(
+                    "floats: min_value=+inf requires allow_infinity=True"
+                )
+            lo = -finite_max
+        if isinf(hi):
+            if hi < 0.0:
+                raise Error(
+                    "floats: max_value=-inf requires allow_infinity=True"
+                )
+            hi = finite_max
+    var bounded = (min_value is not None) or (max_value is not None)
+    var nan_ok = False
+    if allow_nan is not None:
+        nan_ok = allow_nan.value()
+        if nan_ok and bounded:
+            raise Error(
+                "floats: allow_nan=True is incompatible with explicit"
+                " min_value/max_value"
+            )
+    else:
+        nan_ok = not bounded
     return Floats(lo, hi, nan_ok, inf_ok)
