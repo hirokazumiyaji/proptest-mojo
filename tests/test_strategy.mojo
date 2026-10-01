@@ -8,7 +8,7 @@ from proptest.strategies.primitives import (
     just,
 )
 from proptest.testcase import TestCase
-from std.testing import TestSuite, assert_equal, assert_true
+from std.testing import TestSuite, assert_equal, assert_raises, assert_true
 
 
 def _replaying(*values: UInt64) -> TestCase:
@@ -40,13 +40,6 @@ def _draw_replaying[
     return tc.draw(strategy)
 
 
-def _distance(a: Int, b: Int) -> Int:
-    var d = a - b
-    if d < 0:
-        return -d
-    return d
-
-
 def test_integers_all_zero_draws_target() raises:
     assert_equal(_draw_empty(integers(-10, 10)), 0)
     assert_equal(_draw_empty(integers(5, 10)), 5)
@@ -65,19 +58,13 @@ def test_integers_choice_zero_is_target() raises:
 
 
 def test_integers_small_choices_stay_near_target() raises:
-    var expected = List[Int]()
-    expected.append(0)
-    expected.append(1)
-    expected.append(-1)
-    expected.append(2)
-    expected.append(-2)
-    expected.append(3)
+    var expected: List[Int] = [0, 1, -1, 2, -2, 3]
     for k in range(len(expected)):
         assert_equal(_draw_replaying(integers(-10, 10), UInt64(k)), expected[k])
     var previous = 0
     for k in range(21):
         var value = _draw_replaying(integers(-10, 10), UInt64(k))
-        var dist = _distance(value, 0)
+        var dist = abs(value)
         assert_true(
             dist >= previous, msg="distance from target must not shrink"
         )
@@ -102,26 +89,17 @@ def test_integers_single_value_range_ignores_choice() raises:
 
 
 def test_integers_always_in_range() raises:
-    var minimums = List[Int]()
-    var maximums = List[Int]()
-    minimums.append(-10)
-    maximums.append(10)
-    minimums.append(5)
-    maximums.append(10)
-    minimums.append(-10)
-    maximums.append(-5)
-    minimums.append(0)
-    maximums.append(1)
-    minimums.append(-1000000)
-    maximums.append(1000000)
-    var choices = List[UInt64]()
-    choices.append(UInt64(0))
-    choices.append(UInt64(1))
-    choices.append(UInt64(2))
-    choices.append(UInt64(3))
-    choices.append(UInt64(17))
-    choices.append(UInt64(1000))
-    choices.append(UInt64(0xFFFFFFFFFFFFFFFF))
+    var minimums: List[Int] = [-10, 5, -10, 0, -1000000]
+    var maximums: List[Int] = [10, 10, -5, 1, 1000000]
+    var choices: List[UInt64] = [
+        UInt64(0),
+        UInt64(1),
+        UInt64(2),
+        UInt64(3),
+        UInt64(17),
+        UInt64(1000),
+        UInt64(0xFFFFFFFFFFFFFFFF),
+    ]
     for r in range(len(minimums)):
         for c in range(len(choices)):
             var value = _draw_replaying(
@@ -138,12 +116,8 @@ def test_integers_always_in_range() raises:
 
 
 def test_integers_invalid_range_raises() raises:
-    var raised = False
-    try:
+    with assert_raises():
         _ = integers(10, 5)
-    except:
-        raised = True
-    assert_true(raised, msg="empty range must raise")
 
 
 def test_booleans_all_zero_is_false() raises:
@@ -202,18 +176,9 @@ def test_draw_is_deterministic_for_same_prefix() raises:
 
 
 def test_decode_is_monotone_around_target() raises:
-    var minimums = List[Int]()
-    var maximums = List[Int]()
-    var targets = List[Int]()
-    minimums.append(-10)
-    maximums.append(10)
-    targets.append(0)
-    minimums.append(3)
-    maximums.append(9)
-    targets.append(3)
-    minimums.append(-9)
-    maximums.append(-3)
-    targets.append(-3)
+    var minimums: List[Int] = [-10, 3, -9]
+    var maximums: List[Int] = [10, 9, -3]
+    var targets: List[Int] = [0, 3, -3]
     for r in range(len(minimums)):
         var width = maximums[r] - minimums[r]
         var previous = 0
@@ -225,7 +190,7 @@ def test_decode_is_monotone_around_target() raises:
                 minimums[r] <= value and value <= maximums[r],
                 msg="decoded value must stay in range",
             )
-            var dist = _distance(value, targets[r])
+            var dist = abs(value - targets[r])
             assert_true(
                 dist >= previous, msg="decoded distance must not shrink"
             )

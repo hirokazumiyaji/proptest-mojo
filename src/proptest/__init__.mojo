@@ -28,8 +28,6 @@ from proptest.strategies.primitives import (
     IntegersOf,
     Just,
     booleans,
-    decode_integer_choice,
-    decode_integers_of_choice,
     integers,
     integers_of,
     just,
