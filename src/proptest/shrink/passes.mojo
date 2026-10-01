@@ -24,13 +24,19 @@ def _chunk_sizes() -> List[Int]:
     return sizes^
 
 
-def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
+def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     """Contiguous-block deletions, simplest-first.
 
     Tries chunk lengths 8, 4, 2, 1 at every start position. Deletion
     always shortens the sequence, hence every candidate is
     shortlex-smaller. Empty results, and chunks that would drop any
     `forced` node, are skipped.
+
+    `limit` caps how many candidates are materialized (`-1` for all).
+    Each candidate copies the whole sequence, so a caller that will
+    evaluate at most `k` of them should pass `k`: materializing every
+    deletion of a near-maximal sequence needs gigabytes before the first
+    one is even looked at.
     """
     var out = List[ChoiceSequence]()
     var n = len(seq)
@@ -38,6 +44,8 @@ def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
         if size > n:
             continue
         for start in range(n - size + 1):
+            if limit >= 0 and len(out) >= limit:
+                return out^
             var has_forced = False
             for k in range(start, start + size):
                 if seq.nodes[k].forced:
@@ -52,13 +60,14 @@ def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
     return out^
 
 
-def zero_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
+def zero_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     """Contiguous-block zeroings, simplest-first.
 
-    Same chunk sizes and positions as `delete_chunks`. `forced`
-    nodes keep their value via `ChoiceSequence.zeroed`, so chunks
-    that would leave the sequence unchanged are skipped: only
-    strictly shortlex-smaller candidates are returned.
+    Same chunk sizes and positions as `delete_chunks`, and the same
+    `limit` on materialized candidates. `forced` nodes keep their value
+    via `ChoiceSequence.zeroed`, so chunks that would leave the sequence
+    unchanged are skipped: only strictly shortlex-smaller candidates are
+    returned.
     """
     var out = List[ChoiceSequence]()
     var n = len(seq)
@@ -66,6 +75,8 @@ def zero_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
         if size > n:
             continue
         for start in range(n - size + 1):
+            if limit >= 0 and len(out) >= limit:
+                return out^
             var cand = seq.zeroed(start, start + size)
             if not is_shortlex_smaller(cand, seq):
                 continue

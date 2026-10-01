@@ -88,7 +88,9 @@ def shrink[
     while True:
         var improved = False
 
-        var removals = delete_chunks(best.copy())
+        # Only candidates within the remaining budget can ever be
+        # evaluated, and each one is a full copy of the sequence.
+        var removals = delete_chunks(best.copy(), max_evaluations - evaluations)
         for j in range(len(removals)):
             if evaluations >= max_evaluations:
                 hit_budget = True
@@ -111,7 +113,7 @@ def shrink[
         if improved:
             continue
 
-        var zeroings = zero_chunks(best.copy())
+        var zeroings = zero_chunks(best.copy(), max_evaluations - evaluations)
         for j in range(len(zeroings)):
             if evaluations >= max_evaluations:
                 hit_budget = True

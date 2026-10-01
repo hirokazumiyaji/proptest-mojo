@@ -112,6 +112,15 @@ def test_consumed_descent_is_strict_at_every_adoption() raises:
         )
 
 
+def test_long_sequence_with_tiny_budget_stays_cheap() raises:
+    # Materializing every deletion of a near-maximal sequence needs
+    # gigabytes, which a small evaluation budget must avoid entirely.
+    var seq = _seq(UInt64(1), UInt64(2), UInt64(3), UInt64(4), UInt64(5))
+    var result = shrink[_eval_sum_over_1000](seq.copy(), 1)
+    assert_equal(result.evaluations, 1)
+    assert_true(result.hit_budget, msg="budget of 1 must be reported")
+
+
 def test_cache_avoids_duplicate_evaluations() raises:
     var start = _seq(UInt64(3), UInt64(3), UInt64(3))
     var result = shrink[_eval_sum_over_1000](start.copy(), 5000)
