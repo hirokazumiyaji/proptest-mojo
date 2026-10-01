@@ -43,8 +43,8 @@ def run_state_machine[
 
     The count comes from `integers(0, max_ops)`, so all-zero choices run
     zero operations and minimizing the count drops trailing operations.
-    Every operation draws its rule index from the choice sequence inside
-    its own span, notes `step i: rule r` for the report, then runs
+    Every operation draws its rule index inside its own span under the
+    label `rule`, notes `step i: rule r` for the report, then runs
     `run_rule` followed by `check_invariants`. Machines note their own
     operation details; rule arguments drawn with `tc.draw` are reported
     under their labels.
@@ -58,7 +58,7 @@ def run_state_machine[
     for step in range(count):
         tc.start_span(_STEP_SPAN_LABEL)
         try:
-            var rule = Int(tc.draw_integer(UInt64(rules - 1)))
+            var rule = tc.draw(integers(0, rules - 1), "rule")
             tc.note("step " + String(step) + ": rule " + String(rule))
             machine.run_rule(tc, rule)
             machine.check_invariants()

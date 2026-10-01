@@ -22,10 +22,7 @@ struct BuggyStack(Movable):
         # front like a queue, so results diverge once two elements
         # are stored.
         var front = self.items[0]
-        var rest = List[Int]()
-        for i in range(len(self.items) - 1):
-            rest.append(self.items[i])
-        self.items = rest^
+        _ = self.items.pop()
         return front
 
 
@@ -46,7 +43,7 @@ struct StackMachine(StateMachine):
             tc.note("push(" + String(value) + ")")
             self.sut.push(value)
             self.model.append(value)
-        elif rule == 1:
+        else:
             tc.assume(len(self.model) > 0)
             var got = self.sut.pop()
             var want = self.model.pop()
@@ -58,8 +55,6 @@ struct StackMachine(StateMachine):
                     + ", want "
                     + String(want)
                 )
-        else:
-            raise Error("unknown rule: " + String(rule))
 
     def check_invariants(self) raises:
         if len(self.sut.items) != len(self.model):
