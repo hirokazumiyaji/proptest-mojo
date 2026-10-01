@@ -78,11 +78,8 @@ struct OneOf2[A: Strategy, B: Strategy](Strategy) where A.Value == B.Value:
         var index = tc.draw_integer(UInt64(1))
         if index == 0:
             return self.a.draw(tc)
-        else:
-            # The `where` clause guarantees `B.Value` is `Self.Value`;
-            # `rebind` is the compiler-checked cast between them.
-            var other = self.b.draw(tc)
-            return rebind[Self.Value](other^).copy()
+        var other = self.b.draw(tc)
+        return rebind[Self.Value](other^).copy()
 
 
 def one_of2[
