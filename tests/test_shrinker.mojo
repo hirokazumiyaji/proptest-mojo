@@ -68,6 +68,50 @@ def test_adopts_consumed_prefix() raises:
     assert_equal(result.best[0].value, UInt64(6))
 
 
+def _eval_two_draws_fail_over_1(seq: ChoiceSequence) -> Evaluation:
+    """Always draws twice; interesting when the first value is above 0."""
+    var first = UInt64(0)
+    if len(seq) >= 1:
+        first = seq.nodes[0].value
+    # The property always consumes two choices, so replaying a shorter
+    # prefix appends a synthesized zero.
+    var consumed = ChoiceSequence()
+    consumed.append(_node(first))
+    consumed.append(_node(UInt64(0)))
+    return Evaluation(first > UInt64(0), consumed^)
+
+
+def test_rejects_consumed_sequence_that_is_not_smaller() raises:
+    # Deleting index 0 of [0, 1] yields candidate [1], but the property
+    # consumes [1, 0], which is shortlex-larger than [0, 1]. Adopting it
+    # would report a worse counterexample than the input.
+    var start = _seq(UInt64(0), UInt64(1))
+    var result = shrink[_eval_two_draws_fail_over_1](start.copy(), 5000)
+    assert_true(
+        not is_shortlex_smaller(result.best, start) or result.best == start,
+        msg="shrinking must never return a larger sequence",
+    )
+    assert_true(
+        result.hit_budget or len(result.best) <= len(start),
+        msg="consumed adoption must be rejected when not smaller",
+    )
+
+
+def test_consumed_descent_is_strict_at_every_adoption() raises:
+    # A shrinking run over many inputs must never end above its input in
+    # shortlex order, whatever branch shape the property takes.
+    var starts = List[ChoiceSequence]()
+    starts.append(_seq(UInt64(0), UInt64(1)))
+    starts.append(_seq(UInt64(1), UInt64(0)))
+    starts.append(_seq(UInt64(0), UInt64(0), UInt64(3)))
+    for i in range(len(starts)):
+        var result = shrink[_eval_two_draws_fail_over_1](starts[i].copy(), 200)
+        assert_true(
+            not is_shortlex_smaller(starts[i], result.best),
+            msg="shrinking must never move upward in shortlex order",
+        )
+
+
 def test_cache_avoids_duplicate_evaluations() raises:
     var start = _seq(UInt64(3), UInt64(3), UInt64(3))
     var result = shrink[_eval_sum_over_1000](start.copy(), 5000)
