@@ -138,6 +138,20 @@ def test_forced_integer_clamps_to_max() raises:
     assert_equal(tc.choices[0].value, UInt64(10))
 
 
+def test_replay_forced_integer_advances_cursor() raises:
+    var prefix = ChoiceSequence()
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(9), UInt64(100), Bool(True))
+    )
+    prefix.append(_node(UInt64(42), UInt64(100)))
+    var tc = TestCase.replaying(prefix^)
+    assert_equal(tc.forced_integer(UInt64(9), UInt64(100)), UInt64(9))
+    assert_equal(tc.draw_integer(UInt64(100)), UInt64(42))
+    assert_equal(tc.choices[0].value, UInt64(9))
+    assert_equal(tc.choices[0].forced, True)
+    assert_equal(tc.choices[1].value, UInt64(42))
+
+
 def test_draw_boolean_bias_shapes_generation_only() raises:
     var always_true = _generating()
     var always_false = _generating()

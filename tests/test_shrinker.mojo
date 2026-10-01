@@ -71,9 +71,9 @@ def test_adopts_consumed_prefix() raises:
 def test_cache_avoids_duplicate_evaluations() raises:
     var start = _seq(UInt64(3), UInt64(3), UInt64(3))
     var result = shrink[_eval_sum_over_1000](start.copy(), 5000)
-    # Sum is 9, never interesting: every candidate is evaluated once.
-    assert_equal(result.evaluations, result.evaluations)
+    # Sum is 9, never interesting: the loop terminates without exhausting the budget.
     assert_true(result.evaluations > 0, msg="uninteresting input still probes")
+    assert_true(not result.hit_budget, msg="fixed point must terminate")
     # Re-running with a tiny budget reports the cutoff.
     var capped = shrink[_eval_sum_over_1000](start.copy(), 2)
     assert_equal(capped.evaluations, 2)
