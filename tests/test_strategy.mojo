@@ -2,6 +2,7 @@ from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence
 from proptest.prng import derive
 from proptest.strategy import Strategy, kind_label
 from proptest.strategies.primitives import (
+    Integers,
     booleans,
     decode_integer_choice,
     integers,
@@ -124,6 +125,21 @@ def test_integers_always_in_range() raises:
 def test_integers_invalid_range_raises() raises:
     with assert_raises():
         _ = integers(10, 5)
+
+
+def test_integers_type_rejects_inverted_range() raises:
+    # `Integers` is re-exported, so its own constructor must validate too:
+    # an unchecked `Integers(10, 5)` wraps the unsigned width in `draw`.
+    with assert_raises():
+        _ = Integers(10, 5)
+    with assert_raises(contains="maximum must be >= minimum"):
+        _ = Integers(10, 5)
+
+
+def test_integers_type_accepts_valid_range() raises:
+    var strategy = Integers(-3, 7)
+    assert_equal(strategy.minimum, -3)
+    assert_equal(strategy.maximum, 7)
 
 
 def test_booleans_all_zero_is_false() raises:

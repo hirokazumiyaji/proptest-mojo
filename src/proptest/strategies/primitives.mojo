@@ -62,13 +62,21 @@ def decode_integer_choice(choice: UInt64, minimum: Int, maximum: Int) -> Int:
     return _unbiased(target - paired - rest)
 
 
-@fieldwise_init
 struct Integers(Strategy):
     """Integers in `[minimum, maximum]` shrinking toward the value nearest 0."""
 
     comptime Value = Int
     var minimum: Int
     var maximum: Int
+
+    def __init__(out self, minimum: Int, maximum: Int) raises:
+        # Validated here, not only in `integers()`: this type is re-exported
+        # and `@fieldwise_init` would otherwise let an empty range reach
+        # `draw`, where the unsigned width subtraction wraps.
+        if maximum < minimum:
+            raise Error("integers: maximum must be >= minimum")
+        self.minimum = minimum
+        self.maximum = maximum
 
     def span_label(self) -> UInt64:
         return kind_label("integers")
@@ -85,8 +93,6 @@ def integers(minimum: Int, maximum: Int) raises -> Integers:
     All-zero choices draw the value in range nearest 0. Raises when the
     range is empty.
     """
-    if maximum < minimum:
-        raise Error("integers: maximum must be >= minimum")
     return Integers(minimum, maximum)
 
 

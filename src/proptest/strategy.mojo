@@ -31,11 +31,15 @@ trait Strategy(Copyable, Deinitable):
         shrink passes reorder blocks that share a label. It must depend on
         the strategy kind alone: reusing a *reporting* label for two
         different strategies would let a pass swap structurally
-        incompatible blocks. Every strategy therefore overrides this with
-        `kind_label("<kind>")`; the default keeps unlabeled custom
-        strategies in one interchangeable group.
+        incompatible blocks.
+
+        Required rather than defaulted: a shared default would give every
+        strategy that omits it the same label, and two such strategies as
+        sibling draws would again look interchangeable. Implement it as
+        `kind_label("<kind>")`, propagating the wrapped strategy's label
+        for combinators.
         """
-        return kind_label("strategy")
+        ...
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         ...

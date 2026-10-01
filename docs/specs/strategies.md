@@ -17,6 +17,8 @@ trait Strategy(Copyable, Deinitable):
 
 `span_label` は Strategy の種類を表すラベルの `UInt64`。`tc.draw` が自動で張る span の `label` に使われる。報告用のラベル（`tc.draw(strategy, label)` の `label`）とは独立で、Strategy の種類だけに依存する。実装は `kind_label("<kind>")` を返す。
 
+`span_label` は必須メソッドで既定値を持たない。共通の既定値では実装を省いた Strategy がすべて同じラベルになり、兄弟 draw として現れたときに再び互換性とみなされてしまうため。
+
 すべての Strategy 実装は次の規約を守る。
 
 | 規約 | 理由 |
