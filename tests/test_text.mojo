@@ -158,21 +158,29 @@ def test_text_all_zero_gives_min_simplest() raises:
 
 
 def test_text_rank_choice_draws_expected_char() raises:
+    # forced_integer for the continue flag now advances the replay cursor,
+    # so each element consumes one slot before the rank draw.
     assert_equal(
-        _draw_replaying(text(min_size=1, max_size=1), UInt64(0)), String("0")
+        _draw_replaying(text(min_size=1, max_size=1), UInt64(1), UInt64(0)),
+        String("0"),
     )
     assert_equal(
-        _draw_replaying(text(min_size=1, max_size=1), UInt64(36)), String("a")
+        _draw_replaying(text(min_size=1, max_size=1), UInt64(1), UInt64(36)),
+        String("a"),
     )
     assert_equal(
         _draw_replaying(
-            text(alphabet="xyz", min_size=1, max_size=1), UInt64(0)
+            text(alphabet="xyz", min_size=1, max_size=1),
+            UInt64(1),
+            UInt64(0),
         ),
         String("x"),
     )
     assert_equal(
         _draw_replaying(
-            text(alphabet="xyz", min_size=1, max_size=1), UInt64(2)
+            text(alphabet="xyz", min_size=1, max_size=1),
+            UInt64(1),
+            UInt64(2),
         ),
         String("z"),
     )

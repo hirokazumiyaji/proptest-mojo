@@ -12,6 +12,8 @@ character and shrinking drives text toward `min_size` copies of the
 alphabet's first character.
 """
 
+from std.math import max, min
+
 from proptest.strategy import Strategy
 from proptest.testcase import TestCase
 
@@ -21,16 +23,9 @@ comptime _MAX_CODEPOINT_RANK = UInt64(1112063)
 
 
 def _default_average_size(min_size: Int, max_size: Int) -> Float64:
-    # min(max(min_size * 2, min_size + 5), (min_size + max_size) / 2).
-    var lo = min_size * 2
-    var shifted = min_size + 5
-    if shifted > lo:
-        lo = shifted
+    var lo = Float64(max(min_size * 2, min_size + 5))
     var mid = Float64(min_size + max_size) / 2.0
-    var lof = Float64(lo)
-    if lof < mid:
-        return lof
-    return mid
+    return min(lo, mid)
 
 
 def decode_codepoint_choice(choice: UInt64) -> Int:
@@ -108,7 +103,7 @@ struct Text(Strategy):
                 count += 1
                 tc.stop_span()
             except e:
-                tc.stop_span()
+                tc.stop_span(discard=True)
                 raise e
         return out^
 
@@ -144,8 +139,6 @@ def text(
     var avg = average_size
     if avg < 0.0:
         avg = _default_average_size(min_size, max_size)
-    if avg < 0.0:
-        raise Error("text: average_size must be >= 0")
     return Text(chars^, min_size, max_size, avg)
 
 
@@ -182,7 +175,7 @@ struct Bytes(Strategy):
                 tc.stop_span()
                 out.append(UInt8(byte))
             except e:
-                tc.stop_span()
+                tc.stop_span(discard=True)
                 raise e
         return out^
 
@@ -204,6 +197,4 @@ def bytes(
     var avg = average_size
     if avg < 0.0:
         avg = _default_average_size(min_size, max_size)
-    if avg < 0.0:
-        raise Error("bytes: average_size must be >= 0")
     return Bytes(min_size, max_size, avg)
