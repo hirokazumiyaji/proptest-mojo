@@ -7,7 +7,7 @@ alone. Smaller choices yield simpler values; all-zero choices draw the
 simplest value of each strategy.
 """
 
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.testcase import TestCase
 
 comptime _SIGN_BIT = UInt64(0x8000000000000000)
@@ -70,6 +70,9 @@ struct Integers(Strategy):
     var minimum: Int
     var maximum: Int
 
+    def span_label(self) -> UInt64:
+        return kind_label("integers")
+
     def draw(self, mut tc: TestCase) raises -> Int:
         var width = UInt64(self.maximum) - UInt64(self.minimum)
         var choice = tc.draw_integer(width)
@@ -93,6 +96,9 @@ struct Booleans(Strategy):
 
     comptime Value = Bool
 
+    def span_label(self) -> UInt64:
+        return kind_label("booleans")
+
     def draw(self, mut tc: TestCase) raises -> Bool:
         return tc.draw_boolean()
 
@@ -109,6 +115,9 @@ struct Just[T: Copyable & Writable & Deinitable](Strategy):
 
     comptime Value = Self.T
     var value: Self.T
+
+    def span_label(self) -> UInt64:
+        return kind_label("just")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         return self.value.copy()

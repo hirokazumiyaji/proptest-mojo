@@ -24,5 +24,26 @@ trait Strategy(Copyable, Deinitable):
 
     comptime Value: Copyable & Writable & Deinitable
 
+    def span_label(self) -> UInt64:
+        """Structural span label identifying the strategy kind.
+
+        `TestCase.draw` records this label on the span it opens, and the
+        shrink passes reorder blocks that share a label. It must depend on
+        the strategy kind alone: reusing a *reporting* label for two
+        different strategies would let a pass swap structurally
+        incompatible blocks. Every strategy therefore overrides this with
+        `kind_label("<kind>")`; the default keeps unlabeled custom
+        strategies in one interchangeable group.
+        """
+        return kind_label("strategy")
+
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         ...
+
+
+def kind_label(kind: StringSlice) -> UInt64:
+    """FNV-1a hash of a strategy kind name, used as a span label."""
+    var hash = UInt64(14695981039346656037)
+    for b in kind.as_bytes():
+        hash = (hash ^ UInt64(b)) * UInt64(1099511628211)
+    return hash

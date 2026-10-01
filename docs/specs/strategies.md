@@ -8,9 +8,14 @@
 trait Strategy(Copyable, Deinitable):
     comptime Value: Copyable & Writable & Deinitable
 
+    def span_label(self) -> UInt64:
+        ...
+
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         ...
 ```
+
+`span_label` は Strategy の種類を表すラベルの `UInt64`。`tc.draw` が自動で張る span の `label` に使われる。報告用のラベル（`tc.draw(strategy, label)` の `label`）とは独立で、Strategy の種類だけに依存する。実装は `kind_label("<kind>")` を返す。
 
 すべての Strategy 実装は次の規約を守る。
 
@@ -20,6 +25,7 @@ trait Strategy(Copyable, Deinitable):
 | **単純さの単調性**: 選択の値が小さいほど、生成される値が「単純」になる。全選択 0 のとき最も単純な値を返す | shortlex で小さい選択列が、人間にとって単純な反例に対応するため |
 | **不変性**: `draw` は `self` を変更しない | Strategy は値として自由にコピー・共有されるため |
 | **局所性**: 構造上の単位（コレクションの 1 要素など）ごとに span を張る | 構造的な縮小パスが働くため |
+| **構造ラベル**: `span_label` は Strategy の種類だけで決まり、報告ラベルに依存しない | 縮小パスが同種とみなす span を入れ替えるため |
 
 ## 組み込み Strategy
 
