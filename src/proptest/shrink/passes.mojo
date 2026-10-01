@@ -27,9 +27,14 @@ def _chunk_sizes() -> List[Int]:
 def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
     """Contiguous-block deletions, simplest-first.
 
-    Tries chunk lengths 8, 4, 2, 1 at every start position. Deletion
-    always shortens the sequence, hence every candidate is
-    shortlex-smaller. Empty results, and chunks that would drop any
+    Tries chunk lengths 8, 4, 2, 1 at every start position, then orders
+    the surviving candidates by their resulting shortlex value rather
+    than by chunk size and start position. Deletion always shortens the
+    sequence, hence every candidate is shortlex-smaller, but chunk order
+    alone does not rank equal-length results: deleting size 8 from
+    `[1..10]` yields `[9,10]`, `[1,10]`, `[1,2]`, and the shrink loop
+    commits to the first interesting candidate, so it would settle on
+    the largest one. Empty results, and chunks that would drop any
     `forced` node, are skipped.
     """
     var out = List[ChoiceSequence]()
@@ -48,8 +53,18 @@ def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
             var cand = seq.deleted(start, start + size)
             if len(cand) == 0:
                 continue
-            out.append(cand^)
+            _insert_shortlex(out, cand^)
     return out^
+
+
+def _insert_shortlex(
+    mut ordered: List[ChoiceSequence], var cand: ChoiceSequence
+):
+    """Insert `cand` into `ordered` keeping it sorted by shortlex order."""
+    var j = len(ordered)
+    while j > 0 and is_shortlex_smaller(cand, ordered[j - 1]):
+        j -= 1
+    ordered.insert(j, cand^)
 
 
 def zero_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:

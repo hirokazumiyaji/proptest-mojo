@@ -28,6 +28,13 @@ def _seq(*values: UInt64) -> ChoiceSequence:
     return seq^
 
 
+def _u64s(*values: UInt64) -> List[UInt64]:
+    var out = List[UInt64]()
+    for v in values:
+        out.append(v)
+    return out^
+
+
 def _sum_over_10(seq: ChoiceSequence) -> Bool:
     var total = UInt64(0)
     for i in range(len(seq)):
@@ -62,14 +69,16 @@ def test_delete_chunks_lengths_and_order() raises:
     )
     var cands = delete_chunks(seq.copy())
     assert_equal(len(cands), 3 + 7 + 9 + 10)
+    # Ordering is by resulting shortlex value, not by chunk size, so the
+    # first candidate is the globally smallest one.
     for i in range(len(cands) - 1):
         assert_true(
-            len(cands[i]) <= len(cands[i + 1]),
-            msg="delete_chunks must emit simplest-first",
+            is_shortlex_smaller(cands[i], cands[i + 1]),
+            msg="delete_chunks must emit shortlex order",
         )
     assert_equal(len(cands[0]), 2)
-    assert_equal(cands[0][0].value, UInt64(9))
-    assert_equal(cands[0][1].value, UInt64(10))
+    assert_equal(cands[0][0].value, UInt64(1))
+    assert_equal(cands[0][1].value, UInt64(2))
     assert_equal(len(cands[len(cands) - 1]), 9)
 
 
@@ -79,8 +88,34 @@ def test_delete_chunks_skips_empty_results() raises:
     var two = _seq(UInt64(5), UInt64(6))
     var cands = delete_chunks(two.copy())
     assert_equal(len(cands), 2)
-    assert_equal(cands[0][0].value, UInt64(6))
-    assert_equal(cands[1][0].value, UInt64(5))
+    # Deleting index 0 keeps 6 and deleting index 1 keeps 5; shortlex
+    # order puts the smaller value first regardless of start position.
+    assert_equal(cands[0][0].value, UInt64(5))
+    assert_equal(cands[1][0].value, UInt64(6))
+
+
+def test_delete_chunks_orders_equal_length_results_by_value() raises:
+    # Same-length deletions are ranked lexicographically, not by start
+    # position: the shrink loop commits to the first interesting candidate.
+    var seq = _seq(
+        UInt64(1),
+        UInt64(10),
+        UInt64(20),
+        UInt64(30),
+        UInt64(40),
+        UInt64(50),
+        UInt64(60),
+        UInt64(70),
+        UInt64(80),
+        UInt64(90),
+    )
+    var cands = delete_chunks(seq.copy())
+    # Length-2 results come from deleting size 8 at starts 0, 1, 2:
+    # [80,90], [1,90], [1,10]. Shortlex order is [1,10] < [1,90] <
+    # [80,90], whereas start-position order was [80,90] first.
+    assert_equal(cands[0].values(), _u64s(1, 10))
+    assert_equal(cands[1].values(), _u64s(1, 90))
+    assert_equal(cands[2].values(), _u64s(80, 90))
 
 
 def test_delete_chunks_all_shortlex_smaller() raises:
