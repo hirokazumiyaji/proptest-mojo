@@ -77,6 +77,8 @@ def stop_span(mut self, discard: Bool = False)
 
 `draw_boolean` の偏り `p_true` は生成時にのみ使い、記録される値は 0 / 1 である。0（False）が単純な側になる。
 
+`forced_integer` は乱数を消費しないが、再生時には prefix カーソルも 1 つ進める。強制された選択も choices 上の 1 スロットを占めるため、後続の再生を元の実行と同じ位置に揃える必要があるためである。
+
 ### ユーザー向け操作
 
 ```mojo
