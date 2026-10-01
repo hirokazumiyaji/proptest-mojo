@@ -44,7 +44,7 @@ def _second_nonzero(seq: ChoiceSequence) -> Bool:
 
 
 def _never_interesting(seq: ChoiceSequence) -> Bool:
-    return len(seq) < 0
+    return False
 
 
 def test_delete_chunks_lengths_and_order() raises:
@@ -99,9 +99,16 @@ def test_delete_chunks_all_shortlex_smaller() raises:
         assert_true(
             len(cands[i]) < len(seq), msg="deletion must shorten the input"
         )
+        var forced_count = 0
         for j in range(len(cands[i])):
             if cands[i][j].forced:
                 assert_equal(cands[i][j].value, UInt64(9))
+                forced_count += 1
+        assert_equal(
+            forced_count,
+            1,
+            msg="delete_chunks must preserve every forced node",
+        )
 
 
 def test_zero_chunks_zeroes_blocks_simplest_first() raises:

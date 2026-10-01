@@ -62,12 +62,15 @@ def test_lists_length_always_within_bounds() raises:
 def test_lists_min_size_survives_short_prefix() raises:
     var prefix = ChoiceSequence()
     prefix.append(
-        ChoiceNode(ChoiceKind.BOOLEAN, UInt64(1), UInt64(1), Bool(False))
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(1), UInt64(1), Bool(True))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(7), UInt64(10), Bool(False))
     )
     var tc = TestCase.replaying(prefix^)
     var xs = tc.draw(lists(integers(0, 10), min_size=3, max_size=8))
     assert_equal(len(xs), 3)
-    assert_equal(xs[0], 1)
+    assert_equal(xs[0], 7)
     assert_equal(xs[1], 0)
     assert_equal(xs[2], 0)
 
