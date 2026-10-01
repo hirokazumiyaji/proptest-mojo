@@ -9,7 +9,7 @@ recorded choices alone. Capturing transforms belong in composite
 Strategy structs holding their parameters as fields.
 """
 
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.testcase import TestCase
 
 comptime MAX_FILTER_ATTEMPTS = 3
@@ -24,6 +24,9 @@ struct Map[
 
     comptime Value = Self.U
     var base: Self.S
+
+    def span_label(self) -> UInt64:
+        return kind_label("map")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         var value = self.base.draw(tc)
@@ -46,6 +49,9 @@ struct Filter[S: Strategy, p: def(S.Value) thin -> Bool](Strategy):
 
     comptime Value = Self.S.Value
     var base: Self.S
+
+    def span_label(self) -> UInt64:
+        return kind_label("filter")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         for _ in range(MAX_FILTER_ATTEMPTS):
@@ -81,6 +87,9 @@ struct FlatMap[S: Strategy, T: Strategy, f: def(S.Value) thin -> T](Strategy):
 
     comptime Value = Self.T.Value
     var base: Self.S
+
+    def span_label(self) -> UInt64:
+        return kind_label("flat_map")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         var outer = self.base.draw(tc)

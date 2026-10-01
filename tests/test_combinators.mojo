@@ -3,7 +3,7 @@ from std.io import Writer
 from proptest import Settings, TestCase, for_all, integers
 from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence
 from proptest.prng import derive
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.strategies.combinators import filter, flat_map, map
 from proptest.strategies.primitives import Integers, booleans
 from proptest.testcase import Status
@@ -81,6 +81,9 @@ struct User(Copyable, Movable, Writable):
 struct Users(Strategy):
     comptime Value = User
     var max_age: Int
+
+    def span_label(self) -> UInt64:
+        return kind_label("users")
 
     def draw(self, mut tc: TestCase) raises -> User:
         var age = tc.draw(integers(0, self.max_age), "age")
