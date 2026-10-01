@@ -30,7 +30,8 @@ def decode_integer_choice(choice: UInt64, minimum: Int, maximum: Int) -> Int:
     alternate outward as `t+1, t-1, t+2, t-2, ...`, skipping the side that
     leaves the range. Distances from the target are therefore
     non-decreasing in `choice`, so shrinking only needs to lower choices.
-    Precondition: `minimum <= maximum` and `choice <= maximum - minimum`.
+    Choices past `maximum - minimum` are clamped so the result always
+    stays in range. Precondition: `minimum <= maximum`.
     """
     var minimum_biased = _biased(minimum)
     var maximum_biased = _biased(maximum)
@@ -41,17 +42,21 @@ def decode_integer_choice(choice: UInt64, minimum: Int, maximum: Int) -> Int:
         target = maximum_biased
     if choice == 0:
         return _unbiased(target)
+    var width = maximum_biased - minimum_biased
+    var clamped = choice
+    if clamped > width:
+        clamped = width
     var up = maximum_biased - target
     var down = target - minimum_biased
     var paired = up
     if down < paired:
         paired = down
-    if choice <= 2 * paired:
-        var step = (choice + 1) // 2
-        if choice % 2 == 1:
+    if clamped <= 2 * paired:
+        var step = (clamped + 1) // 2
+        if clamped % 2 == 1:
             return _unbiased(target + step)
         return _unbiased(target - step)
-    var rest = choice - 2 * paired
+    var rest = clamped - 2 * paired
     if up > down:
         return _unbiased(target + paired + rest)
     return _unbiased(target - paired - rest)
@@ -66,7 +71,7 @@ struct Integers(Strategy):
     var maximum: Int
 
     def draw(self, mut tc: TestCase) raises -> Int:
-        var width = _biased(self.maximum) - _biased(self.minimum)
+        var width = UInt64(self.maximum) - UInt64(self.minimum)
         var choice = tc.draw_integer(width)
         return decode_integer_choice(choice, self.minimum, self.maximum)
 
@@ -82,13 +87,11 @@ def integers(minimum: Int, maximum: Int) raises -> Integers:
     return Integers(minimum, maximum)
 
 
+@fieldwise_init
 struct Booleans(Strategy):
     """Coin flips shrinking toward `False`."""
 
     comptime Value = Bool
-
-    def __init__(out self):
-        pass
 
     def draw(self, mut tc: TestCase) raises -> Bool:
         return tc.draw_boolean()
