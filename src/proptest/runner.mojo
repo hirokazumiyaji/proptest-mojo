@@ -38,15 +38,23 @@ struct Settings(Copyable, Movable, Writable):
     var seed: Optional[UInt64]
     var max_choices: Int
     var max_shrink_evaluations: Int
+    # Tracked separately from `max_examples`: an explicit
+    # `Settings(max_examples=100)` must still beat `PROPTEST_MAX_EXAMPLES`,
+    # so equality with the default cannot stand in for "supplied".
+    var max_examples_set: Bool
 
     def __init__(
         out self,
-        max_examples: Int = DEFAULT_MAX_EXAMPLES,
+        max_examples: Optional[Int] = None,
         seed: Optional[UInt64] = None,
         max_choices: Int = DEFAULT_MAX_CHOICES,
         max_shrink_evaluations: Int = DEFAULT_MAX_SHRINK_EVALUATIONS,
     ):
-        self.max_examples = max_examples
+        self.max_examples_set = max_examples is not None
+        self.max_examples = (
+            max_examples.value() if max_examples
+            is not None else DEFAULT_MAX_EXAMPLES
+        )
         self.seed = seed.copy()
         self.max_choices = max_choices
         self.max_shrink_evaluations = max_shrink_evaluations
@@ -69,7 +77,7 @@ struct Settings(Copyable, Movable, Writable):
 
     def effective_max_examples(self) raises -> Int:
         """Explicit count, else `PROPTEST_MAX_EXAMPLES` over the default."""
-        if self.max_examples != DEFAULT_MAX_EXAMPLES:
+        if self.max_examples_set:
             return self.max_examples
         var from_env = getenv(MAX_EXAMPLES_ENV_VAR)
         if from_env.byte_length() > 0:

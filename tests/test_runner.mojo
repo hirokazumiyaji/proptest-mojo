@@ -83,6 +83,42 @@ def test_settings_explicit_values_win_over_env() raises:
     assert_equal(default_seed, UInt64(777))
     assert_equal(default_count, 7)
     assert_equal(explicit_seed, UInt64(1))
+
+
+def test_explicit_default_max_examples_beats_env() raises:
+    # Settings(max_examples=100) is indistinguishable from the omitted
+    # argument if explicitness is inferred by comparing with the default,
+    # so a caller pinning the documented default would still get the
+    # environment value.
+    var saved_count = getenv("PROPTEST_MAX_EXAMPLES")
+    _ = setenv("PROPTEST_MAX_EXAMPLES", "7")
+    var explicit_default = 0
+    var omitted = 0
+    var failure = String("")
+    try:
+        explicit_default = Settings(max_examples=100).effective_max_examples()
+        omitted = Settings().effective_max_examples()
+    except e:
+        failure = String(e)
+    _ = setenv("PROPTEST_MAX_EXAMPLES", saved_count)
+    if failure.byte_length() > 0:
+        raise Error(failure)
+    assert_equal(explicit_default, 100)
+    assert_equal(omitted, 7)
+
+
+def test_explicit_max_examples_beats_env() raises:
+    var saved_count = getenv("PROPTEST_MAX_EXAMPLES")
+    _ = setenv("PROPTEST_MAX_EXAMPLES", "7")
+    var explicit_count = 0
+    var failure = String("")
+    try:
+        explicit_count = Settings(max_examples=3).effective_max_examples()
+    except e:
+        failure = String(e)
+    _ = setenv("PROPTEST_MAX_EXAMPLES", saved_count)
+    if failure.byte_length() > 0:
+        raise Error(failure)
     assert_equal(explicit_count, 3)
 
 

@@ -47,6 +47,8 @@ def main() raises:
 
 環境変数 `PROPTEST_MAX_EXAMPLES` と `PROPTEST_SEED` は、`Settings` の既定値を上書きする（CI で回数を増やす用途）。コードで明示した値が優先される。
 
+`max_examples` はコンストラクタで `Optional[Int]` として受け取り、明示されたかどうか（`max_examples_set`）を値とは別に保持する。既定値 100 との一致で「省略された」と判定すると、`Settings(max_examples=100)` が環境変数で上書きされてしまうため。
+
 ## フェーズ
 
 ```text
