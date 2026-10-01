@@ -12,6 +12,38 @@ choices, so repeated application always terminates.
 from proptest.choice import ChoiceKind, ChoiceSequence
 
 
+def _min_interesting_j[
+    is_interesting: def(ChoiceSequence) thin -> Bool
+](i_set: ChoiceSequence, j: Int, max_j: UInt64) -> UInt64:
+    """Smallest `v` in `[0, max_j]` with `is_interesting(i_set[j<-v])`.
+
+    Caller must have verified `is_interesting(i_set[j<-max_j])`.
+    Tries 0 first; otherwise bisects.
+    """
+    var probe0 = i_set.with_value_at(j, UInt64(0))
+    if is_interesting(probe0.copy()):
+        return UInt64(0)
+    var lo = UInt64(0)
+    var hi = max_j
+    while hi - lo > UInt64(1):
+        var mid = lo + (hi - lo) // UInt64(2)
+        var probe = i_set.with_value_at(j, mid)
+        if is_interesting(probe.copy()):
+            hi = mid
+        else:
+            lo = mid
+    return hi
+
+
+def _apply_group(
+    seq: ChoiceSequence, group: List[Int], v: UInt64
+) -> ChoiceSequence:
+    var out = seq.copy()
+    for g in range(len(group)):
+        out = out.with_value_at(group[g], v)
+    return out^
+
+
 def redistribute[
     is_interesting: def(ChoiceSequence) thin -> Bool
 ](seq: ChoiceSequence) -> ChoiceSequence:
@@ -52,65 +84,33 @@ def redistribute[
                     continue
                 if b >= max_j:
                     continue
-                var tmp0 = best.with_value_at(i, UInt64(0))
-                var probe0max = tmp0.with_value_at(j, max_j)
+                var j_maxed = best.with_value_at(j, max_j)
+                var probe0max = j_maxed.with_value_at(i, UInt64(0))
                 if is_interesting(probe0max.copy()):
-                    var jstar: UInt64
-                    var tmp0z = best.with_value_at(i, UInt64(0))
-                    var probe0z = tmp0z.with_value_at(j, UInt64(0))
-                    if is_interesting(probe0z.copy()):
-                        jstar = UInt64(0)
-                    else:
-                        var lo = UInt64(0)
-                        var hi = max_j
-                        while hi - lo > UInt64(1):
-                            var mid = lo + (hi - lo) // UInt64(2)
-                            var tm = best.with_value_at(i, UInt64(0))
-                            var pr = tm.with_value_at(j, mid)
-                            if is_interesting(pr.copy()):
-                                hi = mid
-                            else:
-                                lo = mid
-                        jstar = hi
-                    var t0b = best.with_value_at(i, UInt64(0))
-                    var cand0 = t0b.with_value_at(j, jstar)
-                    best = cand0^
+                    var i_zeroed = best.with_value_at(i, UInt64(0))
+                    var jstar = _min_interesting_j[is_interesting](
+                        i_zeroed, j, max_j
+                    )
+                    best = i_zeroed.with_value_at(j, jstar)
                     improved = True
                     break
-                else:
-                    var lo = UInt64(0)
-                    var hi = a
-                    while hi - lo > UInt64(1):
-                        var mid = lo + (hi - lo) // UInt64(2)
-                        var tm = best.with_value_at(i, mid)
-                        var pr = tm.with_value_at(j, max_j)
-                        if is_interesting(pr.copy()):
-                            hi = mid
-                        else:
-                            lo = mid
-                    if hi < a:
-                        var jstar: UInt64
-                        var thiz = best.with_value_at(i, hi)
-                        var probez = thiz.with_value_at(j, UInt64(0))
-                        if is_interesting(probez.copy()):
-                            jstar = UInt64(0)
-                        else:
-                            var lo2 = UInt64(0)
-                            var hi2 = max_j
-                            while hi2 - lo2 > UInt64(1):
-                                var mid2 = lo2 + (hi2 - lo2) // UInt64(2)
-                                var tm2 = best.with_value_at(i, hi)
-                                var pr2 = tm2.with_value_at(j, mid2)
-                                if is_interesting(pr2.copy()):
-                                    hi2 = mid2
-                                else:
-                                    lo2 = mid2
-                            jstar = hi2
-                        var th = best.with_value_at(i, hi)
-                        var candh = th.with_value_at(j, jstar)
-                        best = candh^
-                        improved = True
-                        break
+                var lo = UInt64(0)
+                var hi = a
+                while hi - lo > UInt64(1):
+                    var mid = lo + (hi - lo) // UInt64(2)
+                    var probe = j_maxed.with_value_at(i, mid)
+                    if is_interesting(probe.copy()):
+                        hi = mid
+                    else:
+                        lo = mid
+                if hi < a:
+                    var i_set = best.with_value_at(i, hi)
+                    var jstar = _min_interesting_j[is_interesting](
+                        i_set, j, max_j
+                    )
+                    best = i_set.with_value_at(j, jstar)
+                    improved = True
+                    break
         if not improved:
             break
     return best^
@@ -152,41 +152,33 @@ def lower_duplicates[
                     break
             if already:
                 continue
+            seen.append(v)
             var group = List[Int]()
             for k in range(n):
                 if best.nodes[k].forced:
                     continue
                 if best.nodes[k].value == v:
                     group.append(k)
-            seen.append(v)
             if len(group) < 2:
                 continue
-            var cand0 = best.copy()
-            for g in range(len(group)):
-                cand0 = cand0.with_value_at(group[g], UInt64(0))
+            var cand0 = _apply_group(best, group, UInt64(0))
             if is_interesting(cand0.copy()):
                 best = cand0^
                 improved = True
                 break
-            else:
-                var lo = UInt64(0)
-                var hi = v
-                while hi - lo > UInt64(1):
-                    var mid = lo + (hi - lo) // UInt64(2)
-                    var probe = best.copy()
-                    for g in range(len(group)):
-                        probe = probe.with_value_at(group[g], mid)
-                    if is_interesting(probe.copy()):
-                        hi = mid
-                    else:
-                        lo = mid
-                if hi < v:
-                    var candh = best.copy()
-                    for g in range(len(group)):
-                        candh = candh.with_value_at(group[g], hi)
-                    best = candh^
-                    improved = True
-                    break
+            var lo = UInt64(0)
+            var hi = v
+            while hi - lo > UInt64(1):
+                var mid = lo + (hi - lo) // UInt64(2)
+                var probe = _apply_group(best, group, mid)
+                if is_interesting(probe.copy()):
+                    hi = mid
+                else:
+                    lo = mid
+            if hi < v:
+                best = _apply_group(best, group, hi)
+                improved = True
+                break
         if not improved:
             break
     return best^
