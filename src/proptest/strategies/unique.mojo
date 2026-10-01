@@ -63,19 +63,23 @@ struct DictList[
     def __len__(self) -> Int:
         return len(self.entries)
 
-    def contains(self, key: Self.K) -> Bool:
-        """Whether `key` is already present."""
+    def _find(self, key: Self.K) -> Int:
+        """Index of the entry under `key`, or `-1` when absent."""
         for i in range(len(self.entries)):
             if self.entries[i].key == key:
-                return True
-        return False
+                return i
+        return -1
+
+    def contains(self, key: Self.K) -> Bool:
+        """Whether `key` is already present."""
+        return self._find(key) >= 0
 
     def __getitem__(self, key: Self.K) raises -> Self.V:
         """Copy of the value stored under `key`; raises when absent."""
-        for i in range(len(self.entries)):
-            if self.entries[i].key == key:
-                return self.entries[i].value.copy()
-        raise Error("DictList: key not found")
+        var i = self._find(key)
+        if i < 0:
+            raise Error("DictList: key not found")
+        return self.entries[i].value.copy()
 
     def keys(self) -> List[Self.K]:
         """Keys in insertion order."""
@@ -120,6 +124,7 @@ struct UniqueListOf[E: Strategy](Strategy) where conforms_to(
         if self.average_size > 0.0:
             p_continue = self.average_size / (1.0 + self.average_size)
         while True:
+            var depth = len(tc.open_spans)
             tc.start_span(_UNIQUE_ELEMENT_LABEL)
             try:
                 var cont: Bool
@@ -137,23 +142,19 @@ struct UniqueListOf[E: Strategy](Strategy) where conforms_to(
                 var placed = False
                 for _attempt in range(_MAX_DUPLICATE_ATTEMPTS):
                     tc.start_span(_UNIQUE_ATTEMPT_LABEL)
-                    try:
-                        var candidate = self.elements.draw(tc)
-                        var duplicate = False
-                        for i in range(len(out)):
-                            if out[i] == candidate:
-                                duplicate = True
-                                break
-                        if duplicate:
-                            tc.stop_span(discard=True)
-                            continue
-                        tc.stop_span()
-                        out.append(candidate^)
-                        placed = True
-                        break
-                    except e:
-                        tc.stop_span()
-                        raise e
+                    var candidate = self.elements.draw(tc)
+                    var duplicate = False
+                    for i in range(len(out)):
+                        if out[i] == candidate:
+                            duplicate = True
+                            break
+                    if duplicate:
+                        tc.stop_span(discard=True)
+                        continue
+                    tc.stop_span()
+                    out.append(candidate^)
+                    placed = True
+                    break
                 if placed:
                     tc.stop_span()
                 else:
@@ -162,7 +163,8 @@ struct UniqueListOf[E: Strategy](Strategy) where conforms_to(
                         break
                     tc.assume(False)
             except e:
-                tc.stop_span()
+                while len(tc.open_spans) > depth:
+                    tc.stop_span(discard=True)
                 raise e
         return out^
 
@@ -190,8 +192,6 @@ def unique_lists[
     var avg = average_size
     if avg < 0.0:
         avg = _default_average_size(min_size, max_size)
-    if avg < 0.0:
-        raise Error("unique_lists: average_size must be >= 0")
     return UniqueListOf[E](elements^, min_size, max_size, avg)
 
 
@@ -218,6 +218,7 @@ struct DictOf[K: Strategy, V: Strategy](Strategy) where conforms_to(
         if self.average_size > 0.0:
             p_continue = self.average_size / (1.0 + self.average_size)
         while True:
+            var depth = len(tc.open_spans)
             tc.start_span(_DICT_ENTRY_LABEL)
             try:
                 var cont: Bool
@@ -235,21 +236,17 @@ struct DictOf[K: Strategy, V: Strategy](Strategy) where conforms_to(
                 var placed = False
                 for _attempt in range(_MAX_DUPLICATE_ATTEMPTS):
                     tc.start_span(_DICT_ATTEMPT_LABEL)
-                    try:
-                        var key = self.keys.draw(tc)
-                        if out.contains(key):
-                            tc.stop_span(discard=True)
-                            continue
-                        var value = self.values.draw(tc)
-                        out.entries.append(
-                            DictEntry[Self.K.Value, Self.V.Value](key^, value^)
-                        )
-                        tc.stop_span()
-                        placed = True
-                        break
-                    except e:
-                        tc.stop_span()
-                        raise e
+                    var key = self.keys.draw(tc)
+                    if out.contains(key):
+                        tc.stop_span(discard=True)
+                        continue
+                    var value = self.values.draw(tc)
+                    out.entries.append(
+                        DictEntry[Self.K.Value, Self.V.Value](key^, value^)
+                    )
+                    tc.stop_span()
+                    placed = True
+                    break
                 if placed:
                     tc.stop_span()
                 else:
@@ -258,7 +255,8 @@ struct DictOf[K: Strategy, V: Strategy](Strategy) where conforms_to(
                         break
                     tc.assume(False)
             except e:
-                tc.stop_span()
+                while len(tc.open_spans) > depth:
+                    tc.stop_span(discard=True)
                 raise e
         return out^
 
@@ -288,6 +286,4 @@ def dicts[
     var avg = average_size
     if avg < 0.0:
         avg = _default_average_size(min_size, max_size)
-    if avg < 0.0:
-        raise Error("dicts: average_size must be >= 0")
     return DictOf[K, V](keys^, values^, min_size, max_size, avg)
