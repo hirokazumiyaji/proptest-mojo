@@ -52,12 +52,11 @@ def redistribute[
                     continue
                 if b >= max_j:
                     continue
-                var tmp0 = best.with_value_at(i, UInt64(0))
-                var probe0max = tmp0.with_value_at(j, max_j)
+                var base_i0 = best.with_value_at(i, UInt64(0))
+                var probe0max = base_i0.with_value_at(j, max_j)
                 if is_interesting(probe0max.copy()):
                     var jstar: UInt64
-                    var tmp0z = best.with_value_at(i, UInt64(0))
-                    var probe0z = tmp0z.with_value_at(j, UInt64(0))
+                    var probe0z = base_i0.with_value_at(j, UInt64(0))
                     if is_interesting(probe0z.copy()):
                         jstar = UInt64(0)
                     else:
@@ -65,16 +64,13 @@ def redistribute[
                         var hi = max_j
                         while hi - lo > UInt64(1):
                             var mid = lo + (hi - lo) // UInt64(2)
-                            var tm = best.with_value_at(i, UInt64(0))
-                            var pr = tm.with_value_at(j, mid)
+                            var pr = base_i0.with_value_at(j, mid)
                             if is_interesting(pr.copy()):
                                 hi = mid
                             else:
                                 lo = mid
                         jstar = hi
-                    var t0b = best.with_value_at(i, UInt64(0))
-                    var cand0 = t0b.with_value_at(j, jstar)
-                    best = cand0^
+                    best = base_i0.with_value_at(j, jstar)
                     improved = True
                     break
                 else:
@@ -90,8 +86,8 @@ def redistribute[
                             lo = mid
                     if hi < a:
                         var jstar: UInt64
-                        var thiz = best.with_value_at(i, hi)
-                        var probez = thiz.with_value_at(j, UInt64(0))
+                        var base_i_hi = best.with_value_at(i, hi)
+                        var probez = base_i_hi.with_value_at(j, UInt64(0))
                         if is_interesting(probez.copy()):
                             jstar = UInt64(0)
                         else:
@@ -99,16 +95,13 @@ def redistribute[
                             var hi2 = max_j
                             while hi2 - lo2 > UInt64(1):
                                 var mid2 = lo2 + (hi2 - lo2) // UInt64(2)
-                                var tm2 = best.with_value_at(i, hi)
-                                var pr2 = tm2.with_value_at(j, mid2)
+                                var pr2 = base_i_hi.with_value_at(j, mid2)
                                 if is_interesting(pr2.copy()):
                                     hi2 = mid2
                                 else:
                                     lo2 = mid2
                             jstar = hi2
-                        var th = best.with_value_at(i, hi)
-                        var candh = th.with_value_at(j, jstar)
-                        best = candh^
+                        best = base_i_hi.with_value_at(j, jstar)
                         improved = True
                         break
         if not improved:

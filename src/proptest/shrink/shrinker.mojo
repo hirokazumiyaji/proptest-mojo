@@ -400,8 +400,7 @@ def shrink[
                 if hit_budget:
                     break
                 if entries[idx0].is_interesting:
-                    var base0z = best.with_value_at(i, UInt64(0))
-                    var probe0z = base0z.with_value_at(j, UInt64(0))
+                    var probe0z = base0.with_value_at(j, UInt64(0))
                     var key0z = probe0z.values()
                     var idx0z = _lookup(entries, key0z)
                     if idx0z < 0:
@@ -432,8 +431,7 @@ def shrink[
                                 hit_budget = True
                                 break
                             var mid = lo + (hi - lo) // UInt64(2)
-                            var tm = best.with_value_at(i, UInt64(0))
-                            var pr = tm.with_value_at(j, mid)
+                            var pr = base0.with_value_at(j, mid)
                             var pkey = pr.values()
                             var pidx = _lookup(entries, pkey)
                             if pidx < 0:
@@ -457,8 +455,7 @@ def shrink[
                         if hit_budget:
                             break
                         jstar = hi
-                    var fin0 = best.with_value_at(i, UInt64(0))
-                    var fincand = fin0.with_value_at(j, jstar)
+                    var fincand = base0.with_value_at(j, jstar)
                     var fkey = fincand.values()
                     var fidx = _lookup(entries, fkey)
                     if fidx < 0:
@@ -515,8 +512,8 @@ def shrink[
                     if hit_budget:
                         break
                     if hi < a:
-                        var thiz = best.with_value_at(i, hi)
-                        var probez = thiz.with_value_at(j, UInt64(0))
+                        var base_i_hi = best.with_value_at(i, hi)
+                        var probez = base_i_hi.with_value_at(j, UInt64(0))
                         var zkey = probez.values()
                         var zidx = _lookup(entries, zkey)
                         if zidx < 0:
@@ -547,8 +544,7 @@ def shrink[
                                     hit_budget = True
                                     break
                                 var mid2 = lo2 + (hi2 - lo2) // UInt64(2)
-                                var tm2 = best.with_value_at(i, hi)
-                                var pr2 = tm2.with_value_at(j, mid2)
+                                var pr2 = base_i_hi.with_value_at(j, mid2)
                                 var pkey2 = pr2.values()
                                 var pidx2 = _lookup(entries, pkey2)
                                 if pidx2 < 0:
@@ -572,8 +568,7 @@ def shrink[
                             if hit_budget:
                                 break
                             jstar = hi2
-                        var th = best.with_value_at(i, hi)
-                        var candh = th.with_value_at(j, jstar)
+                        var candh = base_i_hi.with_value_at(j, jstar)
                         var hkey = candh.values()
                         var hidx = _lookup(entries, hkey)
                         if hidx < 0:
@@ -1048,8 +1043,7 @@ def shrink_with[
                 if hit_budget:
                     break
                 if entries[idx0].is_interesting:
-                    var base0z = best.with_value_at(i, UInt64(0))
-                    var probe0z = base0z.with_value_at(j, UInt64(0))
+                    var probe0z = base0.with_value_at(j, UInt64(0))
                     var key0z = probe0z.values()
                     var idx0z = _lookup(entries, key0z)
                     if idx0z < 0:
@@ -1080,8 +1074,7 @@ def shrink_with[
                                 hit_budget = True
                                 break
                             var mid = lo + (hi - lo) // UInt64(2)
-                            var tm = best.with_value_at(i, UInt64(0))
-                            var pr = tm.with_value_at(j, mid)
+                            var pr = base0.with_value_at(j, mid)
                             var pkey = pr.values()
                             var pidx = _lookup(entries, pkey)
                             if pidx < 0:
@@ -1105,8 +1098,7 @@ def shrink_with[
                         if hit_budget:
                             break
                         jstar = hi
-                    var fin0 = best.with_value_at(i, UInt64(0))
-                    var fincand = fin0.with_value_at(j, jstar)
+                    var fincand = base0.with_value_at(j, jstar)
                     var fkey = fincand.values()
                     var fidx = _lookup(entries, fkey)
                     if fidx < 0:
@@ -1163,8 +1155,8 @@ def shrink_with[
                     if hit_budget:
                         break
                     if hi < a:
-                        var thiz = best.with_value_at(i, hi)
-                        var probez = thiz.with_value_at(j, UInt64(0))
+                        var base_i_hi = best.with_value_at(i, hi)
+                        var probez = base_i_hi.with_value_at(j, UInt64(0))
                         var zkey = probez.values()
                         var zidx = _lookup(entries, zkey)
                         if zidx < 0:
@@ -1195,8 +1187,7 @@ def shrink_with[
                                     hit_budget = True
                                     break
                                 var mid2 = lo2 + (hi2 - lo2) // UInt64(2)
-                                var tm2 = best.with_value_at(i, hi)
-                                var pr2 = tm2.with_value_at(j, mid2)
+                                var pr2 = base_i_hi.with_value_at(j, mid2)
                                 var pkey2 = pr2.values()
                                 var pidx2 = _lookup(entries, pkey2)
                                 if pidx2 < 0:
@@ -1220,8 +1211,7 @@ def shrink_with[
                             if hit_budget:
                                 break
                             jstar = hi2
-                        var th = best.with_value_at(i, hi)
-                        var candh = th.with_value_at(j, jstar)
+                        var candh = base_i_hi.with_value_at(j, jstar)
                         var hkey = candh.values()
                         var hidx = _lookup(entries, hkey)
                         if hidx < 0:
