@@ -128,12 +128,12 @@ def test_integers_invalid_range_raises() raises:
 
 
 def test_integers_type_rejects_inverted_range() raises:
-    # `Integers` is re-exported, so its own constructor must validate too:
-    # an unchecked `Integers(10, 5)` wraps the unsigned width in `draw`.
-    with assert_raises():
-        _ = Integers(10, 5)
+    # `Integers` is re-exported, so `Integers(10, 5)` must fail rather
+    # than wrap the unsigned width in `draw`.
+    var strategy = Integers(10, 5)
+    var tc = _empty()
     with assert_raises(contains="maximum must be >= minimum"):
-        _ = Integers(10, 5)
+        _ = tc.draw(strategy)
 
 
 def test_integers_type_accepts_valid_range() raises:
