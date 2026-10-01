@@ -40,9 +40,6 @@ struct Status(Equatable, TrivialRegisterPassable, Writable):
     def __eq__(self, other: Self) -> Bool:
         return self.value == other.value
 
-    def __ne__(self, other: Self) -> Bool:
-        return self.value != other.value
-
     def write_to(self, mut writer: Some[Writer]):
         if self == Self.RUNNING:
             writer.write("RUNNING")
@@ -147,9 +144,7 @@ struct TestCase(Sized, Writable):
         if self.replay_mode:
             bit = self._supply_integer(UInt64(1))
         else:
-            bit = UInt64(0)
-            if self.prng.next_float64() < p_true:
-                bit = UInt64(1)
+            bit = UInt64(1) if self.prng.next_float64() < p_true else UInt64(0)
         var recorded = self._record(
             ChoiceKind.BOOLEAN, bit, UInt64(1), Bool(False)
         )
@@ -160,12 +155,16 @@ struct TestCase(Sized, Writable):
     ) raises -> UInt64:
         """Record a generator-fixed choice, kept out of shrinking.
 
-        Consumes no randomness, so later draws are unaffected.
+        Consumes no randomness. In replay mode the prefix cursor still
+        advances so a forced choice occupies its recorded slot, keeping
+        later replayed draws aligned with the original run.
         """
         self._ensure_capacity()
         var clamped = value
         if clamped > max_value:
             clamped = max_value
+        if self.replay_mode:
+            self.cursor += 1
         return self._record(ChoiceKind.INTEGER, clamped, max_value, Bool(True))
 
     def start_span(mut self, label: UInt64):
@@ -203,8 +202,10 @@ struct TestCase(Sized, Writable):
         Opens a span labeled by the FNV-1a hash of `label` (so draws sharing
         a reporting label share a span label), delegates to `strategy.draw`,
         then records `label` with the `Writable` rendering of the value for
-        failure reports. The span closes even when the strategy raises.
+        failure reports. On raise, every span opened during this draw is
+        closed so accounting stays balanced.
         """
+        var depth = len(self.open_spans)
         self.start_span(_span_label(label))
         try:
             var value = strategy.draw(self)
@@ -213,7 +214,8 @@ struct TestCase(Sized, Writable):
             self.draw_values.append(String(value))
             return value^
         except e:
-            self.stop_span()
+            while len(self.open_spans) > depth:
+                self.stop_span()
             raise e
 
     def note(mut self, var message: String):
@@ -264,9 +266,7 @@ struct TestCase(Sized, Writable):
 
 def _span_label(label: StringSlice) -> UInt64:
     # FNV-1a over the reporting label so same-role draws share a span label.
-    var text = String(label)
-    var bytes = text.as_bytes()
     var hash = UInt64(14695981039346656037)
-    for i in range(len(bytes)):
-        hash = (hash ^ UInt64(bytes[i])) * UInt64(1099511628211)
+    for b in label.as_bytes():
+        hash = (hash ^ UInt64(b)) * UInt64(1099511628211)
     return hash
