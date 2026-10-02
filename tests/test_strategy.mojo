@@ -201,6 +201,43 @@ def test_span_label_follows_strategy_not_report_label() raises:
     assert_equal(tc.draw_labels[0], tc.draw_labels[1])
 
 
+@fieldwise_init
+struct Pair(Strategy):
+    """Composite strategy that draws twice through `tc.draw` internally."""
+
+    comptime Value = List[Int]
+    var bound: Int
+
+    def span_label(self) -> UInt64:
+        return kind_label("pair")
+
+    def draw(self, mut tc: TestCase) raises -> List[Int]:
+        var a = tc.draw(integers(0, self.bound), "a")
+        var b = tc.draw(integers(0, self.bound), "b")
+        return [a, b]
+
+
+def test_composite_draw_records_outer_before_inner() raises:
+    # The outer record slot is reserved before delegating, so the report
+    # follows invocation order rather than completion order.
+    var tc = _empty()
+    var pair = tc.draw(Pair(5), "pair")
+    assert_equal(len(pair), 2)
+    assert_equal(len(tc.draw_labels), 3)
+    assert_equal(tc.draw_labels[0], String("pair"))
+    assert_equal(tc.draw_labels[1], String("a"))
+    assert_equal(tc.draw_labels[2], String("b"))
+    # The outer value is filled in once the draw returns.
+    assert_equal(tc.draw_values[0], String(pair))
+
+
+def test_failed_draw_drops_reserved_record() raises:
+    var tc = _empty()
+    assert_equal(tc.draw(just[Int](1), "outer"), 1)
+    assert_equal(len(tc.draw_labels), 1)
+    assert_equal(tc.draw_labels[0], String("outer"))
+
+
 def test_span_label_ignores_distinct_report_labels() raises:
     var tc = _empty()
     _ = tc.draw(integers(0, 5), "first")
