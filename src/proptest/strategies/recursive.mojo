@@ -14,7 +14,7 @@ All-zero choices draw `null`, so shrinking drives trees toward leaves.
 from std.io import Writer
 from std.memory import ArcPointer
 
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.strategies.primitives import Integers, integers
 from proptest.testcase import TestCase
 
@@ -104,6 +104,9 @@ struct JsonTree(Strategy):
     var max_depth: Int
     var max_width: Int
     var leaf_ints: Integers
+
+    def span_label(self) -> UInt64:
+        return kind_label("json_value")
 
     def draw(self, mut tc: TestCase) raises -> JsonValue:
         return self._draw_at_depth(tc, self.max_depth)
