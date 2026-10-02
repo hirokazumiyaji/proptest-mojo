@@ -221,22 +221,33 @@ struct TestCase(Sized, Writable):
         Opens a span labeled by the strategy kind (`strategy.span_label`),
         never by `label`, so the shrink passes only swap blocks that are
         structurally interchangeable; `label` is kept solely in
-        `draw_labels`. Then delegates to `strategy.draw` and records
-        `label` with the `Writable` rendering of the value for failure
-        reports. On raise, every span opened during this draw is closed so
-        accounting stays balanced.
+        `draw_labels`. The record slot is reserved *before* delegating to
+        `strategy.draw`, so a composite strategy that calls `tc.draw`
+        internally still reports its own entry first, matching invocation
+        order; the rendered value is filled in once the draw returns. On
+        raise, every span opened during this draw is closed and the
+        reserved slot is dropped, so accounting stays balanced.
         """
         var depth = len(self.open_spans)
         self.start_span(strategy.span_label())
+        # Reserved, not appended: a nested `tc.draw` inside `strategy`
+        # would otherwise land before this record.
+        var slot = len(self.draw_labels)
+        self.draw_labels.append(String(label))
+        self.draw_values.append(String(""))
         try:
             var value = strategy.draw(self)
             self.stop_span()
-            self.draw_labels.append(String(label))
-            self.draw_values.append(String(value))
+            self.draw_values[slot] = String(value)
             return value^
         except e:
             while len(self.open_spans) > depth:
                 self.stop_span()
+            # Drop the reserved slot, not the tail: nested `tc.draw`
+            # calls in `strategy` appended records after it, and those
+            # draws succeeded, so their entries must survive.
+            _remove_at(self.draw_labels, slot)
+            _remove_at(self.draw_values, slot)
             raise e
 
     def note(mut self, var message: String):
@@ -310,3 +321,17 @@ def _edge_value(max_value: UInt64, selector: UInt64) -> UInt64:
     if slot == UInt64(2):
         return max_value
     return max_value - one
+
+
+def _remove_at(mut items: List[String], index: Int):
+    """Drop `items[index]`, shifting the tail left.
+
+    `TestCase.draw` reserves its record slot before delegating, so a
+    strategy that draws and then raises leaves successful nested records
+    after the reserved one; popping would discard those instead.
+    """
+    var i = index
+    while i + 1 < len(items):
+        items[i] = items[i + 1].copy()
+        i += 1
+    _ = items.pop()
