@@ -88,46 +88,72 @@ def shrink[
     while True:
         var improved = False
 
-        var removals = delete_chunks(best.copy(), max_evaluations - evaluations)
-        for j in range(len(removals)):
+        # Cache hits cost no evaluation, so they must not consume the
+        # materialization cap: refetch with a larger limit when the batch
+        # held only hits, otherwise a cached prefix hides later uncached
+        # candidates and the run reports a fixed point with budget
+        # remaining.
+        var fetched = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = removals[j].copy()
-            var key = cand.values()
-            if _lookup(entries, key) >= 0:
-                continue
-            evaluations += 1
-            var result = evaluate(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            entries.append(_CacheEntry(key^, interesting, consumed.copy()))
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                improved = True
+            var want = fetched + (max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), want)
+            while fetched < len(removals):
+                var cand = removals[fetched].copy()
+                fetched += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = evaluate(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(removals) < want:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        var zeroings = zero_chunks(best.copy(), max_evaluations - evaluations)
-        for j in range(len(zeroings)):
+        # Cache hits cost no evaluation, so they must not consume the
+        # materialization cap: refetch with a larger limit when the batch
+        # held only hits, otherwise a cached prefix hides later uncached
+        # candidates and the run reports a fixed point with budget
+        # remaining.
+        var zeroed_count = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = zeroings[j].copy()
-            var key = cand.values()
-            if _lookup(entries, key) >= 0:
-                continue
-            evaluations += 1
-            var result = evaluate(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            entries.append(_CacheEntry(key^, interesting, consumed.copy()))
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                improved = True
+            var want = zeroed_count + (max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), want)
+            while zeroed_count < len(zeroings):
+                var cand = zeroings[zeroed_count].copy()
+                zeroed_count += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = evaluate(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(zeroings) < want:
                 break
         if hit_budget:
             break
@@ -237,46 +263,72 @@ def shrink_with[
     while True:
         var improved = False
 
-        var removals = delete_chunks(best.copy(), max_evaluations - evaluations)
-        for j in range(len(removals)):
+        # Cache hits cost no evaluation, so they must not consume the
+        # materialization cap: refetch with a larger limit when the batch
+        # held only hits, otherwise a cached prefix hides later uncached
+        # candidates and the run reports a fixed point with budget
+        # remaining.
+        var fetched = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = removals[j].copy()
-            var key = cand.values()
-            if _lookup(entries, key) >= 0:
-                continue
-            evaluations += 1
-            var result = eval_fn(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            entries.append(_CacheEntry(key^, interesting, consumed.copy()))
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                improved = True
+            var want = fetched + (max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), want)
+            while fetched < len(removals):
+                var cand = removals[fetched].copy()
+                fetched += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = eval_fn(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(removals) < want:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        var zeroings = zero_chunks(best.copy(), max_evaluations - evaluations)
-        for j in range(len(zeroings)):
+        # Cache hits cost no evaluation, so they must not consume the
+        # materialization cap: refetch with a larger limit when the batch
+        # held only hits, otherwise a cached prefix hides later uncached
+        # candidates and the run reports a fixed point with budget
+        # remaining.
+        var zeroed_count = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = zeroings[j].copy()
-            var key = cand.values()
-            if _lookup(entries, key) >= 0:
-                continue
-            evaluations += 1
-            var result = eval_fn(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            entries.append(_CacheEntry(key^, interesting, consumed.copy()))
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                improved = True
+            var want = zeroed_count + (max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), want)
+            while zeroed_count < len(zeroings):
+                var cand = zeroings[zeroed_count].copy()
+                zeroed_count += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = eval_fn(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(zeroings) < want:
                 break
         if hit_budget:
             break
