@@ -218,22 +218,31 @@ struct TestCase(Sized, Writable):
         Opens a span labeled by the strategy kind (`strategy.span_label`),
         never by `label`, so the shrink passes only swap blocks that are
         structurally interchangeable; `label` is kept solely in
-        `draw_labels`. Then delegates to `strategy.draw` and records
-        `label` with the `Writable` rendering of the value for failure
-        reports. On raise, every span opened during this draw is closed so
-        accounting stays balanced.
+        `draw_labels`. The record slot is reserved *before* delegating to
+        `strategy.draw`, so a composite strategy that calls `tc.draw`
+        internally still reports its own entry first, matching invocation
+        order; the rendered value is filled in once the draw returns. On
+        raise, every span opened during this draw is closed and the
+        reserved slot is dropped, so accounting stays balanced.
         """
         var depth = len(self.open_spans)
         self.start_span(strategy.span_label())
+        # Reserved, not appended: a nested `tc.draw` inside `strategy`
+        # would otherwise land before this record.
+        var slot = len(self.draw_labels)
+        self.draw_labels.append(String(label))
+        self.draw_values.append(String(""))
         try:
             var value = strategy.draw(self)
             self.stop_span()
-            self.draw_labels.append(String(label))
-            self.draw_values.append(String(value))
+            self.draw_values[slot] = String(value)
             return value^
         except e:
             while len(self.open_spans) > depth:
                 self.stop_span()
+            # Drop the reserved slot: the draw produced no value.
+            _ = self.draw_labels.pop()
+            _ = self.draw_values.pop()
             raise e
 
     def note(mut self, var message: String):
