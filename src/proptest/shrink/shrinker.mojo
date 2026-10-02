@@ -52,6 +52,20 @@ struct _CacheEntry(Copyable, Movable):
     var consumed: ChoiceSequence
 
 
+# Candidates are materialized in fixed-size batches rather than up to
+# the whole remaining budget: each candidate copies the entire sequence, so
+# the default 5,000-evaluation budget would retain tens of millions of
+# `ChoiceNode`s before the first one is evaluated.
+comptime CANDIDATE_BATCH = 64
+
+
+def _batch_size(remaining: Int) -> Int:
+    """Candidates to materialize at once, capped by what is left."""
+    if remaining < CANDIDATE_BATCH:
+        return remaining
+    return CANDIDATE_BATCH
+
+
 def _values_equal(a: List[UInt64], b: List[UInt64]) -> Bool:
     if len(a) != len(b):
         return False
@@ -98,7 +112,7 @@ def shrink[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = fetched + (max_evaluations - evaluations)
+            var want = fetched + _batch_size(max_evaluations - evaluations)
             var removals = delete_chunks(best.copy(), want)
             while fetched < len(removals):
                 var cand = removals[fetched].copy()
@@ -134,7 +148,7 @@ def shrink[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = zeroed_count + (max_evaluations - evaluations)
+            var want = zeroed_count + _batch_size(max_evaluations - evaluations)
             var zeroings = zero_chunks(best.copy(), want)
             while zeroed_count < len(zeroings):
                 var cand = zeroings[zeroed_count].copy()
@@ -273,7 +287,7 @@ def shrink_with[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = fetched + (max_evaluations - evaluations)
+            var want = fetched + _batch_size(max_evaluations - evaluations)
             var removals = delete_chunks(best.copy(), want)
             while fetched < len(removals):
                 var cand = removals[fetched].copy()
@@ -309,7 +323,7 @@ def shrink_with[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = zeroed_count + (max_evaluations - evaluations)
+            var want = zeroed_count + _batch_size(max_evaluations - evaluations)
             var zeroings = zero_chunks(best.copy(), want)
             while zeroed_count < len(zeroings):
                 var cand = zeroings[zeroed_count].copy()
