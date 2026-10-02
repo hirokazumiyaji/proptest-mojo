@@ -6,6 +6,13 @@ returning candidates simplest-first, while adaptive passes take a pure
 
 Every candidate is strictly shortlex-smaller than the input, and
 `forced` choices are never changed.
+
+The enumeration passes materialize candidates eagerly, and each candidate
+copies the whole sequence, so a caller must pass the `limit` it can
+actually evaluate. The shrink loop (added on the branch that owns
+`shrinker.mojo`) passes its remaining evaluation budget; without that,
+a near-maximal sequence would build tens of thousands of full copies
+before the first one is looked at.
 """
 
 from proptest.choice import (
@@ -294,7 +301,7 @@ def _zeroing_precedes(
     return False
 
 
-def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
+def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     """Contiguous-block deletions, simplest-first.
 
     Tries chunk lengths 8, 4, 2, 1 at every start position and orders
@@ -317,6 +324,8 @@ def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
         if size > n:
             continue
         for start in range(n - size + 1):
+            if limit >= 0 and len(out) >= limit:
+                return out^
             var removed = size
             if n - start < removed:
                 removed = n - start
@@ -355,7 +364,7 @@ def delete_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
     return out^
 
 
-def zero_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
+def zero_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     """Contiguous-block zeroings, simplest-first.
 
     Same chunk lengths and positions as `delete_chunks`, likewise
@@ -378,6 +387,8 @@ def zero_chunks(seq: ChoiceSequence) -> List[ChoiceSequence]:
         if size > n:
             continue
         for start in range(n - size + 1):
+            if limit >= 0 and len(out) >= limit:
+                return out^
             var end = start + size
             if end > n:
                 end = n
