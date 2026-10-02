@@ -9,7 +9,7 @@ verifies both quality and cost.
 """
 
 from proptest import Settings, TestCase, for_all, integers, lists
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from std.testing import TestSuite, assert_true
 
 
@@ -30,6 +30,9 @@ struct ABText(Strategy):
     var min_size: Int
     var max_size: Int
     var average_size: Float64
+
+    def span_label(self) -> UInt64:
+        return kind_label("ab_text")
 
     def draw(self, mut tc: TestCase) raises -> String:
         var out = String("")

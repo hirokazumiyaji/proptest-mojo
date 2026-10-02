@@ -13,7 +13,12 @@ Phases run in spec order, restarting from the top after any adoption:
 
 from std.io import Writer
 
-from proptest.choice import ChoiceKind, ChoiceSequence, Span
+from proptest.choice import (
+    ChoiceKind,
+    ChoiceSequence,
+    Span,
+    is_shortlex_smaller,
+)
 from proptest.shrink.passes import delete_chunks, zero_chunks
 from proptest.shrink.span_passes import (
     delete_spans,
@@ -107,7 +112,7 @@ def shrink[
     while True:
         var improved = False
 
-        var removals = delete_chunks(best.copy())
+        var removals = delete_chunks(best.copy(), max_evaluations - evaluations)
         for j in range(len(removals)):
             if evaluations >= max_evaluations:
                 hit_budget = True
@@ -124,7 +129,7 @@ def shrink[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
@@ -134,7 +139,7 @@ def shrink[
         if improved:
             continue
 
-        var zeroings = zero_chunks(best.copy())
+        var zeroings = zero_chunks(best.copy(), max_evaluations - evaluations)
         for j in range(len(zeroings)):
             if evaluations >= max_evaluations:
                 hit_budget = True
@@ -151,7 +156,7 @@ def shrink[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
@@ -195,7 +200,7 @@ def shrink[
                         zero_spans.copy(),
                     )
                 )
-            if zero_interesting:
+            if zero_interesting and is_shortlex_smaller(zero_consumed, best):
                 best = zero_consumed^
                 best_spans = zero_spans^
                 improved = True
@@ -232,13 +237,18 @@ def shrink[
                             p_spans.copy(),
                         )
                     )
-                if p_interesting:
+                if p_interesting and is_shortlex_smaller(p_consumed, best):
                     hi = mid
                     best = p_consumed^
                     best_spans = p_spans^
                     changed = True
-                else:
+                elif not p_interesting:
                     lo = mid
+                else:
+                    # Interesting but not smaller: the property drew
+                    # extra choices, so this probe is unusable and the
+                    # interval is exhausted rather than narrowed.
+                    break
             if hit_budget:
                 break
             if changed:
@@ -266,7 +276,7 @@ def shrink[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
@@ -293,7 +303,7 @@ def shrink[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
@@ -320,7 +330,7 @@ def shrink[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
@@ -347,7 +357,7 @@ def shrink[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
@@ -750,7 +760,7 @@ def shrink_with[
     while True:
         var improved = False
 
-        var removals = delete_chunks(best.copy())
+        var removals = delete_chunks(best.copy(), max_evaluations - evaluations)
         for j in range(len(removals)):
             if evaluations >= max_evaluations:
                 hit_budget = True
@@ -767,7 +777,7 @@ def shrink_with[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
@@ -777,7 +787,7 @@ def shrink_with[
         if improved:
             continue
 
-        var zeroings = zero_chunks(best.copy())
+        var zeroings = zero_chunks(best.copy(), max_evaluations - evaluations)
         for j in range(len(zeroings)):
             if evaluations >= max_evaluations:
                 hit_budget = True
@@ -794,7 +804,7 @@ def shrink_with[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
@@ -838,7 +848,7 @@ def shrink_with[
                         zero_spans.copy(),
                     )
                 )
-            if zero_interesting:
+            if zero_interesting and is_shortlex_smaller(zero_consumed, best):
                 best = zero_consumed^
                 best_spans = zero_spans^
                 improved = True
@@ -875,13 +885,18 @@ def shrink_with[
                             p_spans.copy(),
                         )
                     )
-                if p_interesting:
+                if p_interesting and is_shortlex_smaller(p_consumed, best):
                     hi = mid
                     best = p_consumed^
                     best_spans = p_spans^
                     changed = True
-                else:
+                elif not p_interesting:
                     lo = mid
+                else:
+                    # Interesting but not smaller: the property drew
+                    # extra choices, so this probe is unusable and the
+                    # interval is exhausted rather than narrowed.
+                    break
             if hit_budget:
                 break
             if changed:
@@ -909,7 +924,7 @@ def shrink_with[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
@@ -936,7 +951,7 @@ def shrink_with[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
@@ -963,7 +978,7 @@ def shrink_with[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
@@ -990,7 +1005,7 @@ def shrink_with[
             entries.append(
                 _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
             )
-            if interesting:
+            if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
                 best_spans = cspans^
                 improved = True
