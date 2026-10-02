@@ -157,6 +157,52 @@ def test_zero_chunks_preserves_forced() raises:
         )
 
 
+def test_delete_chunks_respects_limit() raises:
+    var seq = _seq(
+        UInt64(1),
+        UInt64(2),
+        UInt64(3),
+        UInt64(4),
+        UInt64(5),
+        UInt64(6),
+        UInt64(7),
+        UInt64(8),
+        UInt64(9),
+        UInt64(10),
+    )
+    var all = delete_chunks(seq.copy())
+    assert_true(len(all) > 2, msg="input yields several candidates")
+    # The budgeted form must be a prefix of the full form, so the shrink
+    # loop sees the same candidates in the same order.
+    var capped = delete_chunks(seq.copy(), 2)
+    assert_equal(len(capped), 2)
+    assert_equal(capped[0], all[0])
+    assert_equal(capped[1], all[1])
+    assert_equal(len(delete_chunks(seq.copy(), 0)), 0)
+
+
+def test_zero_chunks_respects_limit() raises:
+    var seq = _seq(
+        UInt64(5),
+        UInt64(5),
+        UInt64(5),
+        UInt64(5),
+        UInt64(5),
+        UInt64(5),
+        UInt64(5),
+        UInt64(5),
+        UInt64(5),
+        UInt64(5),
+    )
+    var all = zero_chunks(seq.copy())
+    assert_true(len(all) > 2, msg="input yields several candidates")
+    var capped = zero_chunks(seq.copy(), 3)
+    assert_equal(len(capped), 3)
+    for i in range(3):
+        assert_equal(capped[i], all[i])
+    assert_equal(len(zero_chunks(seq.copy(), 0)), 0)
+
+
 def test_minimize_individual_binary_search() raises:
     var seq = _seq(UInt64(1000))
     var best = minimize_individual[_first_over_100](seq.copy())
