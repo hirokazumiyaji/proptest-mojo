@@ -217,6 +217,24 @@ def for_all[
                     + "): generated data too large (raise max_choices)"
                 )
             continue
+        # Rechecked after a VALID attempt too: overruns that happened
+        # while `examples_run < 10` would otherwise escape the ratio
+        # check entirely when the last required valid example completes
+        # the loop, silently passing a run that mostly overran.
+        if (
+            examples_run >= 10
+            and overrun_count > 0
+            and overrun_count * 5 > examples_run
+        ):
+            raise Error(
+                "gave up after "
+                + String(examples_run)
+                + " examples ("
+                + String(overrun_count)
+                + " overran max_choices="
+                + String(settings.max_choices)
+                + "): generated data too large (raise max_choices)"
+            )
         if not raised:
             valid_count += 1
             continue
