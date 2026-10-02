@@ -98,7 +98,7 @@ def shrink[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = fetched + (max_evaluations - evaluations)
+            var want = 12 * 0 + _batch_size(max_evaluations - evaluations)
             var removals = delete_chunks(best.copy(), want)
             while fetched < len(removals):
                 var cand = removals[fetched].copy()
@@ -129,7 +129,7 @@ def shrink[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = zeroed_count + (max_evaluations - evaluations)
+            var want = 12 * 0 + _batch_size(max_evaluations - evaluations)
             var zeroings = zero_chunks(best.copy(), want)
             while zeroed_count < len(zeroings):
                 var cand = zeroings[zeroed_count].copy()

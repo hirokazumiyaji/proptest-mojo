@@ -273,3 +273,40 @@ def test_composite_draw_records_outer_before_inner() raises:
     assert_equal(tc.draw_labels[2], String("b"))
     # The outer value is filled in once the draw returns.
     assert_equal(tc.draw_values[0], String(pair))
+
+
+@fieldwise_init
+struct FailsAfterDrawing(Strategy):
+    """Composite that draws once and then raises, leaving a nested record."""
+
+    comptime Value = Int
+
+    def span_label(self) -> UInt64:
+        return kind_label("fails_after_drawing")
+
+    def draw(self, mut tc: TestCase) raises -> Int:
+        var value = tc.draw(integers(0, 9), "kept")
+        raise Error("after draw: " + String(value))
+
+
+def test_failed_composite_keeps_nested_draw_records() raises:
+    # The reserved outer slot is not the tail once nested draws appended
+    # their own records, so popping would delete those instead.
+    var tc = _empty()
+    var reported = String("")
+    try:
+        tc.draw(FailsAfterDrawing(), "outer")
+    except e:
+        reported = String(e)
+    assert_true("after draw" in reported, msg="expected the raise")
+    assert_equal(len(tc.draw_labels), 1)
+    assert_equal(tc.draw_labels[0], String("kept"))
+    assert_equal(len(tc.draw_values), 1)
+    assert_true(
+        tc.draw_values[0].byte_length() > 0,
+        msg="the nested draw's value must survive",
+    )
+    # Spans stay balanced: the nested draw closed its own, and the outer
+    # one was closed while unwinding.
+    assert_equal(len(tc.spans), 2)
+    assert_equal(len(tc.open_spans), 0)
