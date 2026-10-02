@@ -16,7 +16,7 @@ shrinking only needs to lower choices. All-zero choices draw `+0.0`.
 from std.math import inf, isinf, isnan
 from std.memory import bitcast
 
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.testcase import TestCase
 
 comptime SIGN_MASK = UInt64(0x8000000000000000)
@@ -81,6 +81,9 @@ struct Floats(Strategy):
     var max_value: Float64
     var allow_nan: Bool
     var allow_infinity: Bool
+
+    def span_label(self) -> UInt64:
+        return kind_label("floats")
 
     def draw(self, mut tc: TestCase) raises -> Float64:
         var negative = tc.draw_boolean()
