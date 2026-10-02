@@ -8,7 +8,7 @@ shrink-budget note in the falsifying report.
 
 from proptest import Settings, Status, TestCase, Verbosity, for_all, integers
 from proptest.runner import _format_example_line
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from std.testing import TestSuite, assert_equal, assert_true
 
 
@@ -19,6 +19,9 @@ struct RejectAll(Strategy):
 
     def __init__(out self):
         pass
+
+    def span_label(self) -> UInt64:
+        return kind_label("rejectall")
 
     def draw(self, mut tc: TestCase) raises -> Int:
         var x = tc.draw(integers(0, 10), "x")
