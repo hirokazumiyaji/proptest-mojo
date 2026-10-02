@@ -260,6 +260,23 @@ def for_all[
                     )
                 )
             continue
+        # Rechecked after a VALID attempt too: overruns that happened
+        # while `examples_run < 10` would otherwise escape the ratio
+        # check entirely when the last required valid example completes
+        # the loop, silently passing a run that mostly overran.
+        if (
+            examples_run >= 10
+            and overrun_count > 0
+            and overrun_count * 5 > examples_run
+        ):
+            raise Error(
+                _too_many_overruns_message(
+                    examples_run,
+                    overrun_count,
+                    valid_count,
+                    settings.max_choices,
+                )
+            )
         if not raised:
             valid_count += 1
             continue
