@@ -1,8 +1,22 @@
-from proptest import ListOf, Settings, TestCase, for_all, integers, lists
+from proptest import (
+    Integers,
+    ListOf,
+    Settings,
+    TestCase,
+    for_all,
+    integers,
+    lists,
+)
+
 from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence
 from proptest.prng import derive
 from proptest.strategy import Strategy
-from std.testing import TestSuite, assert_equal, assert_true
+from std.testing import (
+    TestSuite,
+    assert_equal,
+    assert_true,
+    assert_raises,
+)
 
 
 def _empty() -> TestCase:
@@ -123,3 +137,14 @@ def test_lists_shrinks_to_three_zeros() raises:
 
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
+
+
+def test_listof_validates_bounds_when_constructed_directly() raises:
+    # `ListOf` is re-exported, so `@fieldwise_init` lets inconsistent
+    # bounds reach `draw`, which would silently violate min_size.
+    var negative = ListOf[Integers](Integers(0, 10), -1, 3, 0.0)
+    with assert_raises(contains="min_size must be >= 0"):
+        _ = _draw_empty(negative)
+    var inverted = ListOf[Integers](Integers(0, 10), 5, 3, 0.0)
+    with assert_raises(contains="max_size must be >= min_size"):
+        _ = _draw_empty(inverted)
