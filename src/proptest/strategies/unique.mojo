@@ -19,7 +19,7 @@ shorter collections of simpler elements.
 from std.io import Writer
 
 from proptest.strategies.collections import _default_average_size
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.testcase import TestCase
 
 comptime _UNIQUE_ELEMENT_LABEL = UInt64(0x756E6971456C656D)
@@ -116,6 +116,9 @@ struct UniqueListOf[E: Strategy](Strategy) where conforms_to(
     var max_size: Int
     var average_size: Float64
 
+    def span_label(self) -> UInt64:
+        return kind_label("dict_entry")
+
     def draw(
         self, mut tc: TestCase
     ) raises -> List[Self.E.Value] where conforms_to(Self.E.Value, Equatable):
@@ -207,6 +210,9 @@ struct DictOf[K: Strategy, V: Strategy](Strategy) where conforms_to(
     var min_size: Int
     var max_size: Int
     var average_size: Float64
+
+    def span_label(self) -> UInt64:
+        return kind_label("dict_of")
 
     def draw(
         self, mut tc: TestCase
