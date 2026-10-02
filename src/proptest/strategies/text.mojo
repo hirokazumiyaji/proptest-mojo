@@ -14,7 +14,7 @@ alphabet's first character.
 
 from std.math import max, min
 
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.testcase import TestCase
 
 comptime _TEXT_ELEMENT_LABEL = UInt64(0x74657874456C656D)
@@ -69,6 +69,9 @@ struct Text(Strategy):
     var min_size: Int
     var max_size: Int
     var average_size: Float64
+
+    def span_label(self) -> UInt64:
+        return kind_label("text")
 
     def draw(self, mut tc: TestCase) raises -> String:
         var out = String("")
@@ -150,6 +153,9 @@ struct Bytes(Strategy):
     var min_size: Int
     var max_size: Int
     var average_size: Float64
+
+    def span_label(self) -> UInt64:
+        return kind_label("bytes")
 
     def draw(self, mut tc: TestCase) raises -> List[UInt8]:
         var out = List[UInt8]()

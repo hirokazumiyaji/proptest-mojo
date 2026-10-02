@@ -39,14 +39,23 @@ struct Settings(Copyable, Movable, Writable):
     var max_choices: Int
     var max_shrink_evaluations: Int
 
+    # Tracked separately from `max_examples`: an explicit
+    # `Settings(max_examples=100)` must still beat `PROPTEST_MAX_EXAMPLES`,
+    # so equality with the default cannot stand in for "supplied".
+    var max_examples_set: Bool
+
     def __init__(
         out self,
-        max_examples: Int = DEFAULT_MAX_EXAMPLES,
+        max_examples: Optional[Int] = None,
         seed: Optional[UInt64] = None,
         max_choices: Int = DEFAULT_MAX_CHOICES,
         max_shrink_evaluations: Int = DEFAULT_MAX_SHRINK_EVALUATIONS,
     ):
-        self.max_examples = max_examples
+        self.max_examples_set = max_examples is not None
+        self.max_examples = (
+            max_examples.value() if max_examples
+            is not None else DEFAULT_MAX_EXAMPLES
+        )
         self.seed = seed.copy()
         self.max_choices = max_choices
         self.max_shrink_evaluations = max_shrink_evaluations
@@ -57,32 +66,45 @@ struct Settings(Copyable, Movable, Writable):
             return self.seed.value()
         var from_env = getenv(SEED_ENV_VAR)
         if from_env.byte_length() > 0:
-            try:
-                return UInt64(Int(from_env))
-            except:
+            # Parsed digit by digit: routing through signed `Int`
+            # rejects valid seeds above `Int.MAX`, which is half the
+            # domain `Settings.seed` and the reports accept.
+            var ok = False
+            var parsed = UInt64(0)
+            ok, parsed = _parse_u64(from_env)
+            if not ok:
                 raise Error(
                     "PROPTEST_SEED is not a valid integer: '"
                     + String(from_env)
                     + "'"
                 )
+            return parsed
         return UInt64(abs(Int(monotonic())))
 
     def effective_max_examples(self) raises -> Int:
         """Explicit count, else `PROPTEST_MAX_EXAMPLES` over the default."""
-        if self.max_examples != DEFAULT_MAX_EXAMPLES:
+        if self.max_examples_set:
+            if self.max_examples <= 0:
+                raise Error("Settings: max_examples must be positive")
             return self.max_examples
         var from_env = getenv(MAX_EXAMPLES_ENV_VAR)
         if from_env.byte_length() > 0:
+            var parsed = 0
             try:
-                var parsed = Int(from_env)
-                if parsed > 0:
-                    return parsed
+                parsed = Int(from_env)
             except:
                 raise Error(
                     "PROPTEST_MAX_EXAMPLES is not a valid integer: '"
                     + String(from_env)
                     + "'"
                 )
+            if parsed <= 0:
+                raise Error(
+                    "PROPTEST_MAX_EXAMPLES must be positive: '"
+                    + String(from_env)
+                    + "'"
+                )
+            return parsed
         return self.max_examples
 
     def write_to(self, mut writer: Some[Writer]):
@@ -98,6 +120,31 @@ struct Settings(Copyable, Movable, Writable):
             self.max_shrink_evaluations,
             ")",
         )
+
+
+comptime U64_MAX = UInt64(0xFFFFFFFFFFFFFFFF)
+
+
+def _parse_u64(text: String) -> Tuple[Bool, UInt64]:
+    """Parse a decimal string into a `UInt64`.
+
+    Returns `(False, 0)` for a non-numeric or out-of-range value.
+    Accumulating in `UInt64` keeps the whole `0..=UInt64.MAX` domain
+    reachable; a signed `Int` accumulator would reject the upper half of
+    it before the seed could be reported or replayed.
+    """
+    var digits = text.as_bytes()
+    if len(digits) == 0:
+        return (False, UInt64(0))
+    var acc = UInt64(0)
+    for b in digits:
+        if b < 48 or b > 57:
+            return (False, UInt64(0))
+        var digit = UInt64(b - 48)
+        if acc > (U64_MAX - digit) // UInt64(10):
+            return (False, UInt64(0))
+        acc = acc * UInt64(10) + digit
+    return (True, acc)
 
 
 def for_all[
@@ -168,6 +215,24 @@ def for_all[
                     + "): generated data too large (raise max_choices)"
                 )
             continue
+        # Rechecked after a VALID attempt too: overruns that happened
+        # while `examples_run < 10` would otherwise escape the ratio
+        # check entirely when the last required valid example completes
+        # the loop, silently passing a run that mostly overran.
+        if (
+            examples_run >= 10
+            and overrun_count > 0
+            and overrun_count * 5 > examples_run
+        ):
+            raise Error(
+                "gave up after "
+                + String(examples_run)
+                + " examples ("
+                + String(overrun_count)
+                + " overran max_choices="
+                + String(settings.max_choices)
+                + "): generated data too large (raise max_choices)"
+            )
         if not raised:
             valid_count += 1
             continue

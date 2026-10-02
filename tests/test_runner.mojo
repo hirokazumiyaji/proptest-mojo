@@ -86,6 +86,94 @@ def test_settings_explicit_values_win_over_env() raises:
     assert_equal(explicit_count, 3)
 
 
+def test_explicit_default_max_examples_beats_env() raises:
+    # Settings(max_examples=100) is indistinguishable from the omitted
+    # argument if explicitness is inferred by comparing with the default,
+    # so a caller pinning the documented default would still get the
+    # environment value.
+    var saved_count = getenv("PROPTEST_MAX_EXAMPLES")
+    _ = setenv("PROPTEST_MAX_EXAMPLES", "7")
+    var explicit_default = 0
+    var omitted = 0
+    var failure = String("")
+    try:
+        explicit_default = Settings(max_examples=100).effective_max_examples()
+        omitted = Settings().effective_max_examples()
+    except e:
+        failure = String(e)
+    _ = setenv("PROPTEST_MAX_EXAMPLES", saved_count)
+    if failure.byte_length() > 0:
+        raise Error(failure)
+    assert_equal(explicit_default, 100)
+    assert_equal(omitted, 7)
+
+
+def test_env_seed_covers_full_u64_range() raises:
+    # PROPTEST_SEED is documented as reproducing a reported seed, and the
+    # reported type is UInt64, so values above Int.MAX must parse.
+    var saved = getenv("PROPTEST_SEED")
+    _ = setenv("PROPTEST_SEED", "18446744073709551615")
+    var parsed = UInt64(0)
+    var failure = String("")
+    try:
+        parsed = Settings().effective_seed()
+    except e:
+        failure = String(e)
+    _ = setenv("PROPTEST_SEED", "9223372036854775808")
+    var above_int_max = UInt64(0)
+    try:
+        above_int_max = Settings().effective_seed()
+    except e:
+        failure = String(e)
+    _ = setenv("PROPTEST_SEED", saved)
+    if failure.byte_length() > 0:
+        raise Error(failure)
+    assert_equal(parsed, UInt64(0xFFFFFFFFFFFFFFFF))
+    assert_equal(above_int_max, UInt64(9223372036854775808))
+
+
+def test_env_seed_rejects_invalid_values() raises:
+    # An empty variable means "unset" and falls back to a time-derived
+    # seed, so only the non-empty malformed values are rejected.
+    var saved = getenv("PROPTEST_SEED")
+    var failures = 0
+    for bad in ["-1", "12a", "18446744073709551616"]:
+        _ = setenv("PROPTEST_SEED", String(bad))
+        try:
+            _ = Settings().effective_seed()
+        except:
+            failures += 1
+    _ = setenv("PROPTEST_SEED", saved)
+    assert_equal(failures, 3)
+
+
+def test_nonpositive_max_examples_raises() raises:
+    # The generation loop's condition would be false immediately, so a
+    # typo would silently disable the property.
+    for bad in [0, -1]:
+        var failure = String("")
+        try:
+            _ = Settings(max_examples=bad).effective_max_examples()
+        except e:
+            failure = String(e)
+        assert_true(
+            failure.byte_length() > 0,
+            msg="nonpositive max_examples must raise",
+        )
+
+
+def test_nonpositive_env_max_examples_raises() raises:
+    var saved = getenv("PROPTEST_MAX_EXAMPLES")
+    _ = setenv("PROPTEST_MAX_EXAMPLES", "0")
+    var failure = String("")
+    try:
+        _ = Settings().effective_max_examples()
+    except e:
+        failure = String(e)
+    _ = setenv("PROPTEST_MAX_EXAMPLES", saved)
+    assert_true(failure.byte_length() > 0, msg="zero must raise")
+
+
 def test_passing_property_raises_nothing() raises:
     for_all(_always_passes, Settings(seed=UInt64(1), max_examples=20))
 
@@ -139,6 +227,30 @@ def test_capturing_closure_property() raises:
     except e:
         report = String(e)
     assert_true(("x = 1000" in report), msg="captured limit applies: " + report)
+
+
+def test_overrun_ratio_checked_after_valid_attempts() raises:
+    # The ratio check runs inside the OVERRUN branch, so overruns that
+    # happen while `examples_run < 10` escape it: if the remaining
+    # examples are valid and the last one completes the loop, the run
+    # would otherwise report success despite a high overrun rate.
+    var attempts = List[Int]()
+
+    def prop(mut tc: TestCase) raises {ref attempts}:
+        attempts.append(1)
+        if len(attempts) <= 3:
+            for _ in range(9000):
+                _ = tc.draw_integer(UInt64(1))
+
+    var report = String("")
+    try:
+        for_all(prop, Settings(seed=UInt64(1), max_examples=8))
+    except e:
+        report = String(e)
+    assert_true(
+        "overran max_choices" in report,
+        msg="expected the overrun health check, got: " + report,
+    )
 
 
 def main() raises:

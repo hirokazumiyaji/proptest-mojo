@@ -11,7 +11,7 @@ all-zero choices draw `min_size` minimal elements.
 
 from std.math import max, min
 
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.testcase import TestCase
 
 comptime _LIST_ELEMENT_LABEL = UInt64(0x6C697374456C656D)
@@ -33,7 +33,19 @@ struct ListOf[E: Strategy](Strategy):
     var max_size: Int
     var average_size: Float64
 
+    def span_label(self) -> UInt64:
+        # Propagated: this wrapper draws what its inner
+        # strategy draws, so the blocks are interchangeable.
+        return self.elements.span_label()
+
     def draw(self, mut tc: TestCase) raises -> List[Self.E.Value]:
+        # Validated here too: `ListOf` is re-exported, so `@fieldwise_init`
+        # lets an inconsistent or negative bound reach `draw`, which would
+        # silently violate the advertised minimum or loop on `min_size`.
+        if self.min_size < 0:
+            raise Error("lists: min_size must be >= 0")
+        if self.max_size < self.min_size:
+            raise Error("lists: max_size must be >= min_size")
         var out = List[Self.E.Value]()
         var p_continue: Float64 = 0.0
         if self.average_size > 0.0:
