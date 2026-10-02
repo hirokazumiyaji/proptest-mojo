@@ -224,9 +224,11 @@ struct TestCase(Sized, Writable):
         except e:
             while len(self.open_spans) > depth:
                 self.stop_span()
-            # Drop the reserved slot: the draw produced no value.
-            _ = self.draw_labels.pop()
-            _ = self.draw_values.pop()
+            # Drop the reserved slot, not the tail: nested `tc.draw`
+            # calls in `strategy` appended records after it, and those
+            # draws succeeded, so their entries must survive.
+            _remove_at(self.draw_labels, slot)
+            _remove_at(self.draw_values, slot)
             raise e
 
     def note(mut self, var message: String):
@@ -273,3 +275,17 @@ struct TestCase(Sized, Writable):
     ) -> UInt64:
         self.choices.append(ChoiceNode(kind, value, max_value, forced))
         return value
+
+
+def _remove_at(mut items: List[String], index: Int):
+    """Drop `items[index]`, shifting the tail left.
+
+    `TestCase.draw` reserves its record slot before delegating, so a
+    strategy that draws and then raises leaves successful nested records
+    after the reserved one; popping would discard those instead.
+    """
+    var i = index
+    while i + 1 < len(items):
+        items[i] = items[i + 1].copy()
+        i += 1
+    _ = items.pop()
