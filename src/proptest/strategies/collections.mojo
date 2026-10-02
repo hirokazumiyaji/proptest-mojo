@@ -39,6 +39,13 @@ struct ListOf[E: Strategy](Strategy):
         return self.elements.span_label()
 
     def draw(self, mut tc: TestCase) raises -> List[Self.E.Value]:
+        # Validated here too: `ListOf` is re-exported, so `@fieldwise_init`
+        # lets an inconsistent or negative bound reach `draw`, which would
+        # silently violate the advertised minimum or loop on `min_size`.
+        if self.min_size < 0:
+            raise Error("lists: min_size must be >= 0")
+        if self.max_size < self.min_size:
+            raise Error("lists: max_size must be >= min_size")
         var out = List[Self.E.Value]()
         var p_continue: Float64 = 0.0
         if self.average_size > 0.0:
