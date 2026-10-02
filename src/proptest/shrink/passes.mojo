@@ -220,6 +220,7 @@ def _deletion_precedes(
 
 def _zeroing_order(
     var values: List[UInt64],
+    var runs: List[Int],
     var starts: List[Int],
     var ends: List[Int],
     n: Int,
@@ -231,12 +232,11 @@ def _zeroing_order(
     is found with `runs` in O(1); the shared region between the two
     blanked windows matches unconditionally.
     """
-    var runs = _zero_runs(values)
     var order = List[Int]()
     for i in range(len(starts)):
         order.append(i)
     _merge_sort[_ZeroingOrder](
-        order, _ZeroingOrder(values^, runs^, starts^, ends^, n)
+        order, _ZeroingOrder(values^, runs.copy(), starts^, ends^, n)
     )
     return order^
 
@@ -320,12 +320,13 @@ def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     var n = len(seq)
     var group_sizes = List[Int]()
     var group_starts = List[List[Int]]()
+    var emitted = 0
     for size in _chunk_sizes():
         if size > n:
             continue
         for start in range(n - size + 1):
-            if limit >= 0 and len(out) >= limit:
-                return out^
+            if limit >= 0 and emitted >= limit:
+                break
             var removed = size
             if n - start < removed:
                 removed = n - start
@@ -348,6 +349,9 @@ def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
                 group_starts.append(List[Int]())
                 gi = len(group_sizes) - 1
             group_starts[gi].append(start)
+            emitted += 1
+        if limit >= 0 and emitted >= limit:
+            break
 
     var out = List[ChoiceSequence]()
     for i in range(len(group_sizes)):
@@ -359,6 +363,8 @@ def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
             values.copy(), group_starts[i].copy(), group_sizes[i]
         )
         for k in range(len(ordered)):
+            if limit >= 0 and len(out) >= limit:
+                return out^
             var start = ordered[k]
             out.append(seq.deleted(start, start + group_sizes[i])^)
     return out^
@@ -381,30 +387,59 @@ def zero_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     # them and the order disagrees with the emitted sequences.
     var values = _effective_values(seq)
     var n = len(seq)
+    var runs = _zero_runs(values)
     var starts = List[Int]()
     var ends = List[Int]()
     for size in _chunk_sizes():
         if size > n:
             continue
         for start in range(n - size + 1):
-            if limit >= 0 and len(out) >= limit:
-                return out^
+            if limit >= 0 and len(starts) >= limit:
+                break
             var end = start + size
             if end > n:
                 end = n
-            var cand = seq.zeroed(start, end)
-            if not is_shortlex_smaller(cand, seq):
+            # A window matters only if it covers a non-zero mutable value.
+            # Deciding that from `values` avoids materializing the
+            # candidate just to discard it: `zeroed` copies the whole
+            # sequence, so probing every window was O(n^2) before the
+            # `limit` applied.
+            if not _changes_value(values, runs, start, end):
                 continue
             starts.append(start)
             ends.append(end)
     var out = List[ChoiceSequence]()
-    var ordered = _zeroing_order(values.copy(), starts.copy(), ends.copy(), n)
+    var ordered = _zeroing_order(
+        values.copy(), runs.copy(), starts.copy(), ends.copy(), n
+    )
     # `ordered` indexes the local copies, so re-derive from them rather
     # than the (now transferred) originals.
     for i in range(len(ordered)):
         var k = ordered[i]
         out.append(seq.zeroed(starts[k], ends[k]))
     return out^
+
+
+def _changes_value(
+    values: List[UInt64], runs: List[Int], start: Int, end: Int
+) -> Bool:
+    """Whether zeroing `[start, end)` would change `values` at all.
+
+    `forced` nodes read as zero (see `_effective_values`), so a window
+    over already-zero values produces the input unchanged and must be
+    skipped: such a candidate is not strictly shortlex-smaller.
+    """
+    var i = start
+    while i < end:
+        var skipped = runs[i]
+        # `runs[i] == 0` means `values[i]` is non-zero: zeroing it changes
+        # the candidate. Otherwise jump past the whole zero run.
+        if skipped == 0:
+            return True
+        if i + skipped >= end:
+            return False
+        i += skipped
+    return False
 
 
 def minimize_individual[

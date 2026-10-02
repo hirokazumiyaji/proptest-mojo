@@ -112,6 +112,23 @@ def test_zero_chunks_ordering_matches_shortlex_sort() raises:
         )
 
 
+def test_zero_chunks_does_not_materialize_rejected_windows() raises:
+    # Deciding "does this window change anything" must not build the
+    # candidate: `zeroed` copies the whole sequence, so probing every
+    # window was O(n^2) before the `limit` applied.
+    var seq = _seq(UInt64(0), UInt64(0), UInt64(0), UInt64(0), UInt64(0))
+    assert_equal(len(zero_chunks(seq.copy())), 0)
+    assert_equal(len(zero_chunks(seq.copy(), 1)), 0)
+    var one = _seq(UInt64(9), UInt64(0), UInt64(0))
+    var cands = zero_chunks(one.copy())
+    assert_equal(len(cands), 2)
+    for i in range(len(cands) - 1):
+        assert_true(
+            not is_shortlex_smaller(cands[i + 1].copy(), cands[i].copy()),
+            msg="zero_chunks must emit shortlex order",
+        )
+
+
 def test_enumeration_passes_order_many_candidates() raises:
     # A monotonically increasing sequence sorts every new candidate ahead
     # of all earlier ones, the worst case for an insertion sort: it must
