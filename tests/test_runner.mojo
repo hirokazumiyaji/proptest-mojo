@@ -244,5 +244,29 @@ def test_capturing_closure_property() raises:
     assert_true(("x = 1000" in report), msg="captured limit applies: " + report)
 
 
+def test_overrun_ratio_checked_after_valid_attempts() raises:
+    # The ratio check runs inside the OVERRUN branch, so overruns that
+    # happen while `examples_run < 10` escape it: if the remaining
+    # examples are valid and the last one completes the loop, the run
+    # would otherwise report success despite a high overrun rate.
+    var attempts = List[Int]()
+
+    def prop(mut tc: TestCase) raises {ref attempts}:
+        attempts.append(1)
+        if len(attempts) <= 3:
+            for _ in range(9000):
+                _ = tc.draw_integer(UInt64(1))
+
+    var report = String("")
+    try:
+        for_all(prop, Settings(seed=UInt64(1), max_examples=8))
+    except e:
+        report = String(e)
+    assert_true(
+        "overran max_choices" in report,
+        msg="expected the overrun health check, got: " + report,
+    )
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
