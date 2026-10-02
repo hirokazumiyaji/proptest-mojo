@@ -1,3 +1,4 @@
+from proptest import decode_integers_of_choice as root_decoder
 from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence
 from proptest.prng import derive
 from proptest.strategy import Strategy
@@ -7,6 +8,17 @@ from proptest.strategies.primitives import (
 )
 from proptest.testcase import TestCase
 from std.testing import TestSuite, assert_equal, assert_true
+
+
+def test_decoder_is_exported_from_package_root() raises:
+    # The public decoder is re-exported at the root, so a client using
+    # `from proptest import decode_integers_of_choice` can import it.
+    var minimum = Scalar[DType.int32](-5)
+    var maximum = Scalar[DType.int32](7)
+    assert_equal(
+        root_decoder[DType.int32](UInt64(0), minimum, maximum),
+        decode_integers_of_choice[DType.int32](UInt64(0), minimum, maximum),
+    )
 
 
 def _replaying(*values: UInt64) -> TestCase:
