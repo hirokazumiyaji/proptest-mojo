@@ -312,5 +312,22 @@ def test_decode_is_monotone_around_target() raises:
             previous = dist
 
 
+def test_decode_full_int_range_handles_largest_choices() raises:
+    var minimum = Int(-0x8000000000000000)
+    var maximum = Int(0x7FFFFFFFFFFFFFFF)
+    assert_equal(
+        decode_integer_choice(UInt64(0xFFFFFFFFFFFFFFFD), minimum, maximum),
+        maximum,
+    )
+    assert_equal(
+        decode_integer_choice(UInt64(0xFFFFFFFFFFFFFFFE), minimum, maximum),
+        minimum + 1,
+    )
+    assert_equal(
+        decode_integer_choice(UInt64(0xFFFFFFFFFFFFFFFF), minimum, maximum),
+        minimum,
+    )
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
