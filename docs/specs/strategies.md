@@ -138,7 +138,7 @@ struct Users(Strategy):
         return User(name^, age)
 ```
 
-`span_label` は必須なので合成 Strategy でも実装する。内側の Strategy のラベルを引き継ぐ composites（`map` や `filter` など）では `self.inner.span_label()` を返してよい。
+`span_label` は必須なので合成 Strategy でも実装する。構造を保つ `map` は内側の Strategy のラベルを引き継いでよい。`filter` は複数回の試行を含むため、内側の Strategy とは異なる構造ラベルを返す。
 
 property の中で直接 `tc.draw` を重ねてもよい。再利用したい組み合わせだけを合成 Strategy にする。
 

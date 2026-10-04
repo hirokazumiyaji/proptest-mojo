@@ -128,12 +128,8 @@ def test_integers_invalid_range_raises() raises:
 
 
 def test_integers_type_rejects_inverted_range() raises:
-    # `Integers` is re-exported, so `Integers(10, 5)` must fail rather
-    # than wrap the unsigned width in `draw`.
-    var strategy = Integers(10, 5)
-    var tc = _empty()
     with assert_raises(contains="maximum must be >= minimum"):
-        _ = tc.draw(strategy)
+        _ = Integers(10, 5)
 
 
 def test_integers_type_accepts_valid_range() raises:
@@ -215,6 +211,43 @@ struct Pair(Strategy):
         var a = tc.draw(integers(0, self.bound), "a")
         var b = tc.draw(integers(0, self.bound), "b")
         return [a, b]
+
+
+@fieldwise_init
+struct FailsAfterDrawing(Strategy):
+    """Composite that draws once and then raises, leaving a nested record."""
+
+    comptime Value = Int
+
+    def span_label(self) -> UInt64:
+        return kind_label("fails_after_drawing")
+
+    def draw(self, mut tc: TestCase) raises -> Int:
+        var value = tc.draw(integers(0, 9), "kept")
+        raise Error("after draw: " + String(value))
+
+
+def test_failed_composite_keeps_nested_draw_records() raises:
+    # The reserved outer slot is not the tail once nested draws appended
+    # their own records, so popping would delete those instead.
+    var tc = _empty()
+    var reported = String("")
+    try:
+        _ = tc.draw(FailsAfterDrawing(), "outer")
+    except e:
+        reported = String(e)
+    assert_true("after draw" in reported, msg="expected the raise")
+    assert_equal(len(tc.draw_labels), 1)
+    assert_equal(tc.draw_labels[0], String("kept"))
+    assert_equal(len(tc.draw_values), 1)
+    assert_true(
+        not tc.draw_values[0].byte_length() == 0,
+        msg="the nested draw's value must survive",
+    )
+    # Spans stay balanced: the nested draw closed its own, and the outer
+    # one was closed while unwinding.
+    assert_equal(len(tc.spans), 2)
+    assert_equal(len(tc.open_spans), 0)
 
 
 def test_composite_draw_records_outer_before_inner() raises:
