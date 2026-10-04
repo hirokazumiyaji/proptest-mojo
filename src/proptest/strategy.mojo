@@ -36,8 +36,9 @@ trait Strategy(Copyable, Deinitable):
         Required rather than defaulted: a shared default would give every
         strategy that omits it the same label, and two such strategies as
         sibling draws would again look interchangeable. Implement it as
-        `kind_label("<kind>")`, propagating the wrapped strategy's label
-        for combinators.
+        `kind_label("<kind>")`. A combinator may propagate its wrapped
+        strategy's label only when it preserves the choice structure; a
+        structure-changing combinator needs its own label.
         """
         ...
 
