@@ -52,9 +52,7 @@ def decode_integer_choice(choice: UInt64, minimum: Int, maximum: Int) -> Int:
     if down < paired:
         paired = down
     var half_choice = clamped // 2
-    if half_choice < paired or (
-        half_choice == paired and clamped % 2 == 0
-    ):
+    if half_choice < paired or (half_choice == paired and clamped % 2 == 0):
         var step = (clamped + 1) // 2
         if clamped % 2 == 1:
             return _unbiased(target + step)

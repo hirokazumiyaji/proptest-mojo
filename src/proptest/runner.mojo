@@ -227,9 +227,7 @@ def for_all[
         # while `examples_run < 10` would otherwise escape the ratio
         # check entirely when the last required valid example completes
         # the loop, silently passing a run that mostly overran.
-        if (
-            overrun_count > 0 and overrun_count * 5 > examples_run
-        ):
+        if overrun_count > 0 and overrun_count * 5 > examples_run:
             raise Error(
                 "gave up after "
                 + String(examples_run)
