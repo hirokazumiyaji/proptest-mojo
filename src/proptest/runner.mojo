@@ -11,7 +11,7 @@ control flow.
 
 from std.io import Writer
 from std.os import getenv
-from std.time import monotonic
+from std.time import perf_counter_ns
 
 from proptest.choice import ChoiceSequence
 from proptest.prng import derive
@@ -81,7 +81,7 @@ struct Settings(Copyable, Movable, Writable):
                     + "'"
                 )
             return parsed
-        return UInt64(abs(monotonic()))
+        return UInt64(abs(perf_counter_ns()))
 
     def effective_max_examples(self) raises -> Int:
         """Explicit count, else `PROPTEST_MAX_EXAMPLES` over the default.
