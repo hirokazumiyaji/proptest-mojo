@@ -81,7 +81,7 @@ struct Settings(Copyable, Movable, Writable):
                     + "'"
                 )
             return parsed
-        return UInt64(abs(Int(monotonic())))
+        return UInt64(abs(monotonic()))
 
     def effective_max_examples(self) raises -> Int:
         """Explicit count, else `PROPTEST_MAX_EXAMPLES` over the default.
