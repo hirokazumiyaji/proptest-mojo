@@ -301,7 +301,9 @@ def _zeroing_precedes(
     return False
 
 
-def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
+def delete_chunks(
+    seq: ChoiceSequence, limit: Int = -1, offset: Int = 0
+) -> List[ChoiceSequence]:
     """Contiguous-block deletions, simplest-first.
 
     Tries chunk lengths 8, 4, 2, 1 at every start position and orders
@@ -315,18 +317,21 @@ def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
 
     Candidates dropping the same number of nodes are ordered by index
     (`_deletion_order`); the groups are then emitted shortest first.
+
+    `limit` caps how many candidates are materialized and `offset` skips
+    that many of the ordered ones, so a caller can page through a long
+    enumeration without ever holding more than one page. `limit` applies
+    after `offset`: the page is `[offset, offset + limit)` of the
+    simplest-first order.
     """
     var values = seq.values()
     var n = len(seq)
     var group_sizes = List[Int]()
     var group_starts = List[List[Int]]()
-    var emitted = 0
     for size in _chunk_sizes():
         if size > n:
             continue
         for start in range(n - size + 1):
-            if limit >= 0 and emitted >= limit:
-                break
             var removed = size
             if n - start < removed:
                 removed = n - start
@@ -349,11 +354,9 @@ def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
                 group_starts.append(List[Int]())
                 gi = len(group_sizes) - 1
             group_starts[gi].append(start)
-            emitted += 1
-        if limit >= 0 and emitted >= limit:
-            break
 
     var out = List[ChoiceSequence]()
+    var skipped = 0
     for i in range(len(group_sizes)):
         # A group dropping `r` nodes has length `n - r`; shortlex is
         # length-first, so emit the shortest groups first.
@@ -363,6 +366,13 @@ def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
             values.copy(), group_starts[i].copy(), group_sizes[i]
         )
         for k in range(len(ordered)):
+            # `offset`/`limit` cut the ordered sequence, so the page is
+            # the simplest candidates not already consumed. Materializing
+            # the skipped ones just to drop them would cost a full
+            # sequence copy each.
+            if skipped < offset:
+                skipped += 1
+                continue
             if limit >= 0 and len(out) >= limit:
                 return out^
             var start = ordered[k]
@@ -370,7 +380,9 @@ def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     return out^
 
 
-def zero_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
+def zero_chunks(
+    seq: ChoiceSequence, limit: Int = -1, offset: Int = 0
+) -> List[ChoiceSequence]:
     """Contiguous-block zeroings, simplest-first.
 
     Same chunk lengths and positions as `delete_chunks`, likewise
@@ -381,6 +393,9 @@ def zero_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     `ChoiceSequence.zeroed`, so chunks that would leave the sequence
     unchanged are skipped: only strictly shortlex-smaller candidates are
     returned.
+
+    `limit` and `offset` page the ordered candidates exactly as in
+    `delete_chunks`.
     """
     # `forced` nodes are never zeroed, so ordering must treat them as
     # already-zero: otherwise a candidate is compared as if it had changed
@@ -394,8 +409,6 @@ def zero_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
         if size > n:
             continue
         for start in range(n - size + 1):
-            if limit >= 0 and len(starts) >= limit:
-                break
             var end = start + size
             if end > n:
                 end = n
@@ -413,8 +426,12 @@ def zero_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
         values.copy(), runs.copy(), starts.copy(), ends.copy(), n
     )
     # `ordered` indexes the local copies, so re-derive from them rather
-    # than the (now transferred) originals.
-    for i in range(len(ordered)):
+    # than the (now transferred) originals. `limit` truncates only after
+    # the order is fixed, so the result is the simplest-first prefix
+    # rather than the first windows in generation order.
+    for i in range(offset, len(ordered)):
+        if limit >= 0 and len(out) >= limit:
+            break
         var k = ordered[i]
         out.append(seq.zeroed(starts[k], ends[k]))
     return out^

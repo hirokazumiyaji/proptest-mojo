@@ -54,6 +54,68 @@ def _never_interesting(seq: ChoiceSequence) -> Bool:
     return False
 
 
+def test_limit_truncates_after_ordering() raises:
+    # `limit` must cut the simplest-first prefix, not the first windows in
+    # generation order: with a limit of 1 the shrink loop can only test one
+    # candidate, and it has to be the simplest one.
+    var seq = _seq(
+        UInt64(1),
+        UInt64(2),
+        UInt64(3),
+        UInt64(4),
+        UInt64(5),
+        UInt64(6),
+        UInt64(7),
+        UInt64(8),
+        UInt64(9),
+        UInt64(10),
+    )
+    var one = delete_chunks(seq.copy(), 1)
+    assert_equal(len(one), 1)
+    assert_equal(one[0].values(), _u64s(1, 2))
+    var zeroes = zero_chunks(seq.copy(), 1)
+    assert_equal(len(zeroes), 1)
+    assert_equal(
+        zeroes[0].values(),
+        _u64s(0, 0, 0, 0, 0, 0, 0, 0, 9, 10),
+    )
+
+
+def test_offset_and_limit_page_the_ordered_candidates() raises:
+    # Paging must cut the simplest-first order, not rebuild an ever-growing
+    # prefix: each candidate is a full copy of the sequence, so a caller
+    # that walks a long enumeration in batches must only ever hold one page.
+    var seq = _seq(
+        UInt64(1),
+        UInt64(2),
+        UInt64(3),
+        UInt64(4),
+        UInt64(5),
+        UInt64(6),
+        UInt64(7),
+        UInt64(8),
+        UInt64(9),
+        UInt64(10),
+    )
+    var all = delete_chunks(seq.copy())
+    var first = delete_chunks(seq.copy(), 3)
+    assert_equal(len(first), 3)
+    for i in range(3):
+        assert_equal(first[i].values(), all[i].values())
+    var second = delete_chunks(seq.copy(), 3, 3)
+    assert_equal(len(second), 3)
+    for i in range(3):
+        assert_equal(second[i].values(), all[i + 3].values())
+    var tail = delete_chunks(seq.copy(), 3, len(all) - 2)
+    assert_equal(len(tail), 2)
+    assert_equal(tail[0].values(), all[len(all) - 2].values())
+    var zeroes = zero_chunks(seq.copy())
+    var zero_page = zero_chunks(seq.copy(), 2, 2)
+    assert_equal(len(zero_page), 2)
+    for i in range(2):
+        assert_equal(zero_page[i].values(), zeroes[i + 2].values())
+
+
 def test_delete_chunks_lengths_and_order() raises:
     var seq = _seq(
         UInt64(1),
