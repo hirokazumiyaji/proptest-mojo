@@ -17,7 +17,6 @@ before the first one is looked at.
 
 from proptest.choice import (
     ChoiceSequence,
-    is_shortlex_smaller,
 )
 
 

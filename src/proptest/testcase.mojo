@@ -200,12 +200,12 @@ struct TestCase(Sized, Writable):
         """Draw a value through `strategy`, recording one span and report entry.
 
         Opens a span labeled by the strategy kind (`strategy.span_label`),
-        never by `label`, so shrink passes only swap blocks that are
+        never by `label`, so the shrink passes only swap blocks that are
         structurally interchangeable; `label` is kept solely in
         `draw_labels`. The record slot is reserved *before* delegating to
         `strategy.draw`, so a composite strategy that calls `tc.draw`
         internally still reports its own entry first, matching invocation
-        order. The rendered value is filled in once the draw returns. On
+        order; the rendered value is filled in once the draw returns. On
         raise, every span opened during this draw is closed and the
         reserved slot is dropped, so accounting stays balanced.
         """
