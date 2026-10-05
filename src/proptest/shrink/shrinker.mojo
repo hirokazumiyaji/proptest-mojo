@@ -54,24 +54,33 @@ struct _CacheEntry(Copyable, Movable):
     var consumed: ChoiceSequence
 
 
-def _fingerprints(values: List[UInt64]) -> (UInt64, UInt64):
+def _fingerprints(sequence: ChoiceSequence) -> (UInt64, UInt64):
+    """Fingerprint every field that distinguishes replayed choice nodes."""
     var first = UInt64(14695981039346656037)
     var second = UInt64(7809847782465536322)
-    for value in values:
-        first = (first ^ value) * UInt64(1099511628211)
-        second = (second ^ (value + UInt64(0x9E3779B97F4A7C15))) * UInt64(
-            14029467366897019727
-        )
+    for i in range(len(sequence)):
+        var node = sequence.nodes[i]
+        var forced = UInt64(0)
+        if node.forced:
+            forced = UInt64(1)
+        first = (first ^ UInt64(node.kind.value)) * UInt64(1099511628211)
+        first = (first ^ node.value) * UInt64(1099511628211)
+        first = (first ^ node.max_value) * UInt64(1099511628211)
+        first = (first ^ forced) * UInt64(1099511628211)
+        second = (second ^ UInt64(node.kind.value)) * UInt64(14029467366897019727)
+        second = (second ^ node.value) * UInt64(14029467366897019727)
+        second = (second ^ node.max_value) * UInt64(14029467366897019727)
+        second = (second ^ forced) * UInt64(14029467366897019727)
     return (first, second)
 
 
-def _lookup(entries: List[_CacheEntry], values: List[UInt64]) -> Int:
-    var (fingerprint, secondary_fingerprint) = _fingerprints(values)
+def _lookup(entries: List[_CacheEntry], sequence: ChoiceSequence) -> Int:
+    var (fingerprint, secondary_fingerprint) = _fingerprints(sequence)
     for i in range(len(entries)):
         if (
             entries[i].fingerprint == fingerprint
             and entries[i].secondary_fingerprint == secondary_fingerprint
-            and entries[i].length == len(values)
+            and entries[i].length == len(sequence)
         ):
             return i
     return -1
@@ -133,9 +142,10 @@ def shrink[
                 var cand = removals[index].copy()
                 index += 1
                 fetched += 1
-                var key = cand.values()
-                if _lookup(entries, key) >= 0:
+                if _lookup(entries, cand) >= 0:
                     continue
+                var (fingerprint, secondary_fingerprint) = _fingerprints(cand)
+                var key_length = len(cand)
                 evaluations += 1
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
@@ -143,12 +153,11 @@ def shrink[
                 var cached_consumed = ChoiceSequence()
                 if interesting:
                     cached_consumed = consumed.copy()
-                var (fingerprint, secondary_fingerprint) = _fingerprints(key)
                 entries.append(
                     _CacheEntry(
                         fingerprint,
                         secondary_fingerprint,
-                        len(key),
+                        key_length,
                         interesting,
                         cached_consumed^
                     )
@@ -184,9 +193,10 @@ def shrink[
                 var cand = zeroings[index].copy()
                 index += 1
                 zeroed_count += 1
-                var key = cand.values()
-                if _lookup(entries, key) >= 0:
+                if _lookup(entries, cand) >= 0:
                     continue
+                var (fingerprint, secondary_fingerprint) = _fingerprints(cand)
+                var key_length = len(cand)
                 evaluations += 1
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
@@ -194,12 +204,11 @@ def shrink[
                 var cached_consumed = ChoiceSequence()
                 if interesting:
                     cached_consumed = consumed.copy()
-                var (fingerprint, secondary_fingerprint) = _fingerprints(key)
                 entries.append(
                     _CacheEntry(
                         fingerprint,
                         secondary_fingerprint,
-                        len(key),
+                        key_length,
                         interesting,
                         cached_consumed^
                     )
@@ -228,14 +237,15 @@ def shrink[
                 continue
             var current = best.nodes[i].value
             var trial = best.with_value_at(i, UInt64(0))
-            var key = trial.values()
-            var idx = _lookup(entries, key)
+            var idx = _lookup(entries, trial)
             var zero_interesting = False
             var zero_consumed = trial.copy()
             if idx >= 0:
                 zero_interesting = entries[idx].is_interesting
                 zero_consumed = entries[idx].consumed.copy()
             else:
+                var (fingerprint, secondary_fingerprint) = _fingerprints(trial)
+                var key_length = len(trial)
                 evaluations += 1
                 var result = evaluate(trial^)
                 zero_interesting = result.is_interesting
@@ -243,12 +253,11 @@ def shrink[
                 var cached_consumed = ChoiceSequence()
                 if zero_interesting:
                     cached_consumed = zero_consumed.copy()
-                var (fingerprint, secondary_fingerprint) = _fingerprints(key)
                 entries.append(
                     _CacheEntry(
                         fingerprint,
                         secondary_fingerprint,
-                        len(key),
+                        key_length,
                         zero_interesting,
                         cached_consumed^
                     )
@@ -266,14 +275,15 @@ def shrink[
                     break
                 var mid = lo + (hi - lo) // UInt64(2)
                 var probe = best.with_value_at(i, mid)
-                var pkey = probe.values()
-                var pidx = _lookup(entries, pkey)
+                var pidx = _lookup(entries, probe)
                 var p_interesting = False
                 var p_consumed = probe.copy()
                 if pidx >= 0:
                     p_interesting = entries[pidx].is_interesting
                     p_consumed = entries[pidx].consumed.copy()
                 else:
+                    var (fingerprint, secondary_fingerprint) = _fingerprints(probe)
+                    var key_length = len(probe)
                     evaluations += 1
                     var presult = evaluate(probe^)
                     p_interesting = presult.is_interesting
@@ -281,12 +291,11 @@ def shrink[
                     var cached_consumed = ChoiceSequence()
                     if p_interesting:
                         cached_consumed = p_consumed.copy()
-                    var (fingerprint, secondary_fingerprint) = _fingerprints(pkey)
                     entries.append(
                         _CacheEntry(
                             fingerprint,
                             secondary_fingerprint,
-                            len(pkey),
+                            key_length,
                             p_interesting,
                             cached_consumed^
                         )
