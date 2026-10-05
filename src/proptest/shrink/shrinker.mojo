@@ -47,7 +47,9 @@ struct ShrinkResult(Copyable, Movable, Writable):
 
 @fieldwise_init
 struct _CacheEntry(Copyable, Movable):
-    var values: List[UInt64]
+    var fingerprint: UInt64
+    var secondary_fingerprint: UInt64
+    var length: Int
     var is_interesting: Bool
     var consumed: ChoiceSequence
 
@@ -66,20 +68,56 @@ def _batch_size(remaining: Int) -> Int:
     return CANDIDATE_BATCH
 
 
-def _values_equal(a: List[UInt64], b: List[UInt64]) -> Bool:
-    if len(a) != len(b):
-        return False
-    for i in range(len(a)):
-        if a[i] != b[i]:
-            return False
-    return True
+def _fingerprints(sequence: ChoiceSequence) -> (UInt64, UInt64):
+    var first = UInt64(14695981039346656037)
+    var second = UInt64(7809847782465536322)
+    for i in range(len(sequence)):
+        var node = sequence.nodes[i]
+        var forced = UInt64(0)
+        if node.forced:
+            forced = UInt64(1)
+        first = (first ^ UInt64(node.kind.value)) * UInt64(1099511628211)
+        first = (first ^ node.value) * UInt64(1099511628211)
+        first = (first ^ node.max_value) * UInt64(1099511628211)
+        first = (first ^ forced) * UInt64(1099511628211)
+        second = (second ^ UInt64(node.kind.value)) * UInt64(14029467366897019727)
+        second = (second ^ node.value) * UInt64(14029467366897019727)
+        second = (second ^ node.max_value) * UInt64(14029467366897019727)
+        second = (second ^ forced) * UInt64(14029467366897019727)
+    return (first, second)
 
 
-def _lookup(entries: List[_CacheEntry], values: List[UInt64]) -> Int:
+def _lookup(entries: List[_CacheEntry], sequence: ChoiceSequence) -> Int:
+    var (fingerprint, secondary_fingerprint) = _fingerprints(sequence)
     for i in range(len(entries)):
-        if _values_equal(entries[i].values, values):
+        if (
+            entries[i].fingerprint == fingerprint
+            and entries[i].secondary_fingerprint == secondary_fingerprint
+            and entries[i].length == len(sequence)
+        ):
             return i
     return -1
+
+
+def _append_cache_entry(
+    mut entries: List[_CacheEntry],
+    sequence: ChoiceSequence,
+    is_interesting: Bool,
+    consumed: ChoiceSequence,
+):
+    var (fingerprint, secondary_fingerprint) = _fingerprints(sequence)
+    var cached_consumed = ChoiceSequence()
+    if is_interesting:
+        cached_consumed = consumed.copy()
+    entries.append(
+        _CacheEntry(
+            fingerprint,
+            secondary_fingerprint,
+            len(sequence),
+            is_interesting,
+            cached_consumed^
+        )
+    )
 
 
 def shrink[
@@ -112,26 +150,27 @@ def shrink[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = fetched + _batch_size(max_evaluations - evaluations)
-            var removals = delete_chunks(best.copy(), want)
-            while fetched < len(removals):
-                var cand = removals[fetched].copy()
+            var page = _batch_size(max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), page, fetched)
+            var index = 0
+            while index < len(removals):
+                var cand = removals[index].copy()
+                index += 1
                 fetched += 1
-                var key = cand.values()
-                if _lookup(entries, key) >= 0:
+                if _lookup(entries, cand) >= 0:
                     continue
                 evaluations += 1
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                _append_cache_entry(entries, cand, interesting, consumed)
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(removals) < want:
+            if len(removals) < page:
                 break
         if hit_budget:
             break
@@ -148,26 +187,27 @@ def shrink[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = zeroed_count + _batch_size(max_evaluations - evaluations)
-            var zeroings = zero_chunks(best.copy(), want)
-            while zeroed_count < len(zeroings):
-                var cand = zeroings[zeroed_count].copy()
+            var page = _batch_size(max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), page, zeroed_count)
+            var index = 0
+            while index < len(zeroings):
+                var cand = zeroings[index].copy()
+                index += 1
                 zeroed_count += 1
-                var key = cand.values()
-                if _lookup(entries, key) >= 0:
+                if _lookup(entries, cand) >= 0:
                     continue
                 evaluations += 1
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                _append_cache_entry(entries, cand, interesting, consumed)
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(zeroings) < want:
+            if len(zeroings) < page:
                 break
         if hit_budget:
             break
@@ -185,8 +225,7 @@ def shrink[
                 continue
             var current = best.nodes[i].value
             var trial = best.with_value_at(i, UInt64(0))
-            var key = trial.values()
-            var idx = _lookup(entries, key)
+            var idx = _lookup(entries, trial)
             var zero_interesting = False
             var zero_consumed = trial.copy()
             if idx >= 0:
@@ -197,9 +236,7 @@ def shrink[
                 var result = evaluate(trial^)
                 zero_interesting = result.is_interesting
                 zero_consumed = result.consumed.copy()
-                entries.append(
-                    _CacheEntry(key^, zero_interesting, zero_consumed.copy())
-                )
+                _append_cache_entry(entries, trial, zero_interesting, zero_consumed)
             if zero_interesting and is_shortlex_smaller(zero_consumed, best):
                 best = zero_consumed^
                 improved = True
@@ -213,8 +250,7 @@ def shrink[
                     break
                 var mid = lo + (hi - lo) // UInt64(2)
                 var probe = best.with_value_at(i, mid)
-                var pkey = probe.values()
-                var pidx = _lookup(entries, pkey)
+                var pidx = _lookup(entries, probe)
                 var p_interesting = False
                 var p_consumed = probe.copy()
                 if pidx >= 0:
@@ -225,9 +261,7 @@ def shrink[
                     var presult = evaluate(probe^)
                     p_interesting = presult.is_interesting
                     p_consumed = presult.consumed.copy()
-                    entries.append(
-                        _CacheEntry(pkey^, p_interesting, p_consumed.copy())
-                    )
+                    _append_cache_entry(entries, probe, p_interesting, p_consumed)
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
                     hi = mid
                     best = p_consumed^
@@ -287,26 +321,27 @@ def shrink_with[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = fetched + _batch_size(max_evaluations - evaluations)
-            var removals = delete_chunks(best.copy(), want)
-            while fetched < len(removals):
-                var cand = removals[fetched].copy()
+            var page = _batch_size(max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), page, fetched)
+            var index = 0
+            while index < len(removals):
+                var cand = removals[index].copy()
+                index += 1
                 fetched += 1
-                var key = cand.values()
-                if _lookup(entries, key) >= 0:
+                if _lookup(entries, cand) >= 0:
                     continue
                 evaluations += 1
                 var result = eval_fn(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                _append_cache_entry(entries, cand, interesting, consumed)
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(removals) < want:
+            if len(removals) < page:
                 break
         if hit_budget:
             break
@@ -323,26 +358,27 @@ def shrink_with[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = zeroed_count + _batch_size(max_evaluations - evaluations)
-            var zeroings = zero_chunks(best.copy(), want)
-            while zeroed_count < len(zeroings):
-                var cand = zeroings[zeroed_count].copy()
+            var page = _batch_size(max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), page, zeroed_count)
+            var index = 0
+            while index < len(zeroings):
+                var cand = zeroings[index].copy()
+                index += 1
                 zeroed_count += 1
-                var key = cand.values()
-                if _lookup(entries, key) >= 0:
+                if _lookup(entries, cand) >= 0:
                     continue
                 evaluations += 1
                 var result = eval_fn(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                _append_cache_entry(entries, cand, interesting, consumed)
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(zeroings) < want:
+            if len(zeroings) < page:
                 break
         if hit_budget:
             break
@@ -360,8 +396,7 @@ def shrink_with[
                 continue
             var current = best.nodes[i].value
             var trial = best.with_value_at(i, UInt64(0))
-            var key = trial.values()
-            var idx = _lookup(entries, key)
+            var idx = _lookup(entries, trial)
             var zero_interesting = False
             var zero_consumed = trial.copy()
             if idx >= 0:
@@ -372,9 +407,7 @@ def shrink_with[
                 var result = eval_fn(trial^)
                 zero_interesting = result.is_interesting
                 zero_consumed = result.consumed.copy()
-                entries.append(
-                    _CacheEntry(key^, zero_interesting, zero_consumed.copy())
-                )
+                _append_cache_entry(entries, trial, zero_interesting, zero_consumed)
             if zero_interesting and is_shortlex_smaller(zero_consumed, best):
                 best = zero_consumed^
                 improved = True
@@ -388,8 +421,7 @@ def shrink_with[
                     break
                 var mid = lo + (hi - lo) // UInt64(2)
                 var probe = best.with_value_at(i, mid)
-                var pkey = probe.values()
-                var pidx = _lookup(entries, pkey)
+                var pidx = _lookup(entries, probe)
                 var p_interesting = False
                 var p_consumed = probe.copy()
                 if pidx >= 0:
@@ -400,9 +432,7 @@ def shrink_with[
                     var presult = eval_fn(probe^)
                     p_interesting = presult.is_interesting
                     p_consumed = presult.consumed.copy()
-                    entries.append(
-                        _CacheEntry(pkey^, p_interesting, p_consumed.copy())
-                    )
+                    _append_cache_entry(entries, probe, p_interesting, p_consumed)
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
                     hi = mid
                     best = p_consumed^
