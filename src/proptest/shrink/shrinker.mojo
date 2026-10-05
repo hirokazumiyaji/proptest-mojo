@@ -194,7 +194,7 @@ def shrink[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _batch_size(max_evaluations - evaluations)
+            var page = _page_size(max_evaluations - evaluations)
             var removals = delete_chunks(best.copy(), page, fetched)
             var index = 0
             while index < len(removals):
@@ -231,7 +231,7 @@ def shrink[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _batch_size(max_evaluations - evaluations)
+            var page = _page_size(max_evaluations - evaluations)
             var zeroings = zero_chunks(best.copy(), page, zeroed_count)
             var index = 0
             while index < len(zeroings):
@@ -364,7 +364,7 @@ def shrink_with[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _batch_size(max_evaluations - evaluations)
+            var page = _page_size(max_evaluations - evaluations)
             var removals = delete_chunks(best.copy(), page, fetched)
             var index = 0
             while index < len(removals):
@@ -401,7 +401,7 @@ def shrink_with[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _batch_size(max_evaluations - evaluations)
+            var page = _page_size(max_evaluations - evaluations)
             var zeroings = zero_chunks(best.copy(), page, zeroed_count)
             var index = 0
             while index < len(zeroings):
