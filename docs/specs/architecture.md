@@ -20,8 +20,9 @@
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-依存は上から下への一方向のみとする。
+依存は上から下への一方向のみとする。唯一の例外は `testcase` と `strategies` の間の参照循環である（[ADR-0009](../adr/0009-testcase-draw-module-cycle.md)）。
 `strategies` が `testcase` に依存するのは `draw(self, mut tc: TestCase)` のシグネチャのためであり、`TestCase` のプリミティブ（`draw_integer` など）以外は使わない。
+逆方向の `testcase` から `strategies` への依存は、`TestCase.draw` のジェネリック境界（`S: Strategy`）のためだけにあり、実行時の呼び出し方向（シェルからコアへ）は変わらない。
 `shrink` は `testcase` と `runner` に依存しない。候補の評価はランナーが行う。
 
 ## パッケージ構成

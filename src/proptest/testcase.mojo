@@ -13,6 +13,7 @@ from std.io import Writer
 
 from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence, Span
 from proptest.prng import Xoshiro256StarStar
+from proptest.strategy import Strategy
 
 comptime DEFAULT_MAX_CHOICES = 8192
 comptime ASSUME_INTERRUPT = "proptest: assume() failed (INVALID)"
@@ -79,6 +80,8 @@ struct TestCase(Sized, Writable):
     var open_spans: List[OpenSpan]
     var status: Status
     var notes: List[String]
+    var draw_labels: List[String]
+    var draw_values: List[String]
     var max_choices: Int
 
     def __init__(
@@ -95,6 +98,8 @@ struct TestCase(Sized, Writable):
         self.open_spans = List[OpenSpan]()
         self.status = Status.RUNNING
         self.notes = List[String]()
+        self.draw_labels = List[String]()
+        self.draw_values = List[String]()
         self.max_choices = max_choices
 
     @staticmethod
@@ -189,6 +194,43 @@ struct TestCase(Sized, Writable):
             self.status = Status.INVALID
             raise Error(ASSUME_INTERRUPT)
 
+    def draw[
+        S: Strategy
+    ](mut self, strategy: S, label: StringSlice = "") raises -> S.Value:
+        """Draw a value through `strategy`, recording one span and report entry.
+
+        Opens a span labeled by the strategy kind (`strategy.span_label`),
+        never by `label`, so shrink passes only swap blocks that are
+        structurally interchangeable; `label` is kept solely in
+        `draw_labels`. The record slot is reserved *before* delegating to
+        `strategy.draw`, so a composite strategy that calls `tc.draw`
+        internally still reports its own entry first, matching invocation
+        order. The rendered value is filled in once the draw returns. On
+        raise, every span opened during this draw is closed and the
+        reserved slot is dropped, so accounting stays balanced.
+        """
+        var depth = len(self.open_spans)
+        self.start_span(strategy.span_label())
+        # Reserved, not appended: a nested `tc.draw` inside `strategy`
+        # would otherwise land before this record.
+        var slot = len(self.draw_labels)
+        self.draw_labels.append(String(label))
+        self.draw_values.append(String(""))
+        try:
+            var value = strategy.draw(self)
+            self.stop_span()
+            self.draw_values[slot] = String(value)
+            return value^
+        except e:
+            while len(self.open_spans) > depth:
+                self.stop_span()
+            # Drop the reserved slot, not the tail: nested `tc.draw`
+            # calls in `strategy` appended records after it, and those
+            # draws succeeded, so their entries must survive.
+            _remove_at(self.draw_labels, slot)
+            _remove_at(self.draw_values, slot)
+            raise e
+
     def note(mut self, var message: String):
         """Attach a message shown when this example is replayed for a report."""
         self.notes.append(message^)
@@ -233,3 +275,17 @@ struct TestCase(Sized, Writable):
     ) -> UInt64:
         self.choices.append(ChoiceNode(kind, value, max_value, forced))
         return value
+
+
+def _remove_at(mut items: List[String], index: Int):
+    """Drop `items[index]`, shifting the tail left.
+
+    `TestCase.draw` reserves its record slot before delegating, so a
+    strategy that draws and then raises leaves successful nested records
+    after the reserved one; popping would discard those instead.
+    """
+    var i = index
+    while i + 1 < len(items):
+        items[i] = items[i + 1].copy()
+        i += 1
+    _ = items.pop()
