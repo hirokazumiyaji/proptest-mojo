@@ -129,11 +129,16 @@ struct Users(Strategy):
     comptime Value = User
     var max_age: Int
 
+    def span_label(self) -> UInt64:
+        return kind_label("users")
+
     def draw(self, mut tc: TestCase) raises -> User:
         var name = tc.draw(text(min_size=1, max_size=20))
         var age = tc.draw(integers(0, self.max_age))
         return User(name^, age)
 ```
+
+`span_label` は必須なので合成 Strategy でも実装する。構造を保つ `map` は内側の Strategy のラベルを引き継いでよい。`filter` は複数回の試行を含むため、内側の Strategy とは異なる構造ラベルを返す。
 
 property の中で直接 `tc.draw` を重ねてもよい。再利用したい組み合わせだけを合成 Strategy にする。
 

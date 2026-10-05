@@ -1,5 +1,6 @@
 from proptest import Settings, TestCase, for_all, integers
 from std.os import getenv, setenv
+from std.time import perf_counter_ns
 from std.testing import TestSuite, assert_equal, assert_true
 
 
@@ -57,6 +58,19 @@ def test_settings_defaults_match_spec() raises:
     )
 
 
+def test_default_seed_keeps_clock_resolution() raises:
+    var saved_seed = getenv("PROPTEST_SEED")
+    _ = setenv("PROPTEST_SEED", "")
+    var before = UInt64(abs(perf_counter_ns()))
+    var seed = Settings().effective_seed()
+    var after = UInt64(abs(perf_counter_ns()))
+    _ = setenv("PROPTEST_SEED", saved_seed)
+    assert_true(
+        before <= seed and seed <= after,
+        msg="the default seed must retain the native clock resolution",
+    )
+
+
 def test_settings_explicit_values_win_over_env() raises:
     var saved_seed = getenv("PROPTEST_SEED")
     var saved_count = getenv("PROPTEST_MAX_EXAMPLES")
@@ -106,6 +120,21 @@ def test_explicit_default_max_examples_beats_env() raises:
         raise Error(failure)
     assert_equal(explicit_default, 100)
     assert_equal(omitted, 7)
+
+
+def test_explicit_max_examples_beats_env() raises:
+    var saved_count = getenv("PROPTEST_MAX_EXAMPLES")
+    _ = setenv("PROPTEST_MAX_EXAMPLES", "7")
+    var explicit_count = 0
+    var failure = String("")
+    try:
+        explicit_count = Settings(max_examples=3).effective_max_examples()
+    except e:
+        failure = String(e)
+    _ = setenv("PROPTEST_MAX_EXAMPLES", saved_count)
+    if failure.byte_length() > 0:
+        raise Error(failure)
+    assert_equal(explicit_count, 3)
 
 
 def test_env_seed_covers_full_u64_range() raises:

@@ -11,7 +11,7 @@ control flow.
 
 from std.io import Writer
 from std.os import getenv
-from std.time import monotonic
+from std.time import perf_counter_ns
 
 from proptest.choice import ChoiceSequence
 from proptest.prng import derive
@@ -50,6 +50,9 @@ struct Settings(Copyable, Movable, Writable):
         max_choices: Int = DEFAULT_MAX_CHOICES,
         max_shrink_evaluations: Int = DEFAULT_MAX_SHRINK_EVALUATIONS,
     ):
+        # Non-positive counts are rejected in `effective_max_examples`
+        # rather than here: `Settings()` is a default argument of
+        # `for_all`, which cannot raise.
         self.max_examples_set = max_examples is not None
         self.max_examples = (
             max_examples.value() if max_examples
@@ -65,9 +68,9 @@ struct Settings(Copyable, Movable, Writable):
             return self.seed.value()
         var from_env = getenv(SEED_ENV_VAR)
         if from_env.byte_length() > 0:
-            # Parsed digit by digit: routing through signed `Int`
-            # rejects valid seeds above `Int.MAX`, which is half the
-            # domain `Settings.seed` and the reports accept.
+            # Parsed digit by digit: routing through signed `Int` rejects
+            # valid seeds above `Int.MAX`, which is half the domain
+            # `Settings.seed` and the reports accept.
             var ok = False
             var parsed = UInt64(0)
             ok, parsed = _parse_u64(from_env)
@@ -78,10 +81,15 @@ struct Settings(Copyable, Movable, Writable):
                     + "'"
                 )
             return parsed
-        return UInt64(abs(Int(monotonic())))
+        return UInt64(abs(perf_counter_ns()))
 
     def effective_max_examples(self) raises -> Int:
-        """Explicit count, else `PROPTEST_MAX_EXAMPLES` over the default."""
+        """Explicit count, else `PROPTEST_MAX_EXAMPLES` over the default.
+
+        Raises when the effective count is not positive: the generation
+        loop's condition would be false immediately, so the property would
+        never run and the test would silently pass.
+        """
         if self.max_examples_set:
             if self.max_examples <= 0:
                 raise Error("Settings: max_examples must be positive")
@@ -130,7 +138,7 @@ def _parse_u64(text: String) -> Tuple[Bool, UInt64]:
     Returns `(False, 0)` for a non-numeric or out-of-range value.
     Accumulating in `UInt64` keeps the whole `0..=UInt64.MAX` domain
     reachable; a signed `Int` accumulator would reject the upper half of
-    it before the seed could be reported or replayed.
+    it before the seed could ever be reported or replayed.
     """
     var digits = text.as_bytes()
     if len(digits) == 0:
@@ -140,6 +148,7 @@ def _parse_u64(text: String) -> Tuple[Bool, UInt64]:
         if b < 48 or b > 57:
             return (False, UInt64(0))
         var digit = UInt64(b - 48)
+        # `acc * 10 + digit` must stay within `U64_MAX`.
         if acc > (U64_MAX - digit) // UInt64(10):
             return (False, UInt64(0))
         acc = acc * UInt64(10) + digit
@@ -203,7 +212,7 @@ def for_all[
             continue
         if tc.status == Status.OVERRUN:
             overrun_count += 1
-            if examples_run >= 10 and overrun_count * 5 > examples_run:
+            if overrun_count * 5 > examples_run:
                 raise Error(
                     "gave up after "
                     + String(examples_run)
@@ -218,11 +227,7 @@ def for_all[
         # while `examples_run < 10` would otherwise escape the ratio
         # check entirely when the last required valid example completes
         # the loop, silently passing a run that mostly overran.
-        if (
-            examples_run >= 10
-            and overrun_count > 0
-            and overrun_count * 5 > examples_run
-        ):
+        if overrun_count > 0 and overrun_count * 5 > examples_run:
             raise Error(
                 "gave up after "
                 + String(examples_run)
