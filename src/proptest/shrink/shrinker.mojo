@@ -47,25 +47,48 @@ struct ShrinkResult(Copyable, Movable, Writable):
 
 @fieldwise_init
 struct _CacheEntry(Copyable, Movable):
-    var values: List[UInt64]
+    var fingerprint: UInt64
+    var secondary_fingerprint: UInt64
+    var length: Int
     var is_interesting: Bool
     var consumed: ChoiceSequence
 
 
-def _values_equal(a: List[UInt64], b: List[UInt64]) -> Bool:
-    if len(a) != len(b):
-        return False
-    for i in range(len(a)):
-        if a[i] != b[i]:
-            return False
-    return True
+def _fingerprints(values: List[UInt64]) -> (UInt64, UInt64):
+    var first = UInt64(14695981039346656037)
+    var second = UInt64(7809847782465536322)
+    for value in values:
+        first = (first ^ value) * UInt64(1099511628211)
+        second = (second ^ (value + UInt64(0x9E3779B97F4A7C15))) * UInt64(
+            14029467366897019727
+        )
+    return (first, second)
 
 
 def _lookup(entries: List[_CacheEntry], values: List[UInt64]) -> Int:
+    var (fingerprint, secondary_fingerprint) = _fingerprints(values)
     for i in range(len(entries)):
-        if _values_equal(entries[i].values, values):
+        if (
+            entries[i].fingerprint == fingerprint
+            and entries[i].secondary_fingerprint == secondary_fingerprint
+            and entries[i].length == len(values)
+        ):
             return i
     return -1
+
+
+# Candidates are materialized in fixed-size batches rather than up to
+# the whole remaining budget: each candidate copies the entire sequence, so
+# the default 5,000-evaluation budget would retain tens of millions of
+# `ChoiceNode`s before the first one is evaluated.
+comptime CANDIDATE_BATCH = 64
+
+
+def _page_size(remaining: Int) -> Int:
+    """Candidates to materialize in one page, capped by what is left."""
+    if remaining < CANDIDATE_BATCH:
+        return remaining
+    return CANDIDATE_BATCH
 
 
 def shrink[
@@ -88,20 +111,27 @@ def shrink[
     while True:
         var improved = False
 
-        # Candidates are materialized in batches bounded by the remaining
-        # budget, since each one is a full copy of the sequence. The batch
-        # is refetched when it held only cache hits: those cost no
-        # evaluation, so they must not shrink the cap and hide a later
-        # candidate that would have been adopted.
+        # Candidates are materialized one bounded batch at a time. The
+        # batch is refetched when it held only cache hits: those cost no
+        # evaluation, so they must not count against the budget or hide a
+        # later candidate that would have been adopted.
         var fetched = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = 12 * 0 + _batch_size(max_evaluations - evaluations)
-            var removals = delete_chunks(best.copy(), want)
-            while fetched < len(removals):
-                var cand = removals[fetched].copy()
+            # Only the next page is materialized. The enumeration is
+            # deterministic, so skipping `fetched` already-consumed
+            # candidates costs no copies, and a cumulative `limit` would
+            # rebuild an ever-growing prefix: at the default 5,000
+            # evaluation budget that means ~5,000 whole-sequence copies
+            # alive at once for a near-maximal example.
+            var page = _page_size(max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), page, fetched)
+            var index = 0
+            while index < len(removals):
+                var cand = removals[index].copy()
+                index += 1
                 fetched += 1
                 var key = cand.values()
                 if _lookup(entries, key) >= 0:
@@ -110,14 +140,26 @@ def shrink[
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                var cached_consumed = ChoiceSequence()
+                if interesting:
+                    cached_consumed = consumed.copy()
+                var (fingerprint, secondary_fingerprint) = _fingerprints(key)
+                entries.append(
+                    _CacheEntry(
+                        fingerprint,
+                        secondary_fingerprint,
+                        len(key),
+                        interesting,
+                        cached_consumed^
+                    )
+                )
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(removals) < want:
+            if len(removals) < page:
                 break
         if hit_budget:
             break
@@ -129,10 +171,18 @@ def shrink[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = 12 * 0 + _batch_size(max_evaluations - evaluations)
-            var zeroings = zero_chunks(best.copy(), want)
-            while zeroed_count < len(zeroings):
-                var cand = zeroings[zeroed_count].copy()
+            # Only the next page is materialized. The enumeration is
+            # deterministic, so skipping `zeroed_count` already-consumed
+            # candidates costs no copies, and a cumulative `limit` would
+            # rebuild an ever-growing prefix: at the default 5,000
+            # evaluation budget that means ~5,000 whole-sequence copies
+            # alive at once for a near-maximal example.
+            var page = _page_size(max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), page, zeroed_count)
+            var index = 0
+            while index < len(zeroings):
+                var cand = zeroings[index].copy()
+                index += 1
                 zeroed_count += 1
                 var key = cand.values()
                 if _lookup(entries, key) >= 0:
@@ -141,14 +191,26 @@ def shrink[
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                var cached_consumed = ChoiceSequence()
+                if interesting:
+                    cached_consumed = consumed.copy()
+                var (fingerprint, secondary_fingerprint) = _fingerprints(key)
+                entries.append(
+                    _CacheEntry(
+                        fingerprint,
+                        secondary_fingerprint,
+                        len(key),
+                        interesting,
+                        cached_consumed^
+                    )
+                )
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(zeroings) < want:
+            if len(zeroings) < page:
                 break
         if hit_budget:
             break
@@ -178,8 +240,18 @@ def shrink[
                 var result = evaluate(trial^)
                 zero_interesting = result.is_interesting
                 zero_consumed = result.consumed.copy()
+                var cached_consumed = ChoiceSequence()
+                if zero_interesting:
+                    cached_consumed = zero_consumed.copy()
+                var (fingerprint, secondary_fingerprint) = _fingerprints(key)
                 entries.append(
-                    _CacheEntry(key^, zero_interesting, zero_consumed.copy())
+                    _CacheEntry(
+                        fingerprint,
+                        secondary_fingerprint,
+                        len(key),
+                        zero_interesting,
+                        cached_consumed^
+                    )
                 )
             if zero_interesting and is_shortlex_smaller(zero_consumed, best):
                 best = zero_consumed^
@@ -206,8 +278,18 @@ def shrink[
                     var presult = evaluate(probe^)
                     p_interesting = presult.is_interesting
                     p_consumed = presult.consumed.copy()
+                    var cached_consumed = ChoiceSequence()
+                    if p_interesting:
+                        cached_consumed = p_consumed.copy()
+                    var (fingerprint, secondary_fingerprint) = _fingerprints(pkey)
                     entries.append(
-                        _CacheEntry(pkey^, p_interesting, p_consumed.copy())
+                        _CacheEntry(
+                            fingerprint,
+                            secondary_fingerprint,
+                            len(pkey),
+                            p_interesting,
+                            cached_consumed^
+                        )
                     )
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
                     hi = mid
