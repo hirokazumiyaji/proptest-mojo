@@ -463,10 +463,9 @@ def minimize_individual[
 ](seq: ChoiceSequence) -> ChoiceSequence:
     """Minimize each choice value in place, left to right.
 
-    For each non-`forced` index, tries 0 first and falls back to
-    binary search for the smallest interesting value. The working
-    sequence only ever moves down in shortlex order, so the result
-    is shortlex-smaller-or-equal to the input.
+    For each non-`forced` index, tries values from 0 upward. Failure
+    predicates are arbitrary, so a passing value cannot rule out smaller
+    values. The working sequence only moves down in shortlex order.
     """
     var best = seq.copy()
     var n = len(best)
@@ -480,14 +479,11 @@ def minimize_individual[
         if is_interesting(zeroed.copy()):
             best = zeroed^
             continue
-        var lo = UInt64(0)
-        var hi = current
-        while hi - lo > UInt64(1):
-            var mid = lo + (hi - lo) // UInt64(2)
-            var cand = best.with_value_at(i, mid)
+        var candidate_value = UInt64(1)
+        while candidate_value < current:
+            var cand = best.with_value_at(i, candidate_value)
             if is_interesting(cand.copy()):
-                hi = mid
                 best = cand^
-            else:
-                lo = mid
+                break
+            candidate_value += UInt64(1)
     return best^

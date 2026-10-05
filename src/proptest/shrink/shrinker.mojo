@@ -287,15 +287,13 @@ def shrink[
                 best = zero_consumed^
                 improved = True
                 break
-            var lo = UInt64(0)
-            var hi = current
             var changed = False
-            while hi - lo > UInt64(1):
+            var candidate_value = UInt64(1)
+            while candidate_value < current:
                 if evaluations >= max_evaluations:
                     hit_budget = True
                     break
-                var mid = lo + (hi - lo) // UInt64(2)
-                var probe = best.with_value_at(i, mid)
+                var probe = best.with_value_at(i, candidate_value)
                 var pidx = _lookup(entries, slots, probe)
                 var p_interesting = False
                 var p_consumed = probe.copy()
@@ -311,16 +309,12 @@ def shrink[
                         entries, slots, probe, p_interesting, p_consumed
                     )
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
-                    hi = mid
                     best = p_consumed^
                     changed = True
-                elif not p_interesting:
-                    lo = mid
                 else:
-                    # Interesting but not smaller: the property drew
-                    # extra choices, so this probe is unusable and the
-                    # interval is exhausted rather than narrowed.
-                    break
+                    candidate_value += UInt64(1)
+                    continue
+                break
             if hit_budget:
                 break
             if changed:
@@ -463,15 +457,13 @@ def shrink_with[
                 best = zero_consumed^
                 improved = True
                 break
-            var lo = UInt64(0)
-            var hi = current
             var changed = False
-            while hi - lo > UInt64(1):
+            var candidate_value = UInt64(1)
+            while candidate_value < current:
                 if evaluations >= max_evaluations:
                     hit_budget = True
                     break
-                var mid = lo + (hi - lo) // UInt64(2)
-                var probe = best.with_value_at(i, mid)
+                var probe = best.with_value_at(i, candidate_value)
                 var pidx = _lookup(entries, slots, probe)
                 var p_interesting = False
                 var p_consumed = probe.copy()
@@ -487,16 +479,12 @@ def shrink_with[
                         entries, slots, probe, p_interesting, p_consumed
                     )
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
-                    hi = mid
                     best = p_consumed^
                     changed = True
-                elif not p_interesting:
-                    lo = mid
                 else:
-                    # Interesting but not smaller: the property drew
-                    # extra choices, so this probe is unusable and the
-                    # interval is exhausted rather than narrowed.
-                    break
+                    candidate_value += UInt64(1)
+                    continue
+                break
             if hit_budget:
                 break
             if changed:
