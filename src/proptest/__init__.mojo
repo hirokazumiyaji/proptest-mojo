@@ -33,10 +33,20 @@ from proptest.strategies.choice import (
 from proptest.strategies.primitives import (
     Booleans,
     Integers,
+    IntegersOf,
     Just,
     booleans,
+    decode_integers_of_choice,
     integers,
+    integers_of,
     just,
+)
+from proptest.strategies.tuples import (
+    OptionalOf,
+    Tuple2,
+    Tuple3,
+    optionals,
+    tuples,
 )
 from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
 
