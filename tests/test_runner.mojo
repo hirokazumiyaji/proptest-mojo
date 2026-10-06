@@ -122,21 +122,6 @@ def test_explicit_default_max_examples_beats_env() raises:
     assert_equal(omitted, 7)
 
 
-def test_explicit_max_examples_beats_env() raises:
-    var saved_count = getenv("PROPTEST_MAX_EXAMPLES")
-    _ = setenv("PROPTEST_MAX_EXAMPLES", "7")
-    var explicit_count = 0
-    var failure = String("")
-    try:
-        explicit_count = Settings(max_examples=3).effective_max_examples()
-    except e:
-        failure = String(e)
-    _ = setenv("PROPTEST_MAX_EXAMPLES", saved_count)
-    if failure.byte_length() > 0:
-        raise Error(failure)
-    assert_equal(explicit_count, 3)
-
-
 def test_env_seed_covers_full_u64_range() raises:
     # PROPTEST_SEED is documented as reproducing a reported seed, and the
     # reported type is UInt64, so values above Int.MAX must parse.

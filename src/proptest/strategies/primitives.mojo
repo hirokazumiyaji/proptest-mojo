@@ -75,6 +75,11 @@ struct Integers(Strategy):
         return kind_label("integers")
 
     def draw(self, mut tc: TestCase) raises -> Int:
+        # Validated here too: `Integers` is re-exported, so `@fieldwise_init`
+        # lets an inverted range reach `draw`, where the unsigned width
+        # subtraction would wrap to a near-`UInt64` maximum. Validation
+        # cannot live in the constructor because strategy types are built
+        # from non-raising thin functions (`flat_map`'s parameter).
         if self.maximum < self.minimum:
             raise Error("integers: maximum must be >= minimum")
         var width = UInt64(self.maximum) - UInt64(self.minimum)
