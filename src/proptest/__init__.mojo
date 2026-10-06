@@ -26,9 +26,12 @@ from proptest.strategies.collections import ListOf, lists
 from proptest.strategies.primitives import (
     Booleans,
     Integers,
+    IntegersOf,
     Just,
     booleans,
+    decode_integers_of_choice,
     integers,
+    integers_of,
     just,
 )
 from proptest.strategies.tuples import (

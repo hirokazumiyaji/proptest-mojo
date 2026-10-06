@@ -116,14 +116,14 @@ def test_span_label_ignores_distinct_report_labels() raises:
     assert_equal(tc.spans[0].label, tc.spans[1].label)
 
 
-def test_integers_type_rejects_inverted_range() raises:
-    # `Integers` is re-exported, so `Integers(10, 5)` must fail rather than
-    # wrap the unsigned width in `draw`.
+def test_integers_draw_rejects_inverted_range() raises:
+    # Direct construction permits an invalid range, so `draw` must reject it
+    # before the unsigned width calculation.
     with assert_raises(contains="maximum must be >= minimum"):
-        _ = Integers(10, 5)
+        _ = _draw_empty(Integers(10, 5))
 
 
-def test_integers_type_accepts_valid_range() raises:
+def test_integers_type_stores_range() raises:
     var strategy = Integers(-3, 7)
     assert_equal(strategy.minimum, -3)
     assert_equal(strategy.maximum, 7)
