@@ -61,22 +61,6 @@ struct _CacheEntry(Copyable, Movable):
 comptime CANDIDATE_BATCH = 64
 
 
-def _batch_size(remaining: Int) -> Int:
-    """Candidates to materialize at once, capped by what is left."""
-    if remaining < CANDIDATE_BATCH:
-        return remaining
-    return CANDIDATE_BATCH
-
-
-def _values_equal(a: List[UInt64], b: List[UInt64]) -> Bool:
-    if len(a) != len(b):
-        return False
-    for i in range(len(a)):
-        if a[i] != b[i]:
-            return False
-    return True
-
-
 def _page_size(remaining: Int) -> Int:
     """Candidates to materialize in one page, capped by what is left."""
     if remaining < CANDIDATE_BATCH:
@@ -200,72 +184,74 @@ def shrink[
     while True:
         var improved = False
 
-        # Cache hits cost no evaluation, so they must not consume the
-        # materialization cap: refetch with a larger limit when the batch
-        # held only hits, otherwise a cached prefix hides later uncached
-        # candidates and the run reports a fixed point with budget
-        # remaining.
+        # Candidates are walked one bounded page at a time. Cache hits
+        # cost no evaluation, so they must not consume the cap: paging
+        # makes a page of hits advance `fetched` and simply fetch the
+        # next one, instead of hiding later uncached candidates behind a
+        # cached prefix and reporting a fixed point with budget left.
         var fetched = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = fetched + _batch_size(max_evaluations - evaluations)
-            var removals = delete_chunks(best.copy(), want)
-            while fetched < len(removals):
-                var cand = removals[fetched].copy()
+            var page = _page_size(max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), page, fetched)
+            var index = 0
+            while index < len(removals):
+                var cand = removals[index].copy()
+                index += 1
                 fetched += 1
-                var key = cand.values()
-                if _lookup(entries, key) >= 0:
+                if _lookup(entries, slots, cand) >= 0:
                     continue
                 evaluations += 1
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                _append_cache_entry(entries, slots, cand, interesting, consumed)
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(removals) < want:
+            if len(removals) < page:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        # Cache hits cost no evaluation, so they must not consume the
-        # materialization cap: refetch with a larger limit when the batch
-        # held only hits, otherwise a cached prefix hides later uncached
-        # candidates and the run reports a fixed point with budget
-        # remaining.
+        # Candidates are walked one bounded page at a time. Cache hits
+        # cost no evaluation, so they must not consume the cap: paging
+        # makes a page of hits advance `fetched` and simply fetch the
+        # next one, instead of hiding later uncached candidates behind a
+        # cached prefix and reporting a fixed point with budget left.
         var zeroed_count = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = zeroed_count + _batch_size(max_evaluations - evaluations)
-            var zeroings = zero_chunks(best.copy(), want)
-            while zeroed_count < len(zeroings):
-                var cand = zeroings[zeroed_count].copy()
+            var page = _page_size(max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), page, zeroed_count)
+            var index = 0
+            while index < len(zeroings):
+                var cand = zeroings[index].copy()
+                index += 1
                 zeroed_count += 1
-                var key = cand.values()
-                if _lookup(entries, key) >= 0:
+                if _lookup(entries, slots, cand) >= 0:
                     continue
                 evaluations += 1
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                _append_cache_entry(entries, slots, cand, interesting, consumed)
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(zeroings) < want:
+            if len(zeroings) < page:
                 break
         if hit_budget:
             break
@@ -323,16 +309,12 @@ def shrink[
                         entries, slots, probe, p_interesting, p_consumed
                     )
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
-                    hi = mid
                     best = p_consumed^
                     changed = True
-                elif not p_interesting:
-                    lo = mid
                 else:
-                    # Interesting but not smaller: the property drew
-                    # extra choices, so this probe is unusable and the
-                    # interval is exhausted rather than narrowed.
-                    break
+                    candidate_value += UInt64(1)
+                    continue
+                break
             if hit_budget:
                 break
             if changed:
@@ -372,72 +354,74 @@ def shrink_with[
     while True:
         var improved = False
 
-        # Cache hits cost no evaluation, so they must not consume the
-        # materialization cap: refetch with a larger limit when the batch
-        # held only hits, otherwise a cached prefix hides later uncached
-        # candidates and the run reports a fixed point with budget
-        # remaining.
+        # Candidates are walked one bounded page at a time. Cache hits
+        # cost no evaluation, so they must not consume the cap: paging
+        # makes a page of hits advance `fetched` and simply fetch the
+        # next one, instead of hiding later uncached candidates behind a
+        # cached prefix and reporting a fixed point with budget left.
         var fetched = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = fetched + _batch_size(max_evaluations - evaluations)
-            var removals = delete_chunks(best.copy(), want)
-            while fetched < len(removals):
-                var cand = removals[fetched].copy()
+            var page = _page_size(max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), page, fetched)
+            var index = 0
+            while index < len(removals):
+                var cand = removals[index].copy()
+                index += 1
                 fetched += 1
-                var key = cand.values()
-                if _lookup(entries, key) >= 0:
+                if _lookup(entries, slots, cand) >= 0:
                     continue
                 evaluations += 1
                 var result = eval_fn(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                _append_cache_entry(entries, slots, cand, interesting, consumed)
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(removals) < want:
+            if len(removals) < page:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        # Cache hits cost no evaluation, so they must not consume the
-        # materialization cap: refetch with a larger limit when the batch
-        # held only hits, otherwise a cached prefix hides later uncached
-        # candidates and the run reports a fixed point with budget
-        # remaining.
+        # Candidates are walked one bounded page at a time. Cache hits
+        # cost no evaluation, so they must not consume the cap: paging
+        # makes a page of hits advance `fetched` and simply fetch the
+        # next one, instead of hiding later uncached candidates behind a
+        # cached prefix and reporting a fixed point with budget left.
         var zeroed_count = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = zeroed_count + _batch_size(max_evaluations - evaluations)
-            var zeroings = zero_chunks(best.copy(), want)
-            while zeroed_count < len(zeroings):
-                var cand = zeroings[zeroed_count].copy()
+            var page = _page_size(max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), page, zeroed_count)
+            var index = 0
+            while index < len(zeroings):
+                var cand = zeroings[index].copy()
+                index += 1
                 zeroed_count += 1
-                var key = cand.values()
-                if _lookup(entries, key) >= 0:
+                if _lookup(entries, slots, cand) >= 0:
                     continue
                 evaluations += 1
                 var result = eval_fn(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                entries.append(_CacheEntry(key^, interesting, consumed.copy()))
+                _append_cache_entry(entries, slots, cand, interesting, consumed)
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(zeroings) < want:
+            if len(zeroings) < page:
                 break
         if hit_budget:
             break
@@ -495,16 +479,12 @@ def shrink_with[
                         entries, slots, probe, p_interesting, p_consumed
                     )
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
-                    hi = mid
                     best = p_consumed^
                     changed = True
-                elif not p_interesting:
-                    lo = mid
                 else:
-                    # Interesting but not smaller: the property drew
-                    # extra choices, so this probe is unusable and the
-                    # interval is exhausted rather than narrowed.
-                    break
+                    candidate_value += UInt64(1)
+                    continue
+                break
             if hit_budget:
                 break
             if changed:
