@@ -46,11 +46,11 @@ trait Strategy(Copyable, Deinitable):
 | `lists(elements, min_size, max_size)` | `List[T]` | 短いリスト、各要素が単純 | M2 |
 | `unique_lists(elements, min_size, max_size)` | `List[T]`（`T: Equatable`） | 同上 | M2 |
 | `dicts(keys, values, min_size, max_size)` | `Dict[K, V]` | 空の辞書 | M2 |
-| `tuples(a, b)` / `tuples(a, b, c)` | 2〜3 要素の値 | 各要素が単純 | M2 |
-| `optionals(s)` | `Optional[T]` | `None` | M2 |
+| `tuples(a, b)` / `tuples(a, b, c)` | 2〜3 要素の値 | 各要素が単純 | 実装済 |
+| `optionals(s)` | `Optional[T]` | `None` | 実装済 |
 | `one_of(strategies)` | `S.Value` | 先頭の Strategy | M2 |
 
-`Optional` や `Tuple` など標準ライブラリの型が `Writable` を満たさない場合は、このライブラリが `Writable` を実装した薄い値型を提供する（M2 の実装時に確認し、この表を更新する）。
+標準ライブラリの `Tuple` と `Optional` は `Copyable & Writable & Deinitable` を満たすため、そのまま `Strategy.Value` として使う。反例表示はそれぞれの `Writable` 実装（例: `(0, 1)`、`None`）に従う。
 
 ### 整数の符号化
 
@@ -129,11 +129,16 @@ struct Users(Strategy):
     comptime Value = User
     var max_age: Int
 
+    def span_label(self) -> UInt64:
+        return kind_label("users")
+
     def draw(self, mut tc: TestCase) raises -> User:
         var name = tc.draw(text(min_size=1, max_size=20))
         var age = tc.draw(integers(0, self.max_age))
         return User(name^, age)
 ```
+
+`span_label` は必須なので合成 Strategy でも実装する。構造を保つ `map` は内側の Strategy のラベルを引き継いでよい。`filter` は複数回の試行を含むため、内側の Strategy とは異なる構造ラベルを返す。
 
 property の中で直接 `tc.draw` を重ねてもよい。再利用したい組み合わせだけを合成 Strategy にする。
 
