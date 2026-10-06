@@ -30,6 +30,13 @@ from proptest.strategies.primitives import (
     integers,
     just,
 )
+from proptest.strategies.tuples import (
+    OptionalOf,
+    Tuple2,
+    Tuple3,
+    optionals,
+    tuples,
+)
 from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
 
 comptime VERSION = "0.1.0"

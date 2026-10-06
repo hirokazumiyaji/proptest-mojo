@@ -61,8 +61,8 @@ struct _CacheEntry(Copyable, Movable):
 comptime CANDIDATE_BATCH = 64
 
 
-def _batch_size(remaining: Int) -> Int:
-    """Candidates to materialize at once, capped by what is left."""
+def _page_size(remaining: Int) -> Int:
+    """Candidates to materialize in one page, capped by what is left."""
     if remaining < CANDIDATE_BATCH:
         return remaining
     return CANDIDATE_BATCH
@@ -184,17 +184,17 @@ def shrink[
     while True:
         var improved = False
 
-        # Cache hits cost no evaluation, so they must not consume the
-        # materialization cap: refetch with a larger limit when the batch
-        # held only hits, otherwise a cached prefix hides later uncached
-        # candidates and the run reports a fixed point with budget
-        # remaining.
+        # Candidates are walked one bounded page at a time. Cache hits
+        # cost no evaluation, so they must not consume the cap: paging
+        # makes a page of hits advance `fetched` and simply fetch the
+        # next one, instead of hiding later uncached candidates behind a
+        # cached prefix and reporting a fixed point with budget left.
         var fetched = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _batch_size(max_evaluations - evaluations)
+            var page = _page_size(max_evaluations - evaluations)
             var removals = delete_chunks(best.copy(), page, fetched)
             var index = 0
             while index < len(removals):
@@ -221,17 +221,17 @@ def shrink[
         if improved:
             continue
 
-        # Cache hits cost no evaluation, so they must not consume the
-        # materialization cap: refetch with a larger limit when the batch
-        # held only hits, otherwise a cached prefix hides later uncached
-        # candidates and the run reports a fixed point with budget
-        # remaining.
+        # Candidates are walked one bounded page at a time. Cache hits
+        # cost no evaluation, so they must not consume the cap: paging
+        # makes a page of hits advance `fetched` and simply fetch the
+        # next one, instead of hiding later uncached candidates behind a
+        # cached prefix and reporting a fixed point with budget left.
         var zeroed_count = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _batch_size(max_evaluations - evaluations)
+            var page = _page_size(max_evaluations - evaluations)
             var zeroings = zero_chunks(best.copy(), page, zeroed_count)
             var index = 0
             while index < len(zeroings):
@@ -287,15 +287,13 @@ def shrink[
                 best = zero_consumed^
                 improved = True
                 break
-            var lo = UInt64(0)
-            var hi = current
             var changed = False
-            while hi - lo > UInt64(1):
+            var candidate_value = UInt64(1)
+            while candidate_value < current:
                 if evaluations >= max_evaluations:
                     hit_budget = True
                     break
-                var mid = lo + (hi - lo) // UInt64(2)
-                var probe = best.with_value_at(i, mid)
+                var probe = best.with_value_at(i, candidate_value)
                 var pidx = _lookup(entries, slots, probe)
                 var p_interesting = False
                 var p_consumed = probe.copy()
@@ -311,16 +309,12 @@ def shrink[
                         entries, slots, probe, p_interesting, p_consumed
                     )
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
-                    hi = mid
                     best = p_consumed^
                     changed = True
-                elif not p_interesting:
-                    lo = mid
                 else:
-                    # Interesting but not smaller: the property drew
-                    # extra choices, so this probe is unusable and the
-                    # interval is exhausted rather than narrowed.
-                    break
+                    candidate_value += UInt64(1)
+                    continue
+                break
             if hit_budget:
                 break
             if changed:
@@ -360,17 +354,17 @@ def shrink_with[
     while True:
         var improved = False
 
-        # Cache hits cost no evaluation, so they must not consume the
-        # materialization cap: refetch with a larger limit when the batch
-        # held only hits, otherwise a cached prefix hides later uncached
-        # candidates and the run reports a fixed point with budget
-        # remaining.
+        # Candidates are walked one bounded page at a time. Cache hits
+        # cost no evaluation, so they must not consume the cap: paging
+        # makes a page of hits advance `fetched` and simply fetch the
+        # next one, instead of hiding later uncached candidates behind a
+        # cached prefix and reporting a fixed point with budget left.
         var fetched = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _batch_size(max_evaluations - evaluations)
+            var page = _page_size(max_evaluations - evaluations)
             var removals = delete_chunks(best.copy(), page, fetched)
             var index = 0
             while index < len(removals):
@@ -397,17 +391,17 @@ def shrink_with[
         if improved:
             continue
 
-        # Cache hits cost no evaluation, so they must not consume the
-        # materialization cap: refetch with a larger limit when the batch
-        # held only hits, otherwise a cached prefix hides later uncached
-        # candidates and the run reports a fixed point with budget
-        # remaining.
+        # Candidates are walked one bounded page at a time. Cache hits
+        # cost no evaluation, so they must not consume the cap: paging
+        # makes a page of hits advance `fetched` and simply fetch the
+        # next one, instead of hiding later uncached candidates behind a
+        # cached prefix and reporting a fixed point with budget left.
         var zeroed_count = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _batch_size(max_evaluations - evaluations)
+            var page = _page_size(max_evaluations - evaluations)
             var zeroings = zero_chunks(best.copy(), page, zeroed_count)
             var index = 0
             while index < len(zeroings):
@@ -463,15 +457,13 @@ def shrink_with[
                 best = zero_consumed^
                 improved = True
                 break
-            var lo = UInt64(0)
-            var hi = current
             var changed = False
-            while hi - lo > UInt64(1):
+            var candidate_value = UInt64(1)
+            while candidate_value < current:
                 if evaluations >= max_evaluations:
                     hit_budget = True
                     break
-                var mid = lo + (hi - lo) // UInt64(2)
-                var probe = best.with_value_at(i, mid)
+                var probe = best.with_value_at(i, candidate_value)
                 var pidx = _lookup(entries, slots, probe)
                 var p_interesting = False
                 var p_consumed = probe.copy()
@@ -487,16 +479,12 @@ def shrink_with[
                         entries, slots, probe, p_interesting, p_consumed
                     )
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
-                    hi = mid
                     best = p_consumed^
                     changed = True
-                elif not p_interesting:
-                    lo = mid
                 else:
-                    # Interesting but not smaller: the property drew
-                    # extra choices, so this probe is unusable and the
-                    # interval is exhausted rather than narrowed.
-                    break
+                    candidate_value += UInt64(1)
+                    continue
+                break
             if hit_budget:
                 break
             if changed:
