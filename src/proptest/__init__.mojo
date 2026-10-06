@@ -22,6 +22,7 @@ from proptest.shrink.shrinker import (
     shrink_with,
 )
 from proptest.strategy import Strategy
+from proptest.strategies.collections import ListOf, lists
 from proptest.strategies.primitives import (
     Booleans,
     Integers,
@@ -32,6 +33,13 @@ from proptest.strategies.primitives import (
     integers,
     integers_of,
     just,
+)
+from proptest.strategies.tuples import (
+    OptionalOf,
+    Tuple2,
+    Tuple3,
+    optionals,
+    tuples,
 )
 from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
 
