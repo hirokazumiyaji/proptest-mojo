@@ -22,6 +22,14 @@ from proptest.shrink.shrinker import (
     shrink_with,
 )
 from proptest.strategy import Strategy
+from proptest.strategies.combinators import (
+    Filter,
+    FlatMap,
+    Map,
+    filter,
+    flat_map,
+    map,
+)
 from proptest.strategies.collections import ListOf, lists
 from proptest.strategies.primitives import (
     Booleans,
