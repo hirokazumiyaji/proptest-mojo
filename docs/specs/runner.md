@@ -47,6 +47,12 @@ def main() raises:
 
 環境変数 `PROPTEST_MAX_EXAMPLES` と `PROPTEST_SEED` は、`Settings` の既定値を上書きする（CI で回数を増やす用途）。コードで明示した値が優先される。
 
+`max_examples` はコンストラクタで `Optional[Int]` として受け取り、明示されたかどうか（`max_examples_set`）を値とは別に保持する。既定値 100 との一致で「省略された」と判定すると、`Settings(max_examples=100)` が環境変数で上書きされてしまうため。
+
+`max_examples` は正の値に限る。0 以下では生成ループの条件が偽のままで property が一度も実行されず、テストが黙って成功してしまうため、`effective_max_examples` が検証して `Error` にする（コンストラクタではなく。`for_all` の既定引数 `Settings()` から raise できないため）。`PROPTEST_MAX_EXAMPLES` も同様。
+
+`PROPTEST_SEED` は `UInt64` として桁ごとに読む。符号付き `Int` を経由すると `Int.MAX` より大きい（報告される seed の半分の範囲）正当な seed を拒否してしまう。範囲外や数値でない値は `Error` にする。
+
 ## フェーズ
 
 ```text

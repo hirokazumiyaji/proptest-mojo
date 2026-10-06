@@ -44,7 +44,7 @@ Pure Mojo で、Python の Hypothesis と Rust の proptest に匹敵する Prop
 | 変換 | `.map`, `.filter`, `.flatmap` | `prop_map`, `prop_filter`, `prop_flat_map` | `map[f]`, `filter[p]`, `flat_map[f]` | Planned (M2) |
 | 合成 | `@composite`, `data()` | `prop_compose!` | 合成 Strategy struct、`tc.draw` | Implemented (M1) |
 | 前提条件 | `assume` | `prop_assume!` | `tc.assume` | Implemented (M1) |
-| 縮小 | 内部縮小 | 値ツリー | 内部縮小 | Planned (M1, M3) |
+| 縮小 | 内部縮小 | 値ツリー | 内部縮小 | M1 実装済み、M3 は計画中 |
 | 端値の優先生成 | あり | 一部 | あり | Planned (M4) |
 | 再現 | `@seed`, `@reproduce_failure` | 失敗の永続化ファイル | `Settings(seed=...)`, `Settings(replay=...)` | Planned (M4) |
 | 反例の永続化 | example database | `proptest-regressions/` | example database | Planned (M4) |
