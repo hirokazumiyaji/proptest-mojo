@@ -312,10 +312,9 @@ def for_all[
                 best_score = tc.target_score
                 best_seq = tc.choices.copy()
             continue
-        if not _shrink_and_raise(
+        _shrink_and_raise(
             prop, settings, seed, examples_run, tc.choices.copy(), message, db
-        ):
-            continue
+        )
 
 
 def _replay_database[
@@ -346,7 +345,18 @@ def _replay_database[
             raised = True
             message = String(e)
         if raised and tc.status == Status.RUNNING:
-            var reproduced = _shrink_and_raise(
+            var verify_tc = TestCase.replaying(
+                tc.choices.copy(), settings.max_choices
+            )
+            var verify_raised = False
+            try:
+                prop(verify_tc)
+            except:
+                verify_raised = True
+            if not (verify_raised and verify_tc.status == Status.RUNNING):
+                db.remove_file(entry.filename.copy())
+                continue
+            _shrink_and_raise(
                 prop,
                 settings,
                 seed,
@@ -356,8 +366,6 @@ def _replay_database[
                 db,
                 entry.filename.copy(),
             )
-            if not reproduced:
-                continue
         else:
             db.remove_file(entry.filename.copy())
 
@@ -373,13 +381,13 @@ def _shrink_and_raise[
     failure_message: String,
     db: ExampleDatabase,
     entry_file: String = "",
-) raises -> Bool:
+) raises:
     """Shrink `failing`, persist the best replay, and raise the report.
 
     Shared by the database-replay and generation paths so both persist
     to the example database and report identically. Re-verifies that the
-    reported replay is INTERESTING before saving or reporting; if a flaky
-    failure disappears, prunes any stale database entry and returns False.
+    reported replay is INTERESTING before saving or reporting, falling back
+    to `failing` if the shrunken candidate did not reproduce.
     """
 
     def evaluate(
@@ -411,18 +419,10 @@ def _shrink_and_raise[
 
     if not (report_raised and report_tc.status == Status.RUNNING):
         report_tc = TestCase.replaying(failing.copy(), settings.max_choices)
-        report_raised = False
-        replay_message = failure_message.copy()
         try:
             prop(report_tc)
         except e:
-            report_raised = True
             replay_message = String(e)
-
-    if not (report_raised and report_tc.status == Status.RUNNING):
-        if entry_file.byte_length() > 0:
-            db.remove_file(entry_file.copy())
-        return False
 
     var replay_token = encode_sequence(report_tc.choices.copy())
     if entry_file.byte_length() > 0 and entry_file != sha256_hex(replay_token):
