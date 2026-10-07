@@ -226,15 +226,27 @@ struct ExampleDatabase(Copyable, Movable):
 
 
 def _ensure_dir(path: String) raises:
-    """Create one directory level, tolerating a concurrent creation."""
+    """Recursively create directories for `path` (like mkdir -p)."""
     if Path(path).is_dir():
         return
-    try:
-        mkdir(path)
-    except e:
-        if Path(path).is_dir():
-            return
-        raise e
+    var bytes = path.as_bytes()
+    if len(bytes) == 0:
+        return
+    for i in range(len(bytes)):
+        if bytes[i] == 47 and i > 0:
+            var sub = String(path[byte=0:i])
+            if not Path(sub).is_dir():
+                try:
+                    mkdir(sub)
+                except e:
+                    if not Path(sub).is_dir():
+                        raise e
+    if not Path(path).is_dir():
+        try:
+            mkdir(path)
+        except e:
+            if not Path(path).is_dir():
+                raise e
 
 
 def _sorted_entries(values: List[SavedEntry]) -> List[SavedEntry]:

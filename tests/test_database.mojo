@@ -277,5 +277,15 @@ def test_load_missing_directory_returns_empty() raises:
     assert_equal(len(loaded), 0)
 
 
+def test_save_creates_nested_parent_directories() raises:
+    var dir = _fresh_dir("nested/parent/db")
+    var name = String("nested")
+    var db = ExampleDatabase(dir, name)
+    db.save("AQ==")
+    var loaded = db.load()
+    assert_equal(len(loaded), 1)
+    assert_equal(loaded[0].replay, "AQ==")
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
