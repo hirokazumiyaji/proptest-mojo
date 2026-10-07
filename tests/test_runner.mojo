@@ -270,3 +270,11 @@ def test_overrun_ratio_checked_after_valid_attempts() raises:
 
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
+
+
+def _overruns_twice_then_passes(mut tc: TestCase) raises:
+    # Two overruns among the first attempts, then valid executions, so the
+    # ratio check has to run again once the loop completes.
+    if tc.example_index < UInt64(2):
+        tc.draw_integer(UInt64(1 << 20))
+        tc.draw_integer(UInt64(1 << 20))

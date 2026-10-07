@@ -6,7 +6,9 @@ Implements the collection rows of `docs/specs/strategies.md`
 Each element draws a continue flag inside its own span, so span deletion
 removes one element. Bounds use `forced_integer`, keeping them out of
 shrinking. Smaller choices yield shorter lists of simpler elements;
-all-zero choices draw `min_size` minimal elements.
+all-zero choices draw `min_size` minimal elements. The continue
+probability scales with `tc.size_scale()`, so early examples draw
+shorter lists; replay reuses recorded flags and ignores the scale.
 """
 
 from std.math import max, min
@@ -46,8 +48,9 @@ struct ListOf[E: Strategy](Strategy):
             raise Error("lists: max_size must be >= min_size")
         var out = List[Self.E.Value]()
         var p_continue: Float64 = 0.0
-        var optional_average = max(
-            self.average_size - Float64(self.min_size), 0.0
+        var optional_average = (
+            max(self.average_size - Float64(self.min_size), 0.0)
+            * tc.size_scale()
         )
         if optional_average > 0.0:
             p_continue = optional_average / (1.0 + optional_average)

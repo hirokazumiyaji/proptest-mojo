@@ -362,10 +362,14 @@ def _replay_only[
 def _fresh_test_case(
     max_choices: Int, seed: UInt64, attempt: UInt64
 ) -> TestCase:
-    """Attempt zero replays the empty prefix (all-zero choices)."""
+    """Attempt zero replays the empty prefix; later attempts drive generation.
+
+    `attempt` doubles as the example index so `TestCase.size_scale`
+    ramps collection lengths; replay paths ignore it.
+    """
     if attempt == UInt64(0):
-        return TestCase.replaying(ChoiceSequence(), max_choices)
-    return TestCase.generating(derive(seed, attempt), max_choices)
+        return TestCase.replaying(ChoiceSequence(), max_choices, attempt)
+    return TestCase.generating(derive(seed, attempt), max_choices, attempt)
 
 
 def _draw_label(labels: List[String], i: Int) -> String:
