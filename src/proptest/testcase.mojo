@@ -88,6 +88,8 @@ struct TestCase(Sized, Writable):
     var draw_values: List[String]
     var max_choices: Int
     var example_index: UInt64
+    var target_score: Float64
+    var has_target: Bool
 
     def __init__(
         out self,
@@ -108,6 +110,8 @@ struct TestCase(Sized, Writable):
         self.draw_values = List[String]()
         self.max_choices = max_choices
         self.example_index = example_index
+        self.target_score = 0.0
+        self.has_target = False
 
     @staticmethod
     def generating(
@@ -254,6 +258,22 @@ struct TestCase(Sized, Writable):
         """Attach a message shown when this example is replayed for a report."""
         self.notes.append(message^)
 
+    def target(mut self, score: Float64, label: StringSlice = ""):
+        """Record a score to maximize toward interesting inputs.
+
+        Keeps the maximum finite score seen in this execution; non-finite
+        scores (NaN, infinities) are ignored. The label distinguishes
+        call sites in future reports but does not affect selection. The
+        runner keeps the highest-scoring valid sequence and mutates it in
+        the second half of generation.
+        """
+        _ = label
+        if (score - score) != 0.0:
+            return
+        if not self.has_target or score > self.target_score:
+            self.target_score = score
+            self.has_target = True
+
     def write_to(self, mut writer: Some[Writer]):
         writer.write(
             "TestCase(status=",
@@ -295,9 +315,7 @@ struct TestCase(Sized, Writable):
             return value
         if self.prng.next_u64() < EDGE_BIAS_U64_THRESHOLD:
             return _edge_value(max_value, self.prng.next_u64())
-        if max_value == UInt64(0xFFFFFFFFFFFFFFFF):
-            return self.prng.next_u64()
-        return self.prng.next_below(max_value + UInt64(1))
+        return self.prng.next_at_most(max_value)
 
     def _record(
         mut self,

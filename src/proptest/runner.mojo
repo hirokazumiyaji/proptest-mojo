@@ -15,7 +15,7 @@ from std.time import perf_counter_ns
 
 from proptest.choice import ChoiceSequence
 from proptest.encoding import decode_sequence, encode_sequence
-from proptest.prng import derive
+from proptest.prng import Xoshiro256StarStar, derive
 from proptest.shrink.shrinker import Evaluation, shrink_with
 from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
 
@@ -23,6 +23,7 @@ comptime DEFAULT_MAX_EXAMPLES = 100
 comptime DEFAULT_MAX_SHRINK_EVALUATIONS = 5000
 comptime SEED_ENV_VAR = "PROPTEST_SEED"
 comptime MAX_EXAMPLES_ENV_VAR = "PROPTEST_MAX_EXAMPLES"
+comptime TARGET_MUTATION_PROBABILITY = 0.1
 
 
 @fieldwise_init
@@ -190,19 +191,20 @@ def for_all[
     """Run `prop` against generated examples, raising the counterexample.
 
     Attempt zero replays the empty prefix, so every draw sees the
-    simplest choice; attempt `i >= 1` draws from `derive(seed, i)`. A
-    run with no failure raises nothing. The first `INTERESTING`
-    execution is shrunk with `shrink_with`, replayed to collect draw
-    records, and reported as an `Error` carrying the records, notes,
-    the failure message, the seed, and the replay string. When
-    `settings.replay` is set, only those choices run once: a reproduced
-    failure is reported as-is with no generation or shrinking, while a
-    run that no longer fails raises instead of searching for a new
-    counterexample. Executions rejected by `assume` (or an unsatisfiable
-    `filter`, which rejects the same way) are skipped; too many
-    rejections or overruns fail the run with a health-check `Error`
-    naming the rejection rate. `VERBOSE` settings print every example
-    as it runs.
+    simplest choice; attempt `i >= 1` draws from `derive(seed, i)`,
+    except the second half of generation replays a targeted mutant of
+    the highest-`target` valid sequence when one exists. A run with no
+    failure raises nothing. The first `INTERESTING` execution is
+    shrunk with `shrink_with`, replayed to collect draw records, and
+    reported as an `Error` carrying the records, notes, the failure
+    message, the seed, and the replay string. When `settings.replay` is
+    set, only those choices run once: a reproduced failure is reported
+    as-is with no generation or shrinking, while a run that no longer fails
+    raises instead of searching for a new counterexample. Executions
+    rejected by `assume` (or an unsatisfiable `filter`, which rejects the
+    same way) are skipped; too many rejections or overruns fail the run
+    with a health-check `Error` naming the rejection rate. `VERBOSE`
+    settings print every example as it runs.
     """
     if settings.replay is not None:
         _replay_only(prop, settings, String(settings.replay.value()))
@@ -229,8 +231,17 @@ def for_all[
     var invalid_count = 0
     var overrun_count = 0
     var attempt = UInt64(0)
+    var has_best = False
+    var best_score = 0.0
+    var best_seq = ChoiceSequence()
     while valid_count < max_examples:
-        var tc = _fresh_test_case(settings.max_choices, seed, attempt)
+        var tc: TestCase
+        if has_best and valid_count * 2 >= max_examples:
+            tc = _mutated_test_case(
+                best_seq, seed, attempt, settings.max_choices
+            )
+        else:
+            tc = _fresh_test_case(settings.max_choices, seed, attempt)
         var raised = False
         var message = String("")
         try:
@@ -291,6 +302,10 @@ def for_all[
             )
         if not raised:
             valid_count += 1
+            if tc.has_target and (not has_best or tc.target_score > best_score):
+                has_best = True
+                best_score = tc.target_score
+                best_seq = tc.choices.copy()
             continue
         var shrink_result = shrink_with(
             evaluate, tc.choices.copy(), settings.max_shrink_evaluations
@@ -370,6 +385,56 @@ def _fresh_test_case(
     if attempt == UInt64(0):
         return TestCase.replaying(ChoiceSequence(), max_choices, attempt)
     return TestCase.generating(derive(seed, attempt), max_choices, attempt)
+
+
+def _mutated_test_case(
+    best: ChoiceSequence,
+    seed: UInt64,
+    attempt: UInt64,
+    max_choices: Int,
+) raises -> TestCase:
+    """Replay a targeted mutant of `best`, falling back when not mutable."""
+    if len(best) == 0:
+        return _fresh_test_case(max_choices, seed, attempt)
+    var prng = derive(seed, attempt)
+    var mutated = _mutate_target_sequence(best, prng^)
+    return TestCase.replaying(mutated^, max_choices, attempt)
+
+
+def _mutate_target_sequence(
+    best: ChoiceSequence, var prng: Xoshiro256StarStar
+) raises -> ChoiceSequence:
+    """Copy `best` with mutable choices uniformly re-rolled.
+
+    Each non-forced choice with `max_value > 0` is re-rolled with
+    probability `TARGET_MUTATION_PROBABILITY`. One such choice is
+    picked up front and re-rolled unconditionally so mutants explore
+    even when no coin lands. Forced and zero-range choices are
+    preserved.
+    """
+    var mutable_indices = List[Int]()
+    for i in range(len(best)):
+        var node = best[i]
+        if not node.forced and node.max_value != UInt64(0):
+            mutable_indices.append(i)
+    var mandatory_idx = -1
+    if len(mutable_indices) > 0:
+        mandatory_idx = mutable_indices[
+            Int(prng.next_below(UInt64(len(mutable_indices))))
+        ]
+    var out = ChoiceSequence()
+    for i in range(len(best)):
+        var node = best[i]
+        if node.forced or node.max_value == UInt64(0):
+            out.append(node^)
+            continue
+        var mutate = (i == mandatory_idx) or (
+            prng.next_float64() < TARGET_MUTATION_PROBABILITY
+        )
+        if mutate:
+            node.value = prng.next_at_most(node.max_value)
+        out.append(node^)
+    return out^
 
 
 def _draw_label(labels: List[String], i: Int) -> String:
