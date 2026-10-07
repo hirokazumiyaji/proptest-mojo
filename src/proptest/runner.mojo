@@ -11,7 +11,7 @@ control flow.
 
 from std.io import Writer
 from std.os import getenv
-from std.time import monotonic
+from std.time import perf_counter_ns
 
 from proptest.choice import ChoiceSequence
 from proptest.prng import derive
@@ -38,7 +38,6 @@ struct Settings(Copyable, Movable, Writable):
     var seed: Optional[UInt64]
     var max_choices: Int
     var max_shrink_evaluations: Int
-
     # Tracked separately from `max_examples`: an explicit
     # `Settings(max_examples=100)` must still beat `PROPTEST_MAX_EXAMPLES`,
     # so equality with the default cannot stand in for "supplied".
@@ -79,7 +78,7 @@ struct Settings(Copyable, Movable, Writable):
                     + "'"
                 )
             return parsed
-        return UInt64(abs(Int(monotonic())))
+        return UInt64(abs(perf_counter_ns()))
 
     def effective_max_examples(self) raises -> Int:
         """Explicit count, else `PROPTEST_MAX_EXAMPLES` over the default."""
@@ -204,7 +203,7 @@ def for_all[
             continue
         if tc.status == Status.OVERRUN:
             overrun_count += 1
-            if examples_run >= 10 and overrun_count * 5 > examples_run:
+            if overrun_count * 5 > examples_run:
                 raise Error(
                     "gave up after "
                     + String(examples_run)
