@@ -17,6 +17,7 @@ shorter collections of simpler elements.
 """
 
 from std.io import Writer
+from std.math import max
 
 from proptest.strategies.collections import _default_average_size
 from proptest.strategy import Strategy, kind_label
@@ -117,15 +118,22 @@ struct UniqueListOf[E: Strategy](Strategy) where conforms_to(
     var average_size: Float64
 
     def span_label(self) -> UInt64:
-        return kind_label("dict_entry")
+        return kind_label("unique_lists")
 
     def draw(
         self, mut tc: TestCase
     ) raises -> List[Self.E.Value] where conforms_to(Self.E.Value, Equatable):
+        if self.min_size < 0:
+            raise Error("unique_lists: min_size must be >= 0")
+        if self.max_size < self.min_size:
+            raise Error("unique_lists: max_size must be >= min_size")
         var out = List[Self.E.Value]()
         var p_continue: Float64 = 0.0
-        if self.average_size > 0.0:
-            p_continue = self.average_size / (1.0 + self.average_size)
+        var optional_average = max(
+            self.average_size - Float64(self.min_size), 0.0
+        )
+        if optional_average > 0.0:
+            p_continue = optional_average / (1.0 + optional_average)
         while True:
             var depth = len(tc.open_spans)
             tc.start_span(_UNIQUE_ELEMENT_LABEL)
@@ -219,10 +227,17 @@ struct DictOf[K: Strategy, V: Strategy](Strategy) where conforms_to(
     ) raises -> DictList[Self.K.Value, Self.V.Value] where conforms_to(
         Self.K.Value, Equatable
     ):
+        if self.min_size < 0:
+            raise Error("dicts: min_size must be >= 0")
+        if self.max_size < self.min_size:
+            raise Error("dicts: max_size must be >= min_size")
         var out = DictList[Self.K.Value, Self.V.Value]()
         var p_continue: Float64 = 0.0
-        if self.average_size > 0.0:
-            p_continue = self.average_size / (1.0 + self.average_size)
+        var optional_average = max(
+            self.average_size - Float64(self.min_size), 0.0
+        )
+        if optional_average > 0.0:
+            p_continue = optional_average / (1.0 + optional_average)
         while True:
             var depth = len(tc.open_spans)
             tc.start_span(_DICT_ENTRY_LABEL)

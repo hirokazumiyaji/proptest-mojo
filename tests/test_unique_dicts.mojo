@@ -1,8 +1,10 @@
 from proptest import (
     DictList,
+    DictOf,
     Settings,
     Status,
     TestCase,
+    UniqueListOf,
     booleans,
     dicts,
     for_all,
@@ -118,6 +120,21 @@ def test_unique_invalid_bounds_raise() raises:
     except:
         raised = True
     assert_true(raised, msg="negative min must raise")
+    var tc = _generating(UInt64(1))
+    raised = False
+    try:
+        _ = tc.draw(UniqueListOf(integers(0, 10), 5, 3, 0.0))
+    except:
+        raised = True
+    assert_true(
+        raised, msg="direct UniqueListOf draw with max < min must raise"
+    )
+    raised = False
+    try:
+        _ = tc.draw(UniqueListOf(integers(0, 10), -1, 3, 0.0))
+    except:
+        raised = True
+    assert_true(raised, msg="direct UniqueListOf draw with min < 0 must raise")
 
 
 def test_unique_deterministic_for_same_seed() raises:
@@ -228,6 +245,19 @@ def test_dicts_invalid_bounds_raise() raises:
     except:
         raised = True
     assert_true(raised, msg="negative min must raise")
+    var tc = _generating(UInt64(1))
+    raised = False
+    try:
+        _ = tc.draw(DictOf(integers(0, 10), integers(0, 10), 5, 3, 0.0))
+    except:
+        raised = True
+    assert_true(raised, msg="direct DictOf draw with max < min must raise")
+    raised = False
+    try:
+        _ = tc.draw(DictOf(integers(0, 10), integers(0, 10), -1, 3, 0.0))
+    except:
+        raised = True
+    assert_true(raised, msg="direct DictOf draw with min < 0 must raise")
 
 
 def test_dicts_deterministic_for_same_seed() raises:
