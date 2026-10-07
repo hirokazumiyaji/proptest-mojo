@@ -170,7 +170,7 @@ struct ExampleDatabase(Copyable, Movable):
     def load(self) raises -> List[SavedEntry]:
         """Saved entries in replay-sorted order.
 
-        Unreadable files, subdirectories, and empty files are skipped.
+        Unreadable files and subdirectories are skipped.
         No decoding happens here; the runner replays each string and
         deletes files that no longer fail.
         """
@@ -190,16 +190,12 @@ struct ExampleDatabase(Copyable, Movable):
                 content = Path(full).read_text()
             except:
                 continue
-            if content.byte_length() == 0:
-                continue
             out.append(SavedEntry(filename^, content^))
         return _sorted_entries(out^)
 
     def save(self, replay: String) raises:
         """Persist `replay`, creating directories; no-op when disabled."""
         if not self.enabled():
-            return
-        if replay.byte_length() == 0:
             return
         _ensure_dir(self.database_dir)
         _ensure_dir(self._dir)

@@ -287,5 +287,16 @@ def test_save_creates_nested_parent_directories() raises:
     assert_equal(loaded[0].replay, "AQ==")
 
 
+def test_save_empty_replay_roundtrip() raises:
+    var dir = _fresh_dir("empty-replay")
+    var name = String("empty-replay")
+    var db = ExampleDatabase(dir, name)
+    db.save("")
+    var loaded = db.load()
+    assert_equal(len(loaded), 1)
+    assert_equal(loaded[0].replay, "")
+    assert_equal(loaded[0].filename, sha256_hex(""))
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
