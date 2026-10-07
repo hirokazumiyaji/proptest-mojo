@@ -18,13 +18,7 @@ from proptest.database import ExampleDatabase, sha256_hex
 from proptest.encoding import decode_sequence, encode_sequence
 from proptest.prng import Xoshiro256StarStar, derive
 from proptest.shrink.shrinker import Evaluation, shrink_with
-from proptest.testcase import (
-    ASSUME_INTERRUPT,
-    DEFAULT_MAX_CHOICES,
-    OVERRUN_INTERRUPT,
-    Status,
-    TestCase,
-)
+from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
 
 comptime DEFAULT_MAX_EXAMPLES = 100
 comptime DEFAULT_MAX_SHRINK_EVALUATIONS = 5000
@@ -356,10 +350,7 @@ def _replay_database[
         except e:
             raised = True
             message = String(e)
-        if not raised:
-            db.remove_file(entry.filename.copy())
-            continue
-        if message == ASSUME_INTERRUPT or message == OVERRUN_INTERRUPT:
+        if not raised or tc.status != Status.RUNNING:
             db.remove_file(entry.filename.copy())
             continue
         if not _shrink_and_raise(
@@ -401,18 +392,13 @@ def _shrink_and_raise[
     ) raises {imm prop, imm settings} -> Evaluation:
         var tc = TestCase.replaying(candidate.copy(), settings.max_choices)
         var raised = False
-        var message = String("")
         try:
             prop(tc)
-        except e:
+        except:
             raised = True
-            message = String(e)
-        var is_failure = (
-            raised
-            and message != ASSUME_INTERRUPT
-            and message != OVERRUN_INTERRUPT
+        return Evaluation(
+            raised and tc.status == Status.RUNNING, tc.choices.copy()
         )
-        return Evaluation(is_failure, tc.choices.copy())
 
     var shrink_result = shrink_with(
         evaluate, failing.copy(), settings.max_shrink_evaluations
@@ -428,11 +414,7 @@ def _shrink_and_raise[
         report_raised = True
         replay_message = String(e)
 
-    var report_failed = (
-        report_raised
-        and replay_message != ASSUME_INTERRUPT
-        and replay_message != OVERRUN_INTERRUPT
-    )
+    var report_failed = report_raised and report_tc.status == Status.RUNNING
 
     if not report_failed:
         report_tc = TestCase.replaying(failing.copy(), settings.max_choices)
@@ -443,11 +425,7 @@ def _shrink_and_raise[
         except e:
             report_raised = True
             replay_message = String(e)
-        report_failed = (
-            report_raised
-            and replay_message != ASSUME_INTERRUPT
-            and replay_message != OVERRUN_INTERRUPT
-        )
+        report_failed = report_raised and report_tc.status == Status.RUNNING
 
     if not report_failed:
         if entry_file.byte_length() > 0:
