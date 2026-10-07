@@ -330,13 +330,15 @@ def _replay_database[
     for i in range(len(saved)):
         var entry = saved[i].copy()
         var token = entry.replay.copy()
-        var prefix = ChoiceSequence()
+        var saved_seq = ChoiceSequence()
         try:
-            prefix = decode_sequence(token)
+            saved_seq = decode_sequence(token)
         except:
             db.remove_file(entry.filename.copy())
             continue
-        var tc = TestCase.replaying(prefix^, settings.max_choices)
+        if len(saved_seq) > settings.max_choices:
+            continue
+        var tc = TestCase.replaying(saved_seq.copy(), settings.max_choices)
         var raised = False
         var message = String("")
         try:
@@ -344,24 +346,17 @@ def _replay_database[
         except e:
             raised = True
             message = String(e)
-        if raised and tc.status == Status.RUNNING:
-            var verify_tc = TestCase.replaying(
-                tc.choices.copy(), settings.max_choices
-            )
-            var verify_raised = False
-            try:
-                prop(verify_tc)
-            except:
-                verify_raised = True
-            if not (verify_raised and verify_tc.status == Status.RUNNING):
-                db.remove_file(entry.filename.copy())
-                continue
+        if (
+            raised
+            and tc.status == Status.RUNNING
+            and tc.cursor == len(saved_seq)
+        ):
             _shrink_and_raise(
                 prop,
                 settings,
                 seed,
                 i + 1,
-                tc.choices.copy(),
+                saved_seq^,
                 message,
                 db,
                 entry.filename.copy(),
