@@ -1,6 +1,8 @@
 from proptest import (
+    Bytes,
     Settings,
     TestCase,
+    Text,
     bytes,
     decode_codepoint_choice,
     for_all,
@@ -235,6 +237,13 @@ def test_text_invalid_bounds_raise() raises:
     except:
         raised = True
     assert_true(raised, msg="negative min must raise")
+    var tc = _empty()
+    raised = False
+    try:
+        _ = tc.draw(Text(List[String](), 5, 3, 0.0))
+    except:
+        raised = True
+    assert_true(raised, msg="Text.draw with max below min must raise")
 
 
 def test_text_shrinks_no_a_to_a() raises:
@@ -287,6 +296,13 @@ def test_bytes_invalid_bounds_raise() raises:
     except:
         raised = True
     assert_true(raised, msg="negative min must raise")
+    var tc = _empty()
+    raised = False
+    try:
+        _ = tc.draw(Bytes(5, 3, 0.0))
+    except:
+        raised = True
+    assert_true(raised, msg="Bytes.draw with max below min must raise")
 
 
 def test_bytes_shrinks_nonempty_to_single_zero() raises:

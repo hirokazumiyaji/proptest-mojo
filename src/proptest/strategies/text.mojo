@@ -74,6 +74,10 @@ struct Text(Strategy):
         return kind_label("text")
 
     def draw(self, mut tc: TestCase) raises -> String:
+        if self.min_size < 0:
+            raise Error("text: min_size must be >= 0")
+        if self.max_size < self.min_size:
+            raise Error("text: max_size must be >= min_size")
         var out = String("")
         var count = 0
         var p_continue: Float64 = 0.0
@@ -161,6 +165,10 @@ struct Bytes(Strategy):
         return kind_label("bytes")
 
     def draw(self, mut tc: TestCase) raises -> List[UInt8]:
+        if self.min_size < 0:
+            raise Error("bytes: min_size must be >= 0")
+        if self.max_size < self.min_size:
+            raise Error("bytes: max_size must be >= min_size")
         var out = List[UInt8]()
         var p_continue: Float64 = 0.0
         var optional_average = max(
