@@ -14,6 +14,7 @@ from std.os import getenv
 from std.time import perf_counter_ns
 
 from proptest.choice import ChoiceSequence
+from proptest.encoding import decode_sequence, encode_sequence
 from proptest.prng import derive
 from proptest.shrink.shrinker import Evaluation, shrink_with
 from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
@@ -65,6 +66,7 @@ struct Settings(Copyable, Movable, Writable):
     var seed: Optional[UInt64]
     var max_choices: Int
     var max_shrink_evaluations: Int
+    var replay: Optional[String]
     var verbosity: Verbosity
     # Tracked separately from `max_examples`: an explicit
     # `Settings(max_examples=100)` must still beat `PROPTEST_MAX_EXAMPLES`,
@@ -77,6 +79,7 @@ struct Settings(Copyable, Movable, Writable):
         seed: Optional[UInt64] = None,
         max_choices: Int = DEFAULT_MAX_CHOICES,
         max_shrink_evaluations: Int = DEFAULT_MAX_SHRINK_EVALUATIONS,
+        replay: Optional[String] = None,
         verbosity: Verbosity = Verbosity.NORMAL,
     ):
         self.max_examples_set = max_examples is not None
@@ -87,6 +90,7 @@ struct Settings(Copyable, Movable, Writable):
         self.seed = seed.copy()
         self.max_choices = max_choices
         self.max_shrink_evaluations = max_shrink_evaluations
+        self.replay = replay.copy()
         self.verbosity = verbosity
 
     def effective_seed(self) raises -> UInt64:
@@ -149,8 +153,10 @@ struct Settings(Copyable, Movable, Writable):
             self.max_shrink_evaluations,
             ", verbosity=",
             self.verbosity,
-            ")",
         )
+        if self.replay is not None:
+            writer.write(', replay="', self.replay.value(), '"')
+        writer.write(")")
 
 
 comptime U64_MAX = UInt64(0xFFFFFFFFFFFFFFFF)
@@ -188,12 +194,19 @@ def for_all[
     run with no failure raises nothing. The first `INTERESTING`
     execution is shrunk with `shrink_with`, replayed to collect draw
     records, and reported as an `Error` carrying the records, notes,
-    the failure message, and the seed. Executions rejected by `assume`
-    (or an unsatisfiable `filter`, which rejects the same way) are
-    skipped; too many rejections or overruns fail the run with a
-    health-check `Error` naming the rejection rate. `VERBOSE` settings
-    print every example as it runs.
+    the failure message, the seed, and the replay string. When
+    `settings.replay` is set, only those choices run once: a reproduced
+    failure is reported as-is with no generation or shrinking, while a
+    run that no longer fails raises instead of searching for a new
+    counterexample. Executions rejected by `assume` (or an unsatisfiable
+    `filter`, which rejects the same way) are skipped; too many
+    rejections or overruns fail the run with a health-check `Error`
+    naming the rejection rate. `VERBOSE` settings print every example
+    as it runs.
     """
+    if settings.replay is not None:
+        _replay_only(prop, settings, String(settings.replay.value()))
+        return
     var seed = settings.effective_seed()
     var max_examples = settings.effective_max_examples()
     var verbose = settings.verbosity == Verbosity.VERBOSE
@@ -297,10 +310,53 @@ def for_all[
                 report_tc.draw_values.copy(),
                 report_tc.notes.copy(),
                 message,
-                seed,
+                Optional[UInt64](seed),
                 shrink_result.hit_budget,
+                encode_sequence(report_tc.choices),
             )
         )
+
+
+def _replay_only[
+    P: def(mut TestCase) raises -> None
+](prop: P, settings: Settings, replay_token: String) raises:
+    """Run recorded choices once, reporting a reproduced failure as-is.
+
+    Generation and shrinking are skipped. A run that no longer fails
+    raises instead of searching for a new counterexample.
+    """
+    var prefix: ChoiceSequence
+    try:
+        prefix = decode_sequence(replay_token)
+    except e:
+        raise Error("invalid replay string: " + String(e))
+    var tc = TestCase.replaying(prefix^, settings.max_choices)
+    var raised = False
+    var message = String("")
+    try:
+        prop(tc)
+    except e:
+        raised = True
+        message = String(e)
+    if not raised or tc.status != Status.RUNNING:
+        raise Error(
+            "replay did not reproduce a failure (status="
+            + String(tc.status)
+            + ")"
+        )
+    raise Error(
+        _format_report(
+            1,
+            0,
+            tc.draw_labels.copy(),
+            tc.draw_values.copy(),
+            tc.notes.copy(),
+            message,
+            None,
+            False,
+            replay_token,
+        )
+    )
 
 
 def _fresh_test_case(
@@ -403,8 +459,9 @@ def _format_report(
     values: List[String],
     notes: List[String],
     message: String,
-    seed: UInt64,
+    seed: Optional[UInt64],
     hit_budget: Bool,
+    replay_token: String,
 ) -> String:
     """Render the replayed counterexample as the raised `Error` text."""
     var out = String("Falsifying example (after ")
@@ -424,8 +481,12 @@ def _format_report(
         out += "\n"
     out += "Error: "
     out += message
-    out += "\nSeed: "
-    out += String(seed)
+    if seed is not None:
+        out += "\nSeed: "
+        out += String(seed.value())
     if hit_budget:
         out += "\nShrink budget exhausted; counterexample may not be minimal"
+    out += '\nReproduce with: Settings(replay="'
+    out += replay_token
+    out += '")'
     return out^
