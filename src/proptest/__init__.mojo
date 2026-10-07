@@ -42,6 +42,13 @@ from proptest.strategies.primitives import (
     integers_of,
     just,
 )
+from proptest.strategies.text import (
+    Bytes,
+    Text,
+    bytes,
+    decode_codepoint_choice,
+    text,
+)
 from proptest.strategies.tuples import (
     OptionalOf,
     Tuple2,
