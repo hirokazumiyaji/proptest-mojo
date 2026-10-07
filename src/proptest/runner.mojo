@@ -184,9 +184,6 @@ def _parse_u64(text: String) -> Tuple[Bool, UInt64]:
     return (True, acc)
 
 
-
-
-
 def for_all[
     P: def(mut TestCase) raises -> None
 ](prop: P, settings: Settings = Settings()) raises:

@@ -39,7 +39,8 @@ def _filtered_out(mut tc: TestCase) raises:
 
 def _small_values_only(mut tc: TestCase) raises:
     var x = tc.draw(integers(0, 10000), "x")
-    tc.assume(x < 5)
+    var y = tc.draw(integers(0, 10000), "y")
+    tc.assume(x == 0 and y == 0)
 
 
 def _draws_three_integers(mut tc: TestCase) raises:
