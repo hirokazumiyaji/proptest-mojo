@@ -22,6 +22,7 @@ from proptest.shrink.shrinker import (
     shrink_with,
 )
 from proptest.strategy import Strategy
+from proptest.strategies.collections import ListOf, lists
 from proptest.strategies.choice import (
     OneOf,
     OneOf2,

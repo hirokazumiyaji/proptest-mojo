@@ -43,11 +43,6 @@ struct Settings(Copyable, Movable, Writable):
     # so equality with the default cannot stand in for "supplied".
     var max_examples_set: Bool
 
-    # Tracked separately from `max_examples`: an explicit
-    # `Settings(max_examples=100)` must still beat `PROPTEST_MAX_EXAMPLES`,
-    # so equality with the default cannot stand in for "supplied".
-    var max_examples_set: Bool
-
     def __init__(
         out self,
         max_examples: Optional[Int] = None,
@@ -83,7 +78,7 @@ struct Settings(Copyable, Movable, Writable):
                     + "'"
                 )
             return parsed
-        return UInt64(abs(Int(monotonic())))
+        return UInt64(abs(perf_counter_ns()))
 
     def effective_max_examples(self) raises -> Int:
         """Explicit count, else `PROPTEST_MAX_EXAMPLES` over the default."""
