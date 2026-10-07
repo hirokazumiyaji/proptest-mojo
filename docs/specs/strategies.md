@@ -39,18 +39,19 @@ trait Strategy(Copyable, Deinitable):
 | `integers_of[dtype](min, max)` | `Scalar[dtype]`（`Int8`〜`UInt64`） | 同上。範囲省略時はその型の全域 | M2 |
 | `booleans()` | `Bool` | `False` | M1 |
 | `just(value)` | `T` | （選択を消費しない） | M1 |
-| `sampled_from(values)` | `T` | 先頭の要素 | M2 |
+| `sampled_from(values: List[T])` | `T` | 先頭の要素 | M2 |
 | `floats(min, max, allow_nan, allow_infinity)` | `Float64` | 0.0、次いで小さい整数値、単純な分数 | M2 |
 | `text(alphabet, min_size, max_size)` | `String` | 空文字列、次いで先頭の文字 `"0"` 方向 | M2 |
 | `bytes(min_size, max_size)` | `List[UInt8]` | 空列 | M2 |
 | `lists(elements, min_size, max_size)` | `List[T]` | 短いリスト、各要素が単純 | M2 |
 | `unique_lists(elements, min_size, max_size)` | `List[T]`（`T: Equatable`） | 同上 | M2 |
-| `dicts(keys, values, min_size, max_size)` | `Dict[K, V]` | 空の辞書 | M2 |
+| `dicts(keys, values, min_size, max_size)` | `DictList[K, V]`（`K: Equatable`） | 空の辞書 | M2 |
 | `tuples(a, b)` / `tuples(a, b, c)` | 2〜3 要素の値 | 各要素が単純 | M2 |
 | `optionals(s)` | `Optional[T]` | `None` | M2 |
-| `one_of(strategies)` | `S.Value` | 先頭の Strategy | M2 |
+| `one_of(strategies: List[S])` | `S.Value` | 先頭の Strategy | M2 |
+| `one_of2(a: A, b: B) where A.Value == B.Value` | `A.Value` | 先頭の Strategy（`a`） | M2 |
 
-`Optional` や `Tuple` など標準ライブラリの型が `Writable` を満たさない場合は、このライブラリが `Writable` を実装した薄い値型を提供する（M2 の実装時に確認し、この表を更新する）。
+標準ライブラリの `Tuple` と `Optional` は `Copyable & Writable & Deinitable` を満たすため、そのまま `Strategy.Value` として使う。反例表示はそれぞれの `Writable` 実装（例: `(0, 1)`、`None`）に従う。`dicts` が `std.Dict` ではなく `DictList`（キーの一意性を保ったペアの `List`）を返すのは、`std.Dict` が現状の Mojo コンパイラでは `draw` の associated type から値返却できないためで、キーが `Equatable` だけで扱える利点もある。
 
 ### 整数の符号化
 
@@ -129,11 +130,16 @@ struct Users(Strategy):
     comptime Value = User
     var max_age: Int
 
+    def span_label(self) -> UInt64:
+        return kind_label("users")
+
     def draw(self, mut tc: TestCase) raises -> User:
         var name = tc.draw(text(min_size=1, max_size=20))
         var age = tc.draw(integers(0, self.max_age))
         return User(name^, age)
 ```
+
+`span_label` は必須なので合成 Strategy でも実装する。構造を保つ `map` は内側の Strategy のラベルを引き継いでよい。`filter` は複数回の試行を含むため、内側の Strategy とは異なる構造ラベルを返す。
 
 property の中で直接 `tc.draw` を重ねてもよい。再利用したい組み合わせだけを合成 Strategy にする。
 
@@ -141,4 +147,4 @@ property の中で直接 `tc.draw` を重ねてもよい。再利用したい組
 
 - `Arbitrary` トレイト（M5）: 型ごとの既定 Strategy。`arbitrary[Int]()` で `integers_of[DType.int64]()` を返すなど。
 - 再帰的な Strategy（M5）: 静的ディスパッチでは型が無限に入れ子になるため、深さを型パラメータで区切る方式か、限定的な型消去を調査する。
-- 異種の Strategy を混ぜる `one_of`（M2 で調査）: `Value` が同じ異なる型の Strategy を組み合わせる。コンパイラが型の同一性の証拠を扱えるかを確認して設計する。
+- 異種の Strategy の組み合わせ（M2 で実装済み）: `Value` が同じ異なる型の Strategy は `one_of2(a, b)` で組み合わせる（[ADR-0010](../adr/0010-heterogeneous-one-of.md)）。等価性は trailing `where A.Value == B.Value` で保証され、不一致はコンパイルエラーになる。3 分岐以上は `one_of2` の入れ子、または分岐を 1 つの Strategy 型に寄せてから `one_of` を使う。
