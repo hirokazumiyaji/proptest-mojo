@@ -37,6 +37,14 @@ from proptest.strategies.choice import (
     one_of2,
     sampled_from,
 )
+from proptest.strategies.unique import (
+    DictEntry,
+    DictList,
+    DictOf,
+    UniqueListOf,
+    dicts,
+    unique_lists,
+)
 from proptest.strategies.primitives import (
     Booleans,
     Integers,

@@ -45,13 +45,13 @@ trait Strategy(Copyable, Deinitable):
 | `bytes(min_size, max_size)` | `List[UInt8]` | 空列 | M2 |
 | `lists(elements, min_size, max_size)` | `List[T]` | 短いリスト、各要素が単純 | M2 |
 | `unique_lists(elements, min_size, max_size)` | `List[T]`（`T: Equatable`） | 同上 | M2 |
-| `dicts(keys, values, min_size, max_size)` | `Dict[K, V]` | 空の辞書 | M2 |
+| `dicts(keys, values, min_size, max_size)` | `DictList[K, V]`（`K: Equatable`） | 空の辞書 | M2 |
 | `tuples(a, b)` / `tuples(a, b, c)` | 2〜3 要素の値 | 各要素が単純 | M2 |
 | `optionals(s)` | `Optional[T]` | `None` | M2 |
 | `one_of(strategies: List[S])` | `S.Value` | 先頭の Strategy | M2 |
 | `one_of2(a: A, b: B) where A.Value == B.Value` | `A.Value` | 先頭の Strategy（`a`） | M2 |
 
-標準ライブラリの `Tuple` と `Optional` は `Copyable & Writable & Deinitable` を満たすため、そのまま `Strategy.Value` として使う。反例表示はそれぞれの `Writable` 実装（例: `(0, 1)`、`None`）に従う。
+標準ライブラリの `Tuple` と `Optional` は `Copyable & Writable & Deinitable` を満たすため、そのまま `Strategy.Value` として使う。反例表示はそれぞれの `Writable` 実装（例: `(0, 1)`、`None`）に従う。`dicts` が `std.Dict` ではなく `DictList`（キーの一意性を保ったペアの `List`）を返すのは、`std.Dict` が現状の Mojo コンパイラでは `draw` の associated type から値返却できないためで、キーが `Equatable` だけで扱える利点もある。
 
 ### 整数の符号化
 
