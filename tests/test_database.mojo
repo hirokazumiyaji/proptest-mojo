@@ -257,5 +257,25 @@ def test_corrupt_files_are_skipped_and_pruned() raises:
     _clean_db(dir, name)
 
 
+def test_load_preserves_whitespace() raises:
+    var dir = _fresh_dir("whitespace")
+    var name = String("whitespace")
+    _clean_db(dir, name)
+    var db = ExampleDatabase(dir, name)
+    var token_with_ws = String("  AQ== \n")
+    db.save(token_with_ws)
+    var loaded = db.load()
+    assert_equal(len(loaded), 1)
+    assert_equal(loaded[0].replay, token_with_ws)
+    _clean_db(dir, name)
+
+
+def test_load_missing_directory_returns_empty() raises:
+    var dir = _fresh_dir("missing")
+    var db = ExampleDatabase(dir, "missing")
+    var loaded = db.load()
+    assert_equal(len(loaded), 0)
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

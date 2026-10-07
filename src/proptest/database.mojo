@@ -177,11 +177,9 @@ struct ExampleDatabase(Copyable, Movable):
         var out = List[SavedEntry]()
         if not self.enabled():
             return out^
-        var entries: List[String]
-        try:
-            entries = listdir(self._dir)
-        except:
+        if not Path(self._dir).exists():
             return out^
+        var entries = listdir(self._dir)
         for i in range(len(entries)):
             var filename = String(entries[i])
             var full = self._dir + "/" + filename
@@ -189,7 +187,7 @@ struct ExampleDatabase(Copyable, Movable):
                 continue
             var content = String("")
             try:
-                content = String(Path(full).read_text().strip())
+                content = Path(full).read_text()
             except:
                 continue
             if content.byte_length() == 0:

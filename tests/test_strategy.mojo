@@ -279,4 +279,3 @@ def test_decode_full_int_range_handles_largest_choices() raises:
 
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
-
