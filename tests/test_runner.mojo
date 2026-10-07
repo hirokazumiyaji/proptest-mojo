@@ -1,5 +1,6 @@
 from proptest import Settings, TestCase, for_all, integers
 from std.os import getenv, setenv
+from std.time import perf_counter_ns
 from std.testing import TestSuite, assert_equal, assert_true
 
 
@@ -55,6 +56,19 @@ def test_settings_defaults_match_spec() raises:
             " max_choices=8192, max_shrink_evaluations=5000,"
             " verbosity=NORMAL)"
         ),
+    )
+
+
+def test_default_seed_keeps_clock_resolution() raises:
+    var saved_seed = getenv("PROPTEST_SEED")
+    _ = setenv("PROPTEST_SEED", "")
+    var before = UInt64(abs(perf_counter_ns()))
+    var seed = Settings().effective_seed()
+    var after = UInt64(abs(perf_counter_ns()))
+    _ = setenv("PROPTEST_SEED", saved_seed)
+    assert_true(
+        before <= seed and seed <= after,
+        msg="the default seed must retain the native clock resolution",
     )
 
 
