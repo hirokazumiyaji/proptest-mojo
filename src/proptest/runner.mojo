@@ -24,6 +24,33 @@ comptime SEED_ENV_VAR = "PROPTEST_SEED"
 comptime MAX_EXAMPLES_ENV_VAR = "PROPTEST_MAX_EXAMPLES"
 
 
+@fieldwise_init
+struct Verbosity(Equatable, TrivialRegisterPassable, Writable):
+    """How much of the generation loop `for_all` reports.
+
+    `QUIET` and `NORMAL` stay silent on success; the distinction is
+    reserved for future replay/database notices. `VERBOSE` prints every
+    example as it runs, so a passing run still shows what was tried.
+    """
+
+    var value: UInt8
+
+    comptime QUIET = Verbosity(0)
+    comptime NORMAL = Verbosity(1)
+    comptime VERBOSE = Verbosity(2)
+
+    def __eq__(self, other: Self) -> Bool:
+        return self.value == other.value
+
+    def write_to(self, mut writer: Some[Writer]):
+        if self == Self.QUIET:
+            writer.write("QUIET")
+        elif self == Self.NORMAL:
+            writer.write("NORMAL")
+        else:
+            writer.write("VERBOSE")
+
+
 struct Settings(Copyable, Movable, Writable):
     """Immutable run parameters for `for_all`.
 
@@ -38,6 +65,7 @@ struct Settings(Copyable, Movable, Writable):
     var seed: Optional[UInt64]
     var max_choices: Int
     var max_shrink_evaluations: Int
+    var verbosity: Verbosity
     # Tracked separately from `max_examples`: an explicit
     # `Settings(max_examples=100)` must still beat `PROPTEST_MAX_EXAMPLES`,
     # so equality with the default cannot stand in for "supplied".
@@ -49,6 +77,7 @@ struct Settings(Copyable, Movable, Writable):
         seed: Optional[UInt64] = None,
         max_choices: Int = DEFAULT_MAX_CHOICES,
         max_shrink_evaluations: Int = DEFAULT_MAX_SHRINK_EVALUATIONS,
+        verbosity: Verbosity = Verbosity.NORMAL,
     ):
         self.max_examples_set = max_examples is not None
         self.max_examples = (
@@ -58,6 +87,7 @@ struct Settings(Copyable, Movable, Writable):
         self.seed = seed.copy()
         self.max_choices = max_choices
         self.max_shrink_evaluations = max_shrink_evaluations
+        self.verbosity = verbosity
 
     def effective_seed(self) raises -> UInt64:
         """Explicit seed, else `PROPTEST_SEED`, else time-derived."""
@@ -117,6 +147,8 @@ struct Settings(Copyable, Movable, Writable):
             self.max_choices,
             ", max_shrink_evaluations=",
             self.max_shrink_evaluations,
+            ", verbosity=",
+            self.verbosity,
             ")",
         )
 
@@ -156,10 +188,15 @@ def for_all[
     run with no failure raises nothing. The first `INTERESTING`
     execution is shrunk with `shrink_with`, replayed to collect draw
     records, and reported as an `Error` carrying the records, notes,
-    the failure message, and the seed.
+    the failure message, and the seed. Executions rejected by `assume`
+    (or an unsatisfiable `filter`, which rejects the same way) are
+    skipped; too many rejections or overruns fail the run with a
+    health-check `Error` naming the rejection rate. `VERBOSE` settings
+    print every example as it runs.
     """
     var seed = settings.effective_seed()
     var max_examples = settings.effective_max_examples()
+    var verbose = settings.verbosity == Verbosity.VERBOSE
 
     def evaluate(
         candidate: ChoiceSequence,
@@ -190,28 +227,36 @@ def for_all[
             message = String(e)
         examples_run += 1
         attempt += 1
+        if tc.status == Status.RUNNING:
+            tc.status = Status.INTERESTING if raised else Status.VALID
+        if verbose:
+            print(
+                _format_example_line(
+                    examples_run,
+                    tc.status,
+                    tc.draw_labels.copy(),
+                    tc.draw_values.copy(),
+                )
+            )
         if tc.status == Status.INVALID:
             invalid_count += 1
             if invalid_count > 10 * max_examples:
                 raise Error(
-                    "gave up after "
-                    + String(examples_run)
-                    + " examples ("
-                    + String(invalid_count)
-                    + " rejected by assume): condition too strict"
+                    _too_many_rejects_message(
+                        examples_run, invalid_count, valid_count
+                    )
                 )
             continue
         if tc.status == Status.OVERRUN:
             overrun_count += 1
             if overrun_count * 5 > examples_run:
                 raise Error(
-                    "gave up after "
-                    + String(examples_run)
-                    + " examples ("
-                    + String(overrun_count)
-                    + " overran max_choices="
-                    + String(settings.max_choices)
-                    + "): generated data too large (raise max_choices)"
+                    _too_many_overruns_message(
+                        examples_run,
+                        overrun_count,
+                        valid_count,
+                        settings.max_choices,
+                    )
                 )
             continue
         # Rechecked after a VALID attempt too: overruns that happened
@@ -224,13 +269,12 @@ def for_all[
             and overrun_count * 5 > examples_run
         ):
             raise Error(
-                "gave up after "
-                + String(examples_run)
-                + " examples ("
-                + String(overrun_count)
-                + " overran max_choices="
-                + String(settings.max_choices)
-                + "): generated data too large (raise max_choices)"
+                _too_many_overruns_message(
+                    examples_run,
+                    overrun_count,
+                    valid_count,
+                    settings.max_choices,
+                )
             )
         if not raised:
             valid_count += 1
@@ -268,6 +312,90 @@ def _fresh_test_case(
     return TestCase.generating(derive(seed, attempt), max_choices)
 
 
+def _draw_label(labels: List[String], i: Int) -> String:
+    """`labels[i]` with the `draw #i+1` fallback for an empty entry."""
+    var label = String(labels[i])
+    if label.byte_length() == 0:
+        label = "draw #" + String(i + 1)
+    return label^
+
+
+def _format_example_line(
+    index: Int,
+    status: Status,
+    labels: List[String],
+    values: List[String],
+) -> String:
+    """Render one generation-loop execution for `VERBOSE` output."""
+    var out = String("example ") + String(index) + ": " + String(status)
+    if len(labels) > 0:
+        out += " ("
+        for i in range(len(labels)):
+            if i > 0:
+                out += ", "
+            out += _draw_label(labels, i)
+            out += " = "
+            out += values[i]
+        out += ")"
+    return out^
+
+
+def _health_check_message(
+    examples_run: Int,
+    bad_count: Int,
+    valid_count: Int,
+    reason: String,
+    rate_label: String,
+    strict_diagnosis: String,
+) -> String:
+    """Shared skeleton for health-check failure messages.
+
+    With no valid execution at all, the diagnosis is the inability to
+    generate a satisfying input rather than mere strictness.
+    """
+    var rate = 0
+    if examples_run > 0:
+        rate = bad_count * 100 // examples_run
+    var out = String("gave up after ") + String(examples_run) + " examples"
+    if valid_count == 0:
+        out += " without a single valid execution"
+    out += " (" + String(bad_count) + " " + reason + ", "
+    out += String(rate) + "% " + rate_label + " rate)"
+    if valid_count == 0:
+        out += ": unable to generate input satisfying the condition"
+    else:
+        out += ": " + strict_diagnosis
+    return out^
+
+
+def _too_many_rejects_message(
+    examples_run: Int, invalid_count: Int, valid_count: Int
+) -> String:
+    """Health-check failure naming the rejection rate."""
+    return _health_check_message(
+        examples_run,
+        invalid_count,
+        valid_count,
+        "rejected by assume/filter",
+        "rejection",
+        "assume/filter condition too strict",
+    )
+
+
+def _too_many_overruns_message(
+    examples_run: Int, overrun_count: Int, valid_count: Int, max_choices: Int
+) -> String:
+    """Health-check failure for runs exceeding the choice budget."""
+    return _health_check_message(
+        examples_run,
+        overrun_count,
+        valid_count,
+        "overran max_choices=" + String(max_choices),
+        "overrun",
+        "generated data too large",
+    )
+
+
 def _format_report(
     examples_run: Int,
     shrink_evaluations: Int,
@@ -285,11 +413,8 @@ def _format_report(
     out += String(shrink_evaluations)
     out += " shrink evaluations):\n"
     for i in range(len(labels)):
-        var label = String(labels[i])
-        if label.byte_length() == 0:
-            label = "draw #" + String(i + 1)
         out += "  "
-        out += label
+        out += _draw_label(labels, i)
         out += " = "
         out += values[i]
         out += "\n"
