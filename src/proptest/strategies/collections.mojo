@@ -46,7 +46,9 @@ struct ListOf[E: Strategy](Strategy):
             raise Error("lists: max_size must be >= min_size")
         var out = List[Self.E.Value]()
         var p_continue: Float64 = 0.0
-        var optional_average = max(self.average_size - Float64(self.min_size), 0.0)
+        var optional_average = max(
+            self.average_size - Float64(self.min_size), 0.0
+        )
         if optional_average > 0.0:
             p_continue = optional_average / (1.0 + optional_average)
         while True:

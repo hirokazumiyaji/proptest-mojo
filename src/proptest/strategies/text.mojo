@@ -77,8 +77,11 @@ struct Text(Strategy):
         var out = String("")
         var count = 0
         var p_continue: Float64 = 0.0
-        if self.average_size > 0.0:
-            p_continue = self.average_size / (1.0 + self.average_size)
+        var optional_average = max(
+            self.average_size - Float64(self.min_size), 0.0
+        )
+        if optional_average > 0.0:
+            p_continue = optional_average / (1.0 + optional_average)
         var bound = _MAX_CODEPOINT_RANK
         if len(self.alphabet) > 0:
             bound = UInt64(len(self.alphabet) - 1)
@@ -160,8 +163,11 @@ struct Bytes(Strategy):
     def draw(self, mut tc: TestCase) raises -> List[UInt8]:
         var out = List[UInt8]()
         var p_continue: Float64 = 0.0
-        if self.average_size > 0.0:
-            p_continue = self.average_size / (1.0 + self.average_size)
+        var optional_average = max(
+            self.average_size - Float64(self.min_size), 0.0
+        )
+        if optional_average > 0.0:
+            p_continue = optional_average / (1.0 + optional_average)
         while True:
             tc.start_span(_BYTES_ELEMENT_LABEL)
             try:
