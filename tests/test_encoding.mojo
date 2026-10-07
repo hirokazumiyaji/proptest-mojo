@@ -177,7 +177,8 @@ def test_settings_replay_renders_in_write_to() raises:
         String(Settings()),
         (
             "Settings(max_examples=100, seed=None,"
-            " max_choices=8192, max_shrink_evaluations=5000)"
+            " max_choices=8192, max_shrink_evaluations=5000,"
+            " verbosity=NORMAL)"
         ),
     )
     var token = encode_values(_values(UInt64(3)))

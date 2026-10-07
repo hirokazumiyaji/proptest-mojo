@@ -1,4 +1,4 @@
-# ADR-0010: Example database の永続化形式と name の明示指定
+# ADR-0011: Example database の永続化形式と name の明示指定
 
 - 状態: Accepted
 - 日付: 2026-09-30

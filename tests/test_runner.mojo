@@ -1,5 +1,6 @@
 from proptest import Settings, TestCase, for_all, integers
 from std.os import getenv, setenv
+from std.time import perf_counter_ns
 from std.testing import TestSuite, assert_equal, assert_true
 
 
@@ -52,8 +53,22 @@ def test_settings_defaults_match_spec() raises:
         String(settings),
         (
             "Settings(max_examples=100, seed=None,"
-            " max_choices=8192, max_shrink_evaluations=5000)"
+            " max_choices=8192, max_shrink_evaluations=5000,"
+            " verbosity=NORMAL)"
         ),
+    )
+
+
+def test_default_seed_keeps_clock_resolution() raises:
+    var saved_seed = getenv("PROPTEST_SEED")
+    _ = setenv("PROPTEST_SEED", "")
+    var before = UInt64(abs(perf_counter_ns()))
+    var seed = Settings().effective_seed()
+    var after = UInt64(abs(perf_counter_ns()))
+    _ = setenv("PROPTEST_SEED", saved_seed)
+    assert_true(
+        before <= seed and seed <= after,
+        msg="the default seed must retain the native clock resolution",
     )
 
 
@@ -255,3 +270,11 @@ def test_overrun_ratio_checked_after_valid_attempts() raises:
 
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
+
+
+def _overruns_twice_then_passes(mut tc: TestCase) raises:
+    # Two overruns among the first attempts, then valid executions, so the
+    # ratio check has to run again once the loop completes.
+    if tc.example_index < UInt64(2):
+        tc.draw_integer(UInt64(1 << 20))
+        tc.draw_integer(UInt64(1 << 20))
