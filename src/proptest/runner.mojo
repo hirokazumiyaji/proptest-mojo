@@ -234,11 +234,11 @@ def for_all[
     var seed = settings.effective_seed()
     var max_examples = settings.effective_max_examples()
     var db = ExampleDatabase(settings.database_dir.copy(), settings.name.copy())
-    _replay_database(prop, settings, seed, db)
+    var replays_run = _replay_database(prop, settings, seed, db)
     var verbose = settings.verbosity == Verbosity.VERBOSE
 
     var valid_count = 0
-    var examples_run = 0
+    var examples_run = replays_run
     var invalid_count = 0
     var overrun_count = 0
     var attempt = UInt64(0)
@@ -326,14 +326,15 @@ def for_all[
 
 def _replay_database[
     P: def(mut TestCase) raises -> None
-](prop: P, settings: Settings, seed: UInt64, db: ExampleDatabase) raises:
+](prop: P, settings: Settings, seed: UInt64, db: ExampleDatabase) raises -> Int:
     """Replay saved counterexamples before generation (spec phase 1).
 
     The first replay that still fails short-circuits to shrinking and
     reporting. Replays that no longer fail are stale, so their files are
-    deleted.
+    deleted. Returns the number of database replay executions performed.
     """
     var saved = db.load()
+    var replays_run = 0
     for i in range(len(saved)):
         var entry = saved[i].copy()
         var token = entry.replay.copy()
@@ -349,6 +350,7 @@ def _replay_database[
         var tc = TestCase.replaying(saved_seq.copy(), settings.max_choices)
         var raised = False
         var message = String("")
+        replays_run += 1
         try:
             prop(tc)
         except e:
@@ -364,13 +366,14 @@ def _replay_database[
             prop,
             settings,
             seed,
-            i + 1,
+            replays_run,
             tc.choices.copy(),
             message,
             db,
             entry.filename.copy(),
         ):
             continue
+    return replays_run
 
 
 def _shrink_and_raise[

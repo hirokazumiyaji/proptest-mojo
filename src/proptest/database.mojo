@@ -211,9 +211,17 @@ struct ExampleDatabase(Copyable, Movable):
         """Delete one listed file by name; missing files are ignored.
 
         Pruning uses the exact listed name so files whose content no
-        longer matches their name are still deleted.
+        longer matches their name are still deleted. Unsafe filenames
+        with path traversal or separators are rejected.
         """
-        if not self.enabled():
+        if not self.enabled() or filename.byte_length() == 0:
+            return
+        if (
+            ("/" in filename)
+            or ("\\" in filename)
+            or filename == "."
+            or filename == ".."
+        ):
             return
         var full = self._dir + "/" + filename
         if not Path(full).is_file():

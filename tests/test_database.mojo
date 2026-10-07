@@ -298,5 +298,17 @@ def test_save_empty_replay_roundtrip() raises:
     assert_equal(loaded[0].filename, sha256_hex(""))
 
 
+def test_remove_file_rejects_path_traversal() raises:
+    var dir = _fresh_dir("traversal")
+    var name = String("traversal")
+    var db = ExampleDatabase(dir, name)
+    # None of these should raise or delete anything outside
+    db.remove_file("../outside.txt")
+    db.remove_file("nested/file.txt")
+    db.remove_file(".")
+    db.remove_file("..")
+    db.remove_file("")
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
