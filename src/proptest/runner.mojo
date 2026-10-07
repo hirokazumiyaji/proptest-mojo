@@ -18,7 +18,13 @@ from proptest.database import ExampleDatabase, sha256_hex
 from proptest.encoding import decode_sequence, encode_sequence
 from proptest.prng import Xoshiro256StarStar, derive
 from proptest.shrink.shrinker import Evaluation, shrink_with
-from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
+from proptest.testcase import (
+    ASSUME_INTERRUPT,
+    DEFAULT_MAX_CHOICES,
+    OVERRUN_INTERRUPT,
+    Status,
+    TestCase,
+)
 
 comptime DEFAULT_MAX_EXAMPLES = 100
 comptime DEFAULT_MAX_SHRINK_EVALUATIONS = 5000
@@ -312,9 +318,10 @@ def for_all[
                 best_score = tc.target_score
                 best_seq = tc.choices.copy()
             continue
-        _shrink_and_raise(
+        if not _shrink_and_raise(
             prop, settings, seed, examples_run, tc.choices.copy(), message, db
-        )
+        ):
+            continue
 
 
 def _replay_database[
@@ -337,6 +344,7 @@ def _replay_database[
             db.remove_file(entry.filename.copy())
             continue
         if len(saved_seq) > settings.max_choices:
+            db.remove_file(entry.filename.copy())
             continue
         var tc = TestCase.replaying(saved_seq.copy(), settings.max_choices)
         var raised = False
@@ -346,23 +354,23 @@ def _replay_database[
         except e:
             raised = True
             message = String(e)
-        if (
-            raised
-            and tc.status == Status.RUNNING
-            and tc.cursor == len(saved_seq)
-        ):
-            _shrink_and_raise(
-                prop,
-                settings,
-                seed,
-                i + 1,
-                saved_seq^,
-                message,
-                db,
-                entry.filename.copy(),
-            )
-        else:
+        if not raised:
             db.remove_file(entry.filename.copy())
+            continue
+        if message == ASSUME_INTERRUPT or message == OVERRUN_INTERRUPT:
+            db.remove_file(entry.filename.copy())
+            continue
+        if not _shrink_and_raise(
+            prop,
+            settings,
+            seed,
+            i + 1,
+            tc.choices.copy(),
+            message,
+            db,
+            entry.filename.copy(),
+        ):
+            continue
 
 
 def _shrink_and_raise[
@@ -376,13 +384,13 @@ def _shrink_and_raise[
     failure_message: String,
     db: ExampleDatabase,
     entry_file: String = "",
-) raises:
+) raises -> Bool:
     """Shrink `failing`, persist the best replay, and raise the report.
 
     Shared by the database-replay and generation paths so both persist
     to the example database and report identically. Re-verifies that the
-    reported replay is INTERESTING before saving or reporting, falling back
-    to `failing` if the shrunken candidate did not reproduce.
+    reported replay is INTERESTING before saving or reporting; if a flaky
+    failure disappears, prunes any stale database entry and returns False.
     """
 
     def evaluate(
@@ -390,13 +398,18 @@ def _shrink_and_raise[
     ) raises {imm prop, imm settings} -> Evaluation:
         var tc = TestCase.replaying(candidate.copy(), settings.max_choices)
         var raised = False
+        var message = String("")
         try:
             prop(tc)
-        except:
+        except e:
             raised = True
-        return Evaluation(
-            raised and tc.status == Status.RUNNING, tc.choices.copy()
+            message = String(e)
+        var is_failure = (
+            raised
+            and message != ASSUME_INTERRUPT
+            and message != OVERRUN_INTERRUPT
         )
+        return Evaluation(is_failure, tc.choices.copy())
 
     var shrink_result = shrink_with(
         evaluate, failing.copy(), settings.max_shrink_evaluations
@@ -412,12 +425,31 @@ def _shrink_and_raise[
         report_raised = True
         replay_message = String(e)
 
-    if not (report_raised and report_tc.status == Status.RUNNING):
+    var report_failed = (
+        report_raised
+        and replay_message != ASSUME_INTERRUPT
+        and replay_message != OVERRUN_INTERRUPT
+    )
+
+    if not report_failed:
         report_tc = TestCase.replaying(failing.copy(), settings.max_choices)
+        report_raised = False
+        replay_message = failure_message.copy()
         try:
             prop(report_tc)
         except e:
+            report_raised = True
             replay_message = String(e)
+        report_failed = (
+            report_raised
+            and replay_message != ASSUME_INTERRUPT
+            and replay_message != OVERRUN_INTERRUPT
+        )
+
+    if not report_failed:
+        if entry_file.byte_length() > 0:
+            db.remove_file(entry_file.copy())
+        return False
 
     var replay_token = encode_sequence(report_tc.choices.copy())
     if entry_file.byte_length() > 0 and entry_file != sha256_hex(replay_token):
