@@ -30,6 +30,13 @@ comptime _DICT_ATTEMPT_LABEL = UInt64(0x6469637454727921)
 comptime _MAX_DUPLICATE_ATTEMPTS = 32
 
 
+def _truncate_draw_records(mut tc: TestCase, labels: Int, values: Int):
+    while len(tc.draw_labels) > labels:
+        _ = tc.draw_labels.pop()
+    while len(tc.draw_values) > values:
+        _ = tc.draw_values.pop()
+
+
 @fieldwise_init
 struct DictEntry[
     K: Copyable & Equatable & Writable & Deinitable,
@@ -135,10 +142,9 @@ struct UniqueListOf[E: Strategy](Strategy) where conforms_to(
         if optional_average > 0.0:
             p_continue = optional_average / (1.0 + optional_average)
         while True:
-            var depth = len(tc.open_spans)
+            var cont: Bool
             tc.start_span(_UNIQUE_ELEMENT_LABEL)
             try:
-                var cont: Bool
                 if len(out) >= self.max_size:
                     _ = tc.forced_integer(UInt64(0), UInt64(1))
                     cont = False
@@ -147,12 +153,19 @@ struct UniqueListOf[E: Strategy](Strategy) where conforms_to(
                     cont = True
                 else:
                     cont = tc.draw_boolean(p_continue)
-                if not cont:
-                    tc.stop_span(discard=True)
-                    break
-                var placed = False
-                for _attempt in range(_MAX_DUPLICATE_ATTEMPTS):
-                    tc.start_span(_UNIQUE_ATTEMPT_LABEL)
+            except e:
+                tc.stop_span(discard=True)
+                raise e
+            if not cont:
+                tc.stop_span(discard=True)
+                break
+
+            var placed = False
+            for _attempt in range(_MAX_DUPLICATE_ATTEMPTS):
+                var labels = len(tc.draw_labels)
+                var values = len(tc.draw_values)
+                tc.start_span(_UNIQUE_ATTEMPT_LABEL)
+                try:
                     var candidate = self.elements.draw(tc)
                     var duplicate = False
                     for i in range(len(out)):
@@ -161,22 +174,25 @@ struct UniqueListOf[E: Strategy](Strategy) where conforms_to(
                             break
                     if duplicate:
                         tc.stop_span(discard=True)
+                        _truncate_draw_records(tc, labels, values)
                         continue
                     tc.stop_span()
                     out.append(candidate^)
                     placed = True
                     break
-                if placed:
-                    tc.stop_span()
-                else:
+                except e:
                     tc.stop_span(discard=True)
-                    if len(out) >= self.min_size:
-                        break
-                    tc.assume(False)
-            except e:
-                while len(tc.open_spans) > depth:
+                    _truncate_draw_records(tc, labels, values)
                     tc.stop_span(discard=True)
-                raise e
+                    raise e
+
+            if placed:
+                tc.stop_span()
+            else:
+                tc.stop_span(discard=True)
+                if len(out) >= self.min_size:
+                    break
+                tc.assume(False)
         return out^
 
 
@@ -239,10 +255,9 @@ struct DictOf[K: Strategy, V: Strategy](Strategy) where conforms_to(
         if optional_average > 0.0:
             p_continue = optional_average / (1.0 + optional_average)
         while True:
-            var depth = len(tc.open_spans)
+            var cont: Bool
             tc.start_span(_DICT_ENTRY_LABEL)
             try:
-                var cont: Bool
                 if len(out) >= self.max_size:
                     _ = tc.forced_integer(UInt64(0), UInt64(1))
                     cont = False
@@ -251,15 +266,23 @@ struct DictOf[K: Strategy, V: Strategy](Strategy) where conforms_to(
                     cont = True
                 else:
                     cont = tc.draw_boolean(p_continue)
-                if not cont:
-                    tc.stop_span(discard=True)
-                    break
-                var placed = False
-                for _attempt in range(_MAX_DUPLICATE_ATTEMPTS):
-                    tc.start_span(_DICT_ATTEMPT_LABEL)
+            except e:
+                tc.stop_span(discard=True)
+                raise e
+            if not cont:
+                tc.stop_span(discard=True)
+                break
+
+            var placed = False
+            for _attempt in range(_MAX_DUPLICATE_ATTEMPTS):
+                var labels = len(tc.draw_labels)
+                var values = len(tc.draw_values)
+                tc.start_span(_DICT_ATTEMPT_LABEL)
+                try:
                     var key = self.keys.draw(tc)
                     if out.contains(key):
                         tc.stop_span(discard=True)
+                        _truncate_draw_records(tc, labels, values)
                         continue
                     var value = self.values.draw(tc)
                     out.entries.append(
@@ -268,17 +291,19 @@ struct DictOf[K: Strategy, V: Strategy](Strategy) where conforms_to(
                     tc.stop_span()
                     placed = True
                     break
-                if placed:
-                    tc.stop_span()
-                else:
+                except e:
                     tc.stop_span(discard=True)
-                    if len(out) >= self.min_size:
-                        break
-                    tc.assume(False)
-            except e:
-                while len(tc.open_spans) > depth:
+                    _truncate_draw_records(tc, labels, values)
                     tc.stop_span(discard=True)
-                raise e
+                    raise e
+
+            if placed:
+                tc.stop_span()
+            else:
+                tc.stop_span(discard=True)
+                if len(out) >= self.min_size:
+                    break
+                tc.assume(False)
         return out^
 
 
