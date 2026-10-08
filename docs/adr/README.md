@@ -14,4 +14,7 @@
 | [0007](0007-toolchain-pixi-and-mojo-nightly.md) | ツールチェーンに pixi と Mojo nightly を使う | Accepted | 2026-09-26 |
 | [0008](0008-functional-core-imperative-shell.md) | 関数型コア・命令型シェルで構成する | Accepted | 2026-09-26 |
 | [0009](0009-testcase-draw-module-cycle.md) | TestCase.draw のために testcase と strategy の参照循環を許す | Accepted | 2026-09-30 |
-| [0010](0010-state-machine-op-sequence-encoding.md) | StateMachine トレイトと操作列の符号化で状態機械テストを行う | Accepted | 2026-09-30 |
+| [0010](0010-heterogeneous-one-of.md) | 異種 Strategy の one_of を `where` 句と `rebind` で実現する | Accepted | 2026-09-30 |
+| [0011](0011-example-database-persistence.md) | Example database の永続化形式と name の明示指定 | Accepted | 2026-09-30 |
+| [0012](0012-recursive-strategy-with-runtime-depth.md) | 再帰的 Strategy を実行時深さ制限の単一 struct で実現する | Accepted | 2026-09-30 |
+| [0013](0013-state-machine-op-sequence-encoding.md) | StateMachine トレイトと操作列の符号化で状態機械テストを行う | Accepted | 2026-09-30 |

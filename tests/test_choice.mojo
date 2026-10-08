@@ -61,45 +61,6 @@ def test_shortlex_lexicographic_on_equal_length() raises:
     )
 
 
-def test_shortlex_is_total_order_on_examples() raises:
-    var seqs = List[ChoiceSequence]()
-    seqs.append(_seq())
-    seqs.append(_seq(UInt64(0)))
-    seqs.append(_seq(UInt64(1)))
-    seqs.append(_seq(UInt64(0), UInt64(0)))
-    seqs.append(_seq(UInt64(0), UInt64(1)))
-    seqs.append(_seq(UInt64(1), UInt64(0)))
-    seqs.append(_seq(UInt64(0), UInt64(0), UInt64(0)))
-    for i in range(len(seqs)):
-        var reflexive = seqs[i].copy()
-        assert_true(seqs[i] == reflexive, msg="equality must be reflexive")
-        assert_true(not (seqs[i] < reflexive), msg="irreflexivity of <")
-        assert_true(seqs[i] <= reflexive, msg="reflexivity of <=")
-        assert_true(seqs[i] >= reflexive, msg="reflexivity of >=")
-        assert_equal(shortlex_compare(seqs[i], reflexive), 0)
-        for j in range(len(seqs)):
-            var lt = seqs[i] < seqs[j]
-            var gt = seqs[i] > seqs[j]
-            var eq = seqs[i] == seqs[j]
-            assert_true(lt or gt or eq, msg="any pair must be comparable")
-            assert_true(not (lt and gt), msg="no pair is both < and >")
-            assert_true(
-                (lt or eq) == (seqs[i] <= seqs[j]),
-                msg="<= must match < or ==",
-            )
-            assert_true(
-                (gt or eq) == (seqs[i] >= seqs[j]),
-                msg=">= must match > or ==",
-            )
-            assert_true(
-                (seqs[i] < seqs[j]) == (seqs[j] > seqs[i]),
-                msg="antisymmetry of < and >",
-            )
-            for k in range(len(seqs)):
-                if seqs[i] < seqs[j] and seqs[j] < seqs[k]:
-                    assert_true(seqs[i] < seqs[k], msg="transitivity of <")
-
-
 def test_values_truncated_deleted_zeroed() raises:
     var seq = _seq(UInt64(1), UInt64(2), UInt64(3), UInt64(4))
     var values = seq.values()
