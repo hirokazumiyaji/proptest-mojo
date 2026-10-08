@@ -43,7 +43,7 @@ git clone --branch v0.1.0 https://github.com/hirokazumiyaji/proptest-mojo.git ve
 pixi run mojo run -I vendor/proptest-mojo/src path/to/my_property_test.mojo < /dev/null
 ```
 
-Use the Mojo version pinned by the library's `pixi.lock` (`mojo = ">=1.2.0.dev2026092605,<2"`). Compiled `.mojoc` and `.mojopkg` artifacts are not distributed.
+Install exactly Mojo `1.2.0.dev2026092605`, matching the version recorded in the release's `pixi.lock`. Compiled `.mojoc` and `.mojopkg` artifacts are not distributed.
 
 ## Running in CI
 
