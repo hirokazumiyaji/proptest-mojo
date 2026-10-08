@@ -75,6 +75,8 @@ struct _CacheEntry(Copyable, Movable):
 # the default 5,000-evaluation budget would retain tens of millions of
 # `ChoiceNode`s before the first one is evaluated.
 comptime CANDIDATE_BATCH = 64
+# Each entry keeps the replay result and its spans, so cap retained sequences.
+comptime MAX_CACHE_ENTRIES = 64
 
 
 def _batch_size(remaining: Int) -> Int:
@@ -91,6 +93,14 @@ def _values_equal(a: List[UInt64], b: List[UInt64]) -> Bool:
         if a[i] != b[i]:
             return False
     return True
+
+
+def _remember(mut entries: List[_CacheEntry], entry: _CacheEntry) -> Int:
+    if len(entries) < MAX_CACHE_ENTRIES:
+        entries.append(entry.copy())
+        return len(entries) - 1
+    entries[MAX_CACHE_ENTRIES - 1] = entry.copy()
+    return MAX_CACHE_ENTRIES - 1
 
 
 def _lookup(entries: List[_CacheEntry], values: List[UInt64]) -> Int:
@@ -136,11 +146,13 @@ def shrink[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = fetched + _batch_size(max_evaluations - evaluations)
-            var removals = delete_chunks(best.copy(), want)
-            while fetched < len(removals):
-                var cand = removals[fetched].copy()
+            var want = _batch_size(max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), want, fetched)
+            var batch_index = 0
+            while batch_index < len(removals):
+                var cand = removals[batch_index].copy()
                 fetched += 1
+                batch_index += 1
                 var key = cand.values()
                 if _lookup(entries, key) >= 0:
                     continue
@@ -149,10 +161,11 @@ def shrink[
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
                 var cspans = result.spans.copy()
-                entries.append(
+                _ = _remember(
+                    entries,
                     _CacheEntry(
                         key^, interesting, consumed.copy(), cspans.copy()
-                    )
+                    ),
                 )
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
@@ -178,11 +191,13 @@ def shrink[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = zeroed_count + _batch_size(max_evaluations - evaluations)
-            var zeroings = zero_chunks(best.copy(), want)
-            while zeroed_count < len(zeroings):
-                var cand = zeroings[zeroed_count].copy()
+            var want = _batch_size(max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), want, zeroed_count)
+            var batch_index = 0
+            while batch_index < len(zeroings):
+                var cand = zeroings[batch_index].copy()
                 zeroed_count += 1
+                batch_index += 1
                 var key = cand.values()
                 if _lookup(entries, key) >= 0:
                     continue
@@ -191,10 +206,11 @@ def shrink[
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
                 var cspans = result.spans.copy()
-                entries.append(
+                _ = _remember(
+                    entries,
                     _CacheEntry(
                         key^, interesting, consumed.copy(), cspans.copy()
-                    )
+                    ),
                 )
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
@@ -236,13 +252,14 @@ def shrink[
                 zero_interesting = result.is_interesting
                 zero_consumed = result.consumed.copy()
                 zero_spans = result.spans.copy()
-                entries.append(
+                _ = _remember(
+                    entries,
                     _CacheEntry(
                         key^,
                         zero_interesting,
                         zero_consumed.copy(),
                         zero_spans.copy(),
-                    )
+                    ),
                 )
             if zero_interesting and is_shortlex_smaller(zero_consumed, best):
                 best = zero_consumed^
@@ -273,13 +290,14 @@ def shrink[
                     p_interesting = presult.is_interesting
                     p_consumed = presult.consumed.copy()
                     p_spans = presult.spans.copy()
-                    entries.append(
+                    _ = _remember(
+                        entries,
                         _CacheEntry(
                             pkey^,
                             p_interesting,
                             p_consumed.copy(),
                             p_spans.copy(),
-                        )
+                        ),
                     )
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
                     hi = mid
@@ -303,54 +321,84 @@ def shrink[
         if improved:
             continue
 
-        var span_removals = delete_spans(best.copy(), best_spans.copy())
-        for j in range(len(span_removals)):
+        var span_fetched = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = span_removals[j].copy()
-            var key = cand.values()
-            if _lookup(entries, key) >= 0:
-                continue
-            evaluations += 1
-            var result = evaluate(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            var cspans = result.spans.copy()
-            entries.append(
-                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
+            var want = _batch_size(max_evaluations - evaluations)
+            var span_removals = delete_spans(
+                best.copy(), best_spans.copy(), want, span_fetched
             )
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                best_spans = cspans^
-                improved = True
+            var batch_index = 0
+            while batch_index < len(span_removals):
+                var cand = span_removals[batch_index].copy()
+                span_fetched += 1
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = evaluate(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_removals) < want:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        var span_zeroings = zero_spans(best.copy(), best_spans.copy())
-        for j in range(len(span_zeroings)):
+        var span_zeroed = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = span_zeroings[j].copy()
-            var key = cand.values()
-            if _lookup(entries, key) >= 0:
-                continue
-            evaluations += 1
-            var result = evaluate(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            var cspans = result.spans.copy()
-            entries.append(
-                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
+            var want = _batch_size(max_evaluations - evaluations)
+            var span_zeroings = zero_spans(
+                best.copy(), best_spans.copy(), want, span_zeroed
             )
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                best_spans = cspans^
-                improved = True
+            var batch_index = 0
+            while batch_index < len(span_zeroings):
+                var cand = span_zeroings[batch_index].copy()
+                span_zeroed += 1
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = evaluate(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_zeroings) < want:
                 break
         if hit_budget:
             break
@@ -371,8 +419,9 @@ def shrink[
             var interesting = result.is_interesting
             var consumed = result.consumed.copy()
             var cspans = result.spans.copy()
-            entries.append(
-                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
+            _ = _remember(
+                entries,
+                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy()),
             )
             if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
@@ -398,8 +447,9 @@ def shrink[
             var interesting = result.is_interesting
             var consumed = result.consumed.copy()
             var cspans = result.spans.copy()
-            entries.append(
-                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
+            _ = _remember(
+                entries,
+                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy()),
             )
             if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
@@ -442,14 +492,15 @@ def shrink[
                         break
                     evaluations += 1
                     var result = evaluate(probe0max^)
-                    idx0 = len(entries)
-                    entries.append(
+
+                    idx0 = _remember(
+                        entries,
                         _CacheEntry(
                             key0^,
                             result.is_interesting,
                             result.consumed.copy(),
                             result.spans.copy(),
-                        )
+                        ),
                     )
                 if hit_budget:
                     break
@@ -463,14 +514,15 @@ def shrink[
                             break
                         evaluations += 1
                         var result = evaluate(probe0z^)
-                        idx0z = len(entries)
-                        entries.append(
+
+                        idx0z = _remember(
+                            entries,
                             _CacheEntry(
                                 key0z^,
                                 result.is_interesting,
                                 result.consumed.copy(),
                                 result.spans.copy(),
-                            )
+                            ),
                         )
                     if hit_budget:
                         break
@@ -491,14 +543,15 @@ def shrink[
                             if pidx < 0:
                                 evaluations += 1
                                 var presult = evaluate(pr^)
-                                pidx = len(entries)
-                                entries.append(
+
+                                pidx = _remember(
+                                    entries,
                                     _CacheEntry(
                                         pkey^,
                                         presult.is_interesting,
                                         presult.consumed.copy(),
                                         presult.spans.copy(),
-                                    )
+                                    ),
                                 )
                             if hit_budget:
                                 break
@@ -518,14 +571,15 @@ def shrink[
                             break
                         evaluations += 1
                         var result = evaluate(fincand^)
-                        fidx = len(entries)
-                        entries.append(
+
+                        fidx = _remember(
+                            entries,
                             _CacheEntry(
                                 fkey^,
                                 result.is_interesting,
                                 result.consumed.copy(),
                                 result.spans.copy(),
-                            )
+                            ),
                         )
                     if hit_budget:
                         break
@@ -548,14 +602,15 @@ def shrink[
                         if pidx < 0:
                             evaluations += 1
                             var presult = evaluate(pr^)
-                            pidx = len(entries)
-                            entries.append(
+
+                            pidx = _remember(
+                                entries,
                                 _CacheEntry(
                                     pkey^,
                                     presult.is_interesting,
                                     presult.consumed.copy(),
                                     presult.spans.copy(),
-                                )
+                                ),
                             )
                         if hit_budget:
                             break
@@ -576,14 +631,15 @@ def shrink[
                                 break
                             evaluations += 1
                             var result = evaluate(probez^)
-                            zidx = len(entries)
-                            entries.append(
+
+                            zidx = _remember(
+                                entries,
                                 _CacheEntry(
                                     zkey^,
                                     result.is_interesting,
                                     result.consumed.copy(),
                                     result.spans.copy(),
-                                )
+                                ),
                             )
                         if hit_budget:
                             break
@@ -604,14 +660,15 @@ def shrink[
                                 if pidx2 < 0:
                                     evaluations += 1
                                     var presult = evaluate(pr2^)
-                                    pidx2 = len(entries)
-                                    entries.append(
+
+                                    pidx2 = _remember(
+                                        entries,
                                         _CacheEntry(
                                             pkey2^,
                                             presult.is_interesting,
                                             presult.consumed.copy(),
                                             presult.spans.copy(),
-                                        )
+                                        ),
                                     )
                                 if hit_budget:
                                     break
@@ -631,14 +688,15 @@ def shrink[
                                 break
                             evaluations += 1
                             var result = evaluate(candh^)
-                            hidx = len(entries)
-                            entries.append(
+
+                            hidx = _remember(
+                                entries,
                                 _CacheEntry(
                                     hkey^,
                                     result.is_interesting,
                                     result.consumed.copy(),
                                     result.spans.copy(),
-                                )
+                                ),
                             )
                         if hit_budget:
                             break
@@ -692,14 +750,15 @@ def shrink[
                     break
                 evaluations += 1
                 var result = evaluate(cand0^)
-                idx0 = len(entries)
-                entries.append(
+
+                idx0 = _remember(
+                    entries,
                     _CacheEntry(
                         key0^,
                         result.is_interesting,
                         result.consumed.copy(),
                         result.spans.copy(),
-                    )
+                    ),
                 )
             if hit_budget:
                 break
@@ -723,14 +782,15 @@ def shrink[
                 if pidx < 0:
                     evaluations += 1
                     var presult = evaluate(probe^)
-                    pidx = len(entries)
-                    entries.append(
+
+                    pidx = _remember(
+                        entries,
                         _CacheEntry(
                             pkey^,
                             presult.is_interesting,
                             presult.consumed.copy(),
                             presult.spans.copy(),
-                        )
+                        ),
                     )
                 if hit_budget:
                     break
@@ -752,14 +812,15 @@ def shrink[
                         break
                     evaluations += 1
                     var result = evaluate(candh^)
-                    hidx = len(entries)
-                    entries.append(
+
+                    hidx = _remember(
+                        entries,
                         _CacheEntry(
                             hkey^,
                             result.is_interesting,
                             result.consumed.copy(),
                             result.spans.copy(),
-                        )
+                        ),
                     )
                 if hit_budget:
                     break
@@ -814,11 +875,13 @@ def shrink_with[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = fetched + _batch_size(max_evaluations - evaluations)
-            var removals = delete_chunks(best.copy(), want)
-            while fetched < len(removals):
-                var cand = removals[fetched].copy()
+            var want = _batch_size(max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), want, fetched)
+            var batch_index = 0
+            while batch_index < len(removals):
+                var cand = removals[batch_index].copy()
                 fetched += 1
+                batch_index += 1
                 var key = cand.values()
                 if _lookup(entries, key) >= 0:
                     continue
@@ -827,10 +890,11 @@ def shrink_with[
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
                 var cspans = result.spans.copy()
-                entries.append(
+                _ = _remember(
+                    entries,
                     _CacheEntry(
                         key^, interesting, consumed.copy(), cspans.copy()
-                    )
+                    ),
                 )
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
@@ -856,11 +920,13 @@ def shrink_with[
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var want = zeroed_count + _batch_size(max_evaluations - evaluations)
-            var zeroings = zero_chunks(best.copy(), want)
-            while zeroed_count < len(zeroings):
-                var cand = zeroings[zeroed_count].copy()
+            var want = _batch_size(max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), want, zeroed_count)
+            var batch_index = 0
+            while batch_index < len(zeroings):
+                var cand = zeroings[batch_index].copy()
                 zeroed_count += 1
+                batch_index += 1
                 var key = cand.values()
                 if _lookup(entries, key) >= 0:
                     continue
@@ -869,10 +935,11 @@ def shrink_with[
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
                 var cspans = result.spans.copy()
-                entries.append(
+                _ = _remember(
+                    entries,
                     _CacheEntry(
                         key^, interesting, consumed.copy(), cspans.copy()
-                    )
+                    ),
                 )
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
@@ -914,13 +981,14 @@ def shrink_with[
                 zero_interesting = result.is_interesting
                 zero_consumed = result.consumed.copy()
                 zero_spans = result.spans.copy()
-                entries.append(
+                _ = _remember(
+                    entries,
                     _CacheEntry(
                         key^,
                         zero_interesting,
                         zero_consumed.copy(),
                         zero_spans.copy(),
-                    )
+                    ),
                 )
             if zero_interesting and is_shortlex_smaller(zero_consumed, best):
                 best = zero_consumed^
@@ -951,13 +1019,14 @@ def shrink_with[
                     p_interesting = presult.is_interesting
                     p_consumed = presult.consumed.copy()
                     p_spans = presult.spans.copy()
-                    entries.append(
+                    _ = _remember(
+                        entries,
                         _CacheEntry(
                             pkey^,
                             p_interesting,
                             p_consumed.copy(),
                             p_spans.copy(),
-                        )
+                        ),
                     )
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
                     hi = mid
@@ -981,54 +1050,84 @@ def shrink_with[
         if improved:
             continue
 
-        var span_removals = delete_spans(best.copy(), best_spans.copy())
-        for j in range(len(span_removals)):
+        var span_fetched = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = span_removals[j].copy()
-            var key = cand.values()
-            if _lookup(entries, key) >= 0:
-                continue
-            evaluations += 1
-            var result = eval_fn(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            var cspans = result.spans.copy()
-            entries.append(
-                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
+            var want = _batch_size(max_evaluations - evaluations)
+            var span_removals = delete_spans(
+                best.copy(), best_spans.copy(), want, span_fetched
             )
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                best_spans = cspans^
-                improved = True
+            var batch_index = 0
+            while batch_index < len(span_removals):
+                var cand = span_removals[batch_index].copy()
+                span_fetched += 1
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = eval_fn(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_removals) < want:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        var span_zeroings = zero_spans(best.copy(), best_spans.copy())
-        for j in range(len(span_zeroings)):
+        var span_zeroed = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = span_zeroings[j].copy()
-            var key = cand.values()
-            if _lookup(entries, key) >= 0:
-                continue
-            evaluations += 1
-            var result = eval_fn(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            var cspans = result.spans.copy()
-            entries.append(
-                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
+            var want = _batch_size(max_evaluations - evaluations)
+            var span_zeroings = zero_spans(
+                best.copy(), best_spans.copy(), want, span_zeroed
             )
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                best_spans = cspans^
-                improved = True
+            var batch_index = 0
+            while batch_index < len(span_zeroings):
+                var cand = span_zeroings[batch_index].copy()
+                span_zeroed += 1
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = eval_fn(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_zeroings) < want:
                 break
         if hit_budget:
             break
@@ -1049,8 +1148,9 @@ def shrink_with[
             var interesting = result.is_interesting
             var consumed = result.consumed.copy()
             var cspans = result.spans.copy()
-            entries.append(
-                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
+            _ = _remember(
+                entries,
+                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy()),
             )
             if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
@@ -1076,8 +1176,9 @@ def shrink_with[
             var interesting = result.is_interesting
             var consumed = result.consumed.copy()
             var cspans = result.spans.copy()
-            entries.append(
-                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy())
+            _ = _remember(
+                entries,
+                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy()),
             )
             if interesting and is_shortlex_smaller(consumed, best):
                 best = consumed^
@@ -1120,14 +1221,15 @@ def shrink_with[
                         break
                     evaluations += 1
                     var result = eval_fn(probe0max^)
-                    idx0 = len(entries)
-                    entries.append(
+
+                    idx0 = _remember(
+                        entries,
                         _CacheEntry(
                             key0^,
                             result.is_interesting,
                             result.consumed.copy(),
                             result.spans.copy(),
-                        )
+                        ),
                     )
                 if hit_budget:
                     break
@@ -1141,14 +1243,15 @@ def shrink_with[
                             break
                         evaluations += 1
                         var result = eval_fn(probe0z^)
-                        idx0z = len(entries)
-                        entries.append(
+
+                        idx0z = _remember(
+                            entries,
                             _CacheEntry(
                                 key0z^,
                                 result.is_interesting,
                                 result.consumed.copy(),
                                 result.spans.copy(),
-                            )
+                            ),
                         )
                     if hit_budget:
                         break
@@ -1169,14 +1272,15 @@ def shrink_with[
                             if pidx < 0:
                                 evaluations += 1
                                 var presult = eval_fn(pr^)
-                                pidx = len(entries)
-                                entries.append(
+
+                                pidx = _remember(
+                                    entries,
                                     _CacheEntry(
                                         pkey^,
                                         presult.is_interesting,
                                         presult.consumed.copy(),
                                         presult.spans.copy(),
-                                    )
+                                    ),
                                 )
                             if hit_budget:
                                 break
@@ -1196,14 +1300,15 @@ def shrink_with[
                             break
                         evaluations += 1
                         var result = eval_fn(fincand^)
-                        fidx = len(entries)
-                        entries.append(
+
+                        fidx = _remember(
+                            entries,
                             _CacheEntry(
                                 fkey^,
                                 result.is_interesting,
                                 result.consumed.copy(),
                                 result.spans.copy(),
-                            )
+                            ),
                         )
                     if hit_budget:
                         break
@@ -1226,14 +1331,15 @@ def shrink_with[
                         if pidx < 0:
                             evaluations += 1
                             var presult = eval_fn(pr^)
-                            pidx = len(entries)
-                            entries.append(
+
+                            pidx = _remember(
+                                entries,
                                 _CacheEntry(
                                     pkey^,
                                     presult.is_interesting,
                                     presult.consumed.copy(),
                                     presult.spans.copy(),
-                                )
+                                ),
                             )
                         if hit_budget:
                             break
@@ -1254,14 +1360,15 @@ def shrink_with[
                                 break
                             evaluations += 1
                             var result = eval_fn(probez^)
-                            zidx = len(entries)
-                            entries.append(
+
+                            zidx = _remember(
+                                entries,
                                 _CacheEntry(
                                     zkey^,
                                     result.is_interesting,
                                     result.consumed.copy(),
                                     result.spans.copy(),
-                                )
+                                ),
                             )
                         if hit_budget:
                             break
@@ -1282,14 +1389,15 @@ def shrink_with[
                                 if pidx2 < 0:
                                     evaluations += 1
                                     var presult = eval_fn(pr2^)
-                                    pidx2 = len(entries)
-                                    entries.append(
+
+                                    pidx2 = _remember(
+                                        entries,
                                         _CacheEntry(
                                             pkey2^,
                                             presult.is_interesting,
                                             presult.consumed.copy(),
                                             presult.spans.copy(),
-                                        )
+                                        ),
                                     )
                                 if hit_budget:
                                     break
@@ -1309,14 +1417,15 @@ def shrink_with[
                                 break
                             evaluations += 1
                             var result = eval_fn(candh^)
-                            hidx = len(entries)
-                            entries.append(
+
+                            hidx = _remember(
+                                entries,
                                 _CacheEntry(
                                     hkey^,
                                     result.is_interesting,
                                     result.consumed.copy(),
                                     result.spans.copy(),
-                                )
+                                ),
                             )
                         if hit_budget:
                             break
@@ -1370,14 +1479,15 @@ def shrink_with[
                     break
                 evaluations += 1
                 var result = eval_fn(cand0^)
-                idx0 = len(entries)
-                entries.append(
+
+                idx0 = _remember(
+                    entries,
                     _CacheEntry(
                         key0^,
                         result.is_interesting,
                         result.consumed.copy(),
                         result.spans.copy(),
-                    )
+                    ),
                 )
             if hit_budget:
                 break
@@ -1401,14 +1511,15 @@ def shrink_with[
                 if pidx < 0:
                     evaluations += 1
                     var presult = eval_fn(probe^)
-                    pidx = len(entries)
-                    entries.append(
+
+                    pidx = _remember(
+                        entries,
                         _CacheEntry(
                             pkey^,
                             presult.is_interesting,
                             presult.consumed.copy(),
                             presult.spans.copy(),
-                        )
+                        ),
                     )
                 if hit_budget:
                     break
@@ -1430,14 +1541,15 @@ def shrink_with[
                         break
                     evaluations += 1
                     var result = eval_fn(candh^)
-                    hidx = len(entries)
-                    entries.append(
+
+                    hidx = _remember(
+                        entries,
                         _CacheEntry(
                             hkey^,
                             result.is_interesting,
                             result.consumed.copy(),
                             result.spans.copy(),
-                        )
+                        ),
                     )
                 if hit_budget:
                     break

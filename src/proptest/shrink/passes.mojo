@@ -24,7 +24,9 @@ def _chunk_sizes() -> List[Int]:
     return sizes^
 
 
-def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
+def delete_chunks(
+    seq: ChoiceSequence, limit: Int = -1, offset: Int = 0
+) -> List[ChoiceSequence]:
     """Contiguous-block deletions, simplest-first.
 
     Tries chunk lengths 8, 4, 2, 1 at every start position. Deletion
@@ -39,6 +41,7 @@ def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     one is even looked at.
     """
     var out = List[ChoiceSequence]()
+    var skipped = 0
     var n = len(seq)
     for size in _chunk_sizes():
         if size > n:
@@ -56,11 +59,16 @@ def delete_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
             var cand = seq.deleted(start, start + size)
             if len(cand) == 0:
                 continue
+            if skipped < offset:
+                skipped += 1
+                continue
             out.append(cand^)
     return out^
 
 
-def zero_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
+def zero_chunks(
+    seq: ChoiceSequence, limit: Int = -1, offset: Int = 0
+) -> List[ChoiceSequence]:
     """Contiguous-block zeroings, simplest-first.
 
     Same chunk sizes and positions as `delete_chunks`. `forced`
@@ -69,6 +77,7 @@ def zero_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
     strictly shortlex-smaller candidates are returned.
     """
     var out = List[ChoiceSequence]()
+    var skipped = 0
     var n = len(seq)
     for size in _chunk_sizes():
         if size > n:
@@ -78,6 +87,9 @@ def zero_chunks(seq: ChoiceSequence, limit: Int = -1) -> List[ChoiceSequence]:
                 return out^
             var cand = seq.zeroed(start, start + size)
             if not is_shortlex_smaller(cand, seq):
+                continue
+            if skipped < offset:
+                skipped += 1
                 continue
             out.append(cand^)
     return out^
