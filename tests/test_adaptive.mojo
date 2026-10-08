@@ -2,6 +2,7 @@ from proptest.choice import (
     ChoiceKind,
     ChoiceNode,
     ChoiceSequence,
+    Span,
     is_shortlex_smaller,
     shortlex_compare,
 )
@@ -168,7 +169,7 @@ def _sum_over_10_pair(seq: ChoiceSequence) -> Bool:
 
 
 def _sum_over_10_eval(seq: ChoiceSequence) -> Evaluation:
-    return Evaluation(_sum_over_10_pair(seq), seq.copy())
+    return Evaluation(_sum_over_10_pair(seq), seq.copy(), List[Span]())
 
 
 def _equal_and_over_5_pair(seq: ChoiceSequence) -> Bool:
@@ -180,19 +181,19 @@ def _equal_and_over_5_pair(seq: ChoiceSequence) -> Bool:
 
 
 def _equal_and_over_5_eval(seq: ChoiceSequence) -> Evaluation:
-    return Evaluation(_equal_and_over_5_pair(seq), seq.copy())
+    return Evaluation(_equal_and_over_5_pair(seq), seq.copy(), List[Span]())
 
 
 def test_shrink_loop_invokes_redistribute() raises:
     var seq = _seq(UInt64(5), UInt64(7))
-    var res = shrink[_sum_over_10_eval](seq.copy(), 200)
+    var res = shrink[_sum_over_10_eval](seq.copy(), List[Span](), 200)
     assert_equal(res.best[0].value, UInt64(0))
     assert_equal(res.best[1].value, UInt64(11))
 
 
 def test_shrink_loop_invokes_lower_duplicates() raises:
     var seq = _seq(UInt64(20), UInt64(20))
-    var res = shrink[_equal_and_over_5_eval](seq.copy(), 200)
+    var res = shrink[_equal_and_over_5_eval](seq.copy(), List[Span](), 200)
     assert_equal(res.best[0].value, UInt64(6))
     assert_equal(res.best[1].value, UInt64(6))
 
@@ -200,7 +201,7 @@ def test_shrink_loop_invokes_lower_duplicates() raises:
 def test_shrink_redistribute_respects_max_evaluations() raises:
     var seq = _seq(UInt64(5), UInt64(7))
     for budget in range(1, 10):
-        var res = shrink[_sum_over_10_eval](seq.copy(), budget)
+        var res = shrink[_sum_over_10_eval](seq.copy(), List[Span](), budget)
         assert_true(res.evaluations <= budget)
         if res.evaluations == budget:
             assert_true(res.hit_budget)

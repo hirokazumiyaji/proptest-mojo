@@ -13,3 +13,9 @@ from proptest.shrink.shrinker import (
     shrink,
     shrink_with,
 )
+from proptest.shrink.span_passes import (
+    delete_spans,
+    sort_spans,
+    swap_adjacent_spans,
+    zero_spans,
+)

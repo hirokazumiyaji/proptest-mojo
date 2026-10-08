@@ -2,6 +2,7 @@ from proptest.choice import (
     ChoiceKind,
     ChoiceNode,
     ChoiceSequence,
+    Span,
     is_shortlex_smaller,
 )
 from proptest.shrink.shrinker import Evaluation, shrink, shrink_with
@@ -19,24 +20,28 @@ def _seq(*values: UInt64) -> ChoiceSequence:
     return seq^
 
 
+def _no_spans() -> List[Span]:
+    return List[Span]()
+
+
 def _eval_sum_over_1000(seq: ChoiceSequence) -> Evaluation:
     var total = UInt64(0)
     for i in range(len(seq)):
         total += seq.nodes[i].value
-    return Evaluation(total > UInt64(1000), seq.copy())
+    return Evaluation(total > UInt64(1000), seq.copy(), _no_spans())
 
 
 def _eval_first_over_5(seq: ChoiceSequence) -> Evaluation:
     if len(seq) == 0:
-        return Evaluation(False, seq.copy())
+        return Evaluation(False, seq.copy(), _no_spans())
     # Only the first choice matters; consumed is the 1-prefix.
     var interesting = seq.nodes[0].value > UInt64(5)
-    return Evaluation(interesting, seq.truncated(1))
+    return Evaluation(interesting, seq.truncated(1), _no_spans())
 
 
 def test_shrink_finds_minimal_sum() raises:
     var start = _seq(UInt64(900), UInt64(900), UInt64(900))
-    var result = shrink[_eval_sum_over_1000](start.copy(), 5000)
+    var result = shrink[_eval_sum_over_1000](start.copy(), _no_spans(), 5000)
     # Minimal interesting: values sum just over 1000 with smallest
     # shortlex shape, e.g. [0, 1001] or [1001, 0] reduced to 2 nodes?
     # At minimum the result must stay interesting and not grow.
@@ -48,14 +53,16 @@ def test_shrink_finds_minimal_sum() raises:
     )
     # Single value 1001 is the smallest interesting single-node input.
     var single = _seq(UInt64(1500))
-    var single_result = shrink[_eval_sum_over_1000](single.copy(), 5000)
+    var single_result = shrink[_eval_sum_over_1000](
+        single.copy(), _no_spans(), 5000
+    )
     assert_equal(len(single_result.best), 1)
     assert_equal(single_result.best[0].value, UInt64(1001))
 
 
 def test_zero_budget_returns_input() raises:
     var start = _seq(UInt64(900), UInt64(900))
-    var result = shrink[_eval_sum_over_1000](start.copy(), 0)
+    var result = shrink[_eval_sum_over_1000](start.copy(), _no_spans(), 0)
     assert_equal(result.best, start)
     assert_equal(result.evaluations, 0)
     assert_true(not result.hit_budget, msg="zero budget is not a cutoff")
@@ -63,7 +70,7 @@ def test_zero_budget_returns_input() raises:
 
 def test_adopts_consumed_prefix() raises:
     var start = _seq(UInt64(9), UInt64(99), UInt64(99))
-    var result = shrink[_eval_first_over_5](start.copy(), 5000)
+    var result = shrink[_eval_first_over_5](start.copy(), _no_spans(), 5000)
     assert_equal(len(result.best), 1)
     assert_equal(result.best[0].value, UInt64(6))
 
@@ -80,7 +87,7 @@ def _eval_two_draws_fail_over_1(seq: ChoiceSequence) -> Evaluation:
     var consumed = ChoiceSequence()
     consumed.append(_node(first))
     consumed.append(_node(UInt64(0)))
-    return Evaluation(first > UInt64(0), consumed^)
+    return Evaluation(first > UInt64(0), consumed^, _no_spans())
 
 
 def test_rejects_consumed_sequence_that_is_not_smaller() raises:
@@ -88,7 +95,9 @@ def test_rejects_consumed_sequence_that_is_not_smaller() raises:
     # consumes [1, 0], which is shortlex-larger than [0, 1]. Adopting it
     # would report a worse counterexample than the input.
     var start = _seq(UInt64(0), UInt64(1))
-    var result = shrink[_eval_two_draws_fail_over_1](start.copy(), 5000)
+    var result = shrink[_eval_two_draws_fail_over_1](
+        start.copy(), _no_spans(), 5000
+    )
     assert_true(
         not is_shortlex_smaller(start, result.best),
         msg="shrinking must never return a larger sequence",
@@ -99,7 +108,9 @@ def test_shrink_with_rejects_consumed_sequence_that_is_not_smaller() raises:
     # `shrink_with` is the loop `for_all` actually runs, and it carries
     # the same duplicated adoption sites.
     var start = _seq(UInt64(0), UInt64(1))
-    var result = shrink_with(_eval_two_draws_fail_over_1, start.copy(), 5000)
+    var result = shrink_with(
+        _eval_two_draws_fail_over_1, start.copy(), _no_spans(), 5000
+    )
     assert_true(
         not is_shortlex_smaller(start, result.best),
         msg="shrink_with must never return a larger sequence",
@@ -109,8 +120,10 @@ def test_shrink_with_rejects_consumed_sequence_that_is_not_smaller() raises:
 def test_shrink_with_matches_shrink_on_guarded_inputs() raises:
     # The guarded loops still shrink ordinary inputs to the same result.
     var start = _seq(UInt64(9), UInt64(99), UInt64(99))
-    var thin = shrink[_eval_first_over_5](start.copy(), 5000)
-    var runtime = shrink_with(_eval_first_over_5, start.copy(), 5000)
+    var thin = shrink[_eval_first_over_5](start.copy(), _no_spans(), 5000)
+    var runtime = shrink_with(
+        _eval_first_over_5, start.copy(), _no_spans(), 5000
+    )
     assert_equal(runtime.best, thin.best)
 
 
@@ -122,13 +135,15 @@ def test_consumed_descent_is_strict_at_every_adoption() raises:
     starts.append(_seq(UInt64(1), UInt64(0)))
     starts.append(_seq(UInt64(0), UInt64(0), UInt64(3)))
     for i in range(len(starts)):
-        var thin = shrink[_eval_two_draws_fail_over_1](starts[i].copy(), 200)
+        var thin = shrink[_eval_two_draws_fail_over_1](
+            starts[i].copy(), _no_spans(), 200
+        )
         assert_true(
             not is_shortlex_smaller(starts[i], thin.best),
             msg="shrink must never move upward in shortlex order",
         )
         var runtime = shrink_with(
-            _eval_two_draws_fail_over_1, starts[i].copy(), 200
+            _eval_two_draws_fail_over_1, starts[i].copy(), _no_spans(), 200
         )
         assert_true(
             not is_shortlex_smaller(starts[i], runtime.best),
@@ -140,19 +155,18 @@ def test_long_input_with_tiny_budget_stays_cheap() raises:
     # Materializing every deletion of a near-maximal sequence needs
     # gigabytes, which a small evaluation budget must avoid entirely.
     var seq = _seq(UInt64(1), UInt64(2), UInt64(3), UInt64(4), UInt64(5))
-    var result = shrink[_eval_sum_over_1000](seq.copy(), 1)
+    var result = shrink[_eval_sum_over_1000](seq.copy(), _no_spans(), 1)
     assert_equal(result.evaluations, 1)
     assert_true(result.hit_budget, msg="budget of 1 must be reported")
 
 
 def test_cache_avoids_duplicate_evaluations() raises:
     var start = _seq(UInt64(3), UInt64(3), UInt64(3))
-    var result = shrink[_eval_sum_over_1000](start.copy(), 5000)
-    # Sum is 9, never interesting: the loop terminates without exhausting the budget.
+    var result = shrink[_eval_sum_over_1000](start.copy(), _no_spans(), 5000)
     assert_true(result.evaluations > 0, msg="uninteresting input still probes")
     assert_true(not result.hit_budget, msg="fixed point must terminate")
     # Re-running with a tiny budget reports the cutoff.
-    var capped = shrink[_eval_sum_over_1000](start.copy(), 2)
+    var capped = shrink[_eval_sum_over_1000](start.copy(), _no_spans(), 2)
     assert_equal(capped.evaluations, 2)
     assert_true(capped.hit_budget, msg="exhausted budget must be reported")
 

@@ -15,19 +15,22 @@ trait Strategy(Copyable, Deinitable):
         ...
 ```
 
-`span_label` is a `UInt64` label identifying the kind of strategy. It is used as the `label` of spans created automatically by `tc.draw`. It is independent of the reporting label (`label` in `tc.draw(strategy, label)`) and depends only on the strategy kind. Implementations return `kind_label("<kind>")`.
+
+
 
 `span_label` is required and has no default. A common default would give every strategy that omitted an implementation the same label, causing sibling draws to be treated as compatible again.
+
+span_label returns a UInt64 identifying the strategy kind. It labels the spans created by tc.draw and is independent of the reporting label. Implementations typically return kind_label("<kind>").
 
 Every strategy implementation must follow these rules.
 
 | Rule | Reason |
 |------|------|
-| **Determinism**: Produce the same value from the same choice sequence. Do not read state outside `TestCase` (global variables, time, `std.random`). | Shrinking and replay must depend only on the choice sequence. |
-| **Monotonic simplicity**: Smaller choices produce simpler values. All-zero choices produce the simplest value. | Smaller choice sequences in shortlex order should correspond to simpler counterexamples for people to understand. |
-| **Immutability**: `draw` does not mutate `self`. | Strategies are freely copied and shared as values. |
-| **Locality**: Create a span for each structural unit (such as one collection element). | Structural shrinking passes depend on spans. |
-| **Structural labels**: `span_label` depends only on the strategy kind, not the reporting label. | Shrinking passes swap spans they consider to be of the same kind. |
+| **Determinism**: Produce the same value from the same choice sequence. Do not read state outside TestCase, such as globals, time, or std.random. | Shrinking and replay depend only on the choice sequence. |
+| **Monotonic simplicity**: Smaller choices produce simpler values; all-zero choices produce the simplest value. | Smaller shortlex sequences should correspond to simpler counterexamples. |
+| **Immutability**: draw does not mutate self. | Strategies can be freely copied and shared as values. |
+| **Locality**: Create a span for each structural unit, such as one collection element. | Structural shrinking passes depend on spans. |
+| **Structural labels**: span_label depends only on the strategy kind, not the reporting label. | Shrinking passes swap spans they consider to be of the same kind. |
 
 ## Built-in Strategies
 

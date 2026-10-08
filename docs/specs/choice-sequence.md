@@ -47,10 +47,10 @@ struct Span(Copyable, Writable):
     var discarded: Bool # Span for an attempt rejected by `filter`
 ```
 
-- Recorded with `TestCase.start_span(label)` / `stop_span(discard=False)`. `tc.draw` creates spans automatically.
+- Record spans with TestCase.start_span(label) / stop_span(discard=False); tc.draw creates spans automatically.
 - Shrinking passes use spans for structural operations such as deleting a whole list element or reordering spans with the same label.
-- `label` depends only on the strategy kind. The `label` in `tc.draw(strategy, label)` is used only for the reporting `draw_labels`; spans use `Strategy.span_label()` (a required method, implemented with `kind_label("<kind>")`).Drawing different strategies with the same reporting label still produces different span labels, so shrinking passes do not swap structurally incompatible blocks.
-- `draw` reserves a recording slot before delegating to `strategy.draw`, then fills in the `Writable` representation once the value is returned. When a composite strategy (the `Users` pattern) calls `tc.draw` internally, appending its own record last would place it after implementation-detail draws in the report and make `draw #N` differ from call order. The reserved slot is canceled if `raise` occurs.
+- Span labels depend only on the strategy kind. The label passed to tc.draw(strategy, label) is for reporting; spans use the required Strategy.span_label() method, typically implemented with kind_label("<kind>"). Different strategies with the same reporting label therefore receive distinct span labels.
+- draw reserves a recording slot before delegating to strategy.draw, then fills in its Writable representation after the value returns. This preserves call order in reports when composite strategies call tc.draw internally. The reserved slot is canceled if drawing raises.
 
 ### TestCase
 

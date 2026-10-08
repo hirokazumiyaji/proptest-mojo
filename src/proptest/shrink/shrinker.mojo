@@ -4,12 +4,28 @@ Per `docs/specs/shrinking.md`, candidates are evaluated by the runner
 (injected here as a comptime thin function). The loop adopts the
 actually-consumed choices, caches by value column, and stops at a
 fixed point or when `max_evaluations` is reached.
+
+Phases run in spec order, restarting from the top after any adoption:
+`delete_chunks`, `zero_chunks`, `minimize_individual`, `delete_spans`,
+`zero_spans`, `sort_spans`, `swap_adjacent_spans`, `redistribute`,
+`lower_duplicates`.
 """
 
 from std.io import Writer
 
-from proptest.choice import ChoiceKind, ChoiceSequence, is_shortlex_smaller
+from proptest.choice import (
+    ChoiceKind,
+    ChoiceSequence,
+    Span,
+    is_shortlex_smaller,
+)
 from proptest.shrink.passes import delete_chunks, zero_chunks
+from proptest.shrink.span_passes import (
+    delete_spans,
+    sort_spans,
+    swap_adjacent_spans,
+    zero_spans,
+)
 
 
 @fieldwise_init
@@ -18,6 +34,7 @@ struct Evaluation(Copyable, Movable, Writable):
 
     var is_interesting: Bool
     var consumed: ChoiceSequence
+    var spans: List[Span]
 
     def write_to(self, mut writer: Some[Writer]):
         writer.write("Evaluation(interesting=", self.is_interesting, ", ")
@@ -47,12 +64,10 @@ struct ShrinkResult(Copyable, Movable, Writable):
 
 @fieldwise_init
 struct _CacheEntry(Copyable, Movable):
-    var sequence: ChoiceSequence
-    var fingerprint: UInt64
-    var secondary_fingerprint: UInt64
-    var length: Int
+    var values: List[UInt64]
     var is_interesting: Bool
     var consumed: ChoiceSequence
+    var spans: List[Span]
 
 
 # Candidates are materialized in fixed-size batches rather than up to
@@ -60,201 +75,151 @@ struct _CacheEntry(Copyable, Movable):
 # the default 5,000-evaluation budget would retain tens of millions of
 # `ChoiceNode`s before the first one is evaluated.
 comptime CANDIDATE_BATCH = 64
+# Each entry keeps the replay result and its spans, so cap retained sequences.
+comptime MAX_CACHE_ENTRIES = 64
 
 
-def _page_size(remaining: Int) -> Int:
-    """Candidates to materialize in one page, capped by what is left."""
+def _batch_size(remaining: Int) -> Int:
+    """Candidates to materialize at once, capped by what is left."""
     if remaining < CANDIDATE_BATCH:
         return remaining
     return CANDIDATE_BATCH
 
 
-def _fingerprints(sequence: ChoiceSequence) -> Tuple[UInt64, UInt64]:
-    var first = UInt64(14695981039346656037)
-    var second = UInt64(7809847782465536322)
-    for i in range(len(sequence)):
-        var node = sequence.nodes[i].copy()
-        var forced = UInt64(0)
-        if node.forced:
-            forced = UInt64(1)
-        first = (first ^ UInt64(node.kind.value)) * UInt64(1099511628211)
-        first = (first ^ node.value) * UInt64(1099511628211)
-        first = (first ^ node.max_value) * UInt64(1099511628211)
-        first = (first ^ forced) * UInt64(1099511628211)
-        second = (second ^ UInt64(node.kind.value)) * UInt64(
-            14029467366897019727
-        )
-        second = (second ^ node.value) * UInt64(14029467366897019727)
-        second = (second ^ node.max_value) * UInt64(14029467366897019727)
-        second = (second ^ forced) * UInt64(14029467366897019727)
-    return (first, second)
+def _values_equal(a: List[UInt64], b: List[UInt64]) -> Bool:
+    if len(a) != len(b):
+        return False
+    for i in range(len(a)):
+        if a[i] != b[i]:
+            return False
+    return True
 
 
-def _cache_slot(
-    fingerprint: UInt64,
-    secondary_fingerprint: UInt64,
-    length: Int,
-    capacity: Int,
-) -> Int:
-    var key = fingerprint ^ secondary_fingerprint ^ UInt64(length)
-    key = (key ^ (key >> 33)) * UInt64(0xFF51AFD7ED558CCD)
-    key = (key ^ (key >> 33)) * UInt64(0xC4CEB9FE1A85EC53)
-    key = key ^ (key >> 33)
-    return Int(key % UInt64(capacity))
+def _remember(mut entries: List[_CacheEntry], entry: _CacheEntry) -> Int:
+    if len(entries) < MAX_CACHE_ENTRIES:
+        entries.append(entry.copy())
+        return len(entries) - 1
+    entries[MAX_CACHE_ENTRIES - 1] = entry.copy()
+    return MAX_CACHE_ENTRIES - 1
 
 
-def _lookup(
-    entries: List[_CacheEntry], slots: List[Int], sequence: ChoiceSequence
-) -> Int:
-    var (fingerprint, secondary_fingerprint) = _fingerprints(sequence)
-    var slot = _cache_slot(
-        fingerprint, secondary_fingerprint, len(sequence), len(slots)
-    )
-    while slots[slot] >= 0:
-        var i = slots[slot]
-        if (
-            entries[i].fingerprint == fingerprint
-            and entries[i].secondary_fingerprint == secondary_fingerprint
-            and entries[i].length == len(sequence)
-            and entries[i].sequence == sequence
-        ):
+def _lookup(entries: List[_CacheEntry], values: List[UInt64]) -> Int:
+    for i in range(len(entries)):
+        if _values_equal(entries[i].values, values):
             return i
-        slot += 1
-        if slot == len(slots):
-            slot = 0
     return -1
-
-
-def _append_cache_entry(
-    mut entries: List[_CacheEntry],
-    mut slots: List[Int],
-    sequence: ChoiceSequence,
-    is_interesting: Bool,
-    consumed: ChoiceSequence,
-):
-    var (fingerprint, secondary_fingerprint) = _fingerprints(sequence)
-    var cached_consumed = ChoiceSequence()
-    if is_interesting:
-        cached_consumed = consumed.copy()
-    entries.append(
-        _CacheEntry(
-            sequence.copy(),
-            fingerprint,
-            secondary_fingerprint,
-            len(sequence),
-            is_interesting,
-            cached_consumed^,
-        )
-    )
-    var slot = _cache_slot(
-        fingerprint, secondary_fingerprint, len(sequence), len(slots)
-    )
-    while slots[slot] >= 0:
-        slot += 1
-        if slot == len(slots):
-            slot = 0
-    slots[slot] = len(entries) - 1
-
-
-def _empty_cache_slots(max_evaluations: Int) -> List[Int]:
-    var capacity = 1
-    while capacity < max_evaluations * 2:
-        capacity *= 2
-    var slots = List[Int]()
-    for _ in range(capacity):
-        slots.append(-1)
-    return slots^
 
 
 def shrink[
     evaluate: def(ChoiceSequence) thin -> Evaluation
-](initial: ChoiceSequence, max_evaluations: Int) -> ShrinkResult:
+](
+    initial: ChoiceSequence, initial_spans: List[Span], max_evaluations: Int
+) -> ShrinkResult:
     """Apply passes to a fixed point, caching evaluations.
 
     `evaluate` runs one candidate in replay mode and reports whether it
     is interesting plus the actually-consumed prefix, which is what gets
-    adopted. A zero budget returns the input unchanged.
+    adopted. `initial_spans` are the spans recorded alongside `initial`;
+    every adoption refreshes them from the evaluation result, so later
+    span passes always see current structure. A zero budget returns the
+    input unchanged.
     """
     var best = initial.copy()
+    var best_spans = initial_spans.copy()
     if max_evaluations <= 0:
         return ShrinkResult(best^, 0, False)
 
     var entries = List[_CacheEntry]()
-    var slots = _empty_cache_slots(max_evaluations)
     var evaluations = 0
     var hit_budget = False
 
     while True:
         var improved = False
 
-        # Candidates are walked one bounded page at a time. Cache hits
-        # cost no evaluation, so they must not consume the cap: paging
-        # makes a page of hits advance `fetched` and simply fetch the
-        # next one, instead of hiding later uncached candidates behind a
-        # cached prefix and reporting a fixed point with budget left.
+        # Cache hits cost no evaluation, so they must not consume the
+        # materialization cap: refetch with a larger limit when the batch
+        # held only hits, otherwise a cached prefix hides later uncached
+        # candidates and the run reports a fixed point with budget
+        # remaining.
         var fetched = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _page_size(max_evaluations - evaluations)
-            var removals = delete_chunks(best.copy(), page, fetched)
-            var index = 0
-            while index < len(removals):
-                var cand = removals[index].copy()
-                index += 1
+            var want = _batch_size(max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), want, fetched)
+            var batch_index = 0
+            while batch_index < len(removals):
+                var cand = removals[batch_index].copy()
                 fetched += 1
-                if _lookup(entries, slots, cand) >= 0:
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
                     continue
                 evaluations += 1
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                _append_cache_entry(entries, slots, cand, interesting, consumed)
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
+                    best_spans = cspans^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(removals) < page:
+            if len(removals) < want:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        # Candidates are walked one bounded page at a time. Cache hits
-        # cost no evaluation, so they must not consume the cap: paging
-        # makes a page of hits advance `fetched` and simply fetch the
-        # next one, instead of hiding later uncached candidates behind a
-        # cached prefix and reporting a fixed point with budget left.
+        # Cache hits cost no evaluation, so they must not consume the
+        # materialization cap: refetch with a larger limit when the batch
+        # held only hits, otherwise a cached prefix hides later uncached
+        # candidates and the run reports a fixed point with budget
+        # remaining.
         var zeroed_count = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _page_size(max_evaluations - evaluations)
-            var zeroings = zero_chunks(best.copy(), page, zeroed_count)
-            var index = 0
-            while index < len(zeroings):
-                var cand = zeroings[index].copy()
-                index += 1
+            var want = _batch_size(max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), want, zeroed_count)
+            var batch_index = 0
+            while batch_index < len(zeroings):
+                var cand = zeroings[batch_index].copy()
                 zeroed_count += 1
-                if _lookup(entries, slots, cand) >= 0:
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
                     continue
                 evaluations += 1
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                _append_cache_entry(entries, slots, cand, interesting, consumed)
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
+                    best_spans = cspans^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(zeroings) < page:
+            if len(zeroings) < want:
                 break
         if hit_budget:
             break
@@ -272,52 +237,72 @@ def shrink[
                 continue
             var current = best.nodes[i].value
             var trial = best.with_value_at(i, UInt64(0))
-            var idx = _lookup(entries, slots, trial)
+            var key = trial.values()
+            var idx = _lookup(entries, key)
             var zero_interesting = False
             var zero_consumed = trial.copy()
+            var zero_spans = best_spans.copy()
             if idx >= 0:
                 zero_interesting = entries[idx].is_interesting
                 zero_consumed = entries[idx].consumed.copy()
+                zero_spans = entries[idx].spans.copy()
             else:
                 evaluations += 1
                 var result = evaluate(trial^)
                 zero_interesting = result.is_interesting
                 zero_consumed = result.consumed.copy()
-                _append_cache_entry(
-                    entries, slots, trial, zero_interesting, zero_consumed
+                zero_spans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^,
+                        zero_interesting,
+                        zero_consumed.copy(),
+                        zero_spans.copy(),
+                    ),
                 )
             if zero_interesting and is_shortlex_smaller(zero_consumed, best):
                 best = zero_consumed^
+                best_spans = zero_spans^
                 improved = True
                 break
+            var candidate = UInt64(1)
             var changed = False
-            var candidate_value = UInt64(1)
-            while candidate_value < current:
+            while candidate < current:
                 if evaluations >= max_evaluations:
                     hit_budget = True
                     break
-                var probe = best.with_value_at(i, candidate_value)
-                var pidx = _lookup(entries, slots, probe)
+                var probe = best.with_value_at(i, candidate)
+                var pkey = probe.values()
+                var pidx = _lookup(entries, pkey)
                 var p_interesting = False
                 var p_consumed = probe.copy()
+                var p_spans = best_spans.copy()
                 if pidx >= 0:
                     p_interesting = entries[pidx].is_interesting
                     p_consumed = entries[pidx].consumed.copy()
+                    p_spans = entries[pidx].spans.copy()
                 else:
                     evaluations += 1
                     var presult = evaluate(probe^)
                     p_interesting = presult.is_interesting
                     p_consumed = presult.consumed.copy()
-                    _append_cache_entry(
-                        entries, slots, probe, p_interesting, p_consumed
+                    p_spans = presult.spans.copy()
+                    _ = _remember(
+                        entries,
+                        _CacheEntry(
+                            pkey^,
+                            p_interesting,
+                            p_consumed.copy(),
+                            p_spans.copy(),
+                        ),
                     )
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
                     best = p_consumed^
+                    best_spans = p_spans^
                     changed = True
-                else:
-                    candidate_value += UInt64(1)
-                    continue
-                break
+                    break
+                candidate += UInt64(1)
             if hit_budget:
                 break
             if changed:
@@ -328,11 +313,404 @@ def shrink[
         if improved:
             continue
 
-        # lower_duplicates: lower same-valued choices together
-        var seen_dups = List[UInt64]()
-        for i in range(n):
+        var span_fetched = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
+                break
+            var want = _batch_size(max_evaluations - evaluations)
+            var span_removals = delete_spans(
+                best.copy(), best_spans.copy(), want, span_fetched
+            )
+            var batch_index = 0
+            while batch_index < len(span_removals):
+                var cand = span_removals[batch_index].copy()
+                span_fetched += 1
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = evaluate(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_removals) < want:
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        var span_zeroed = 0
+        while True:
+            if evaluations >= max_evaluations:
+                hit_budget = True
+                break
+            var want = _batch_size(max_evaluations - evaluations)
+            var span_zeroings = zero_spans(
+                best.copy(), best_spans.copy(), want, span_zeroed
+            )
+            var batch_index = 0
+            while batch_index < len(span_zeroings):
+                var cand = span_zeroings[batch_index].copy()
+                span_zeroed += 1
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = evaluate(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_zeroings) < want:
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        var span_sorts = sort_spans(best.copy(), best_spans.copy())
+        for j in range(len(span_sorts)):
+            if evaluations >= max_evaluations:
+                hit_budget = True
+                break
+            var cand = span_sorts[j].copy()
+            var key = cand.values()
+            if _lookup(entries, key) >= 0:
+                continue
+            evaluations += 1
+            var result = evaluate(cand^)
+            var interesting = result.is_interesting
+            var consumed = result.consumed.copy()
+            var cspans = result.spans.copy()
+            _ = _remember(
+                entries,
+                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy()),
+            )
+            if interesting and is_shortlex_smaller(consumed, best):
+                best = consumed^
+                best_spans = cspans^
+                improved = True
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        var span_swaps = swap_adjacent_spans(best.copy(), best_spans.copy())
+        for j in range(len(span_swaps)):
+            if evaluations >= max_evaluations:
+                hit_budget = True
+                break
+            var cand = span_swaps[j].copy()
+            var key = cand.values()
+            if _lookup(entries, key) >= 0:
+                continue
+            evaluations += 1
+            var result = evaluate(cand^)
+            var interesting = result.is_interesting
+            var consumed = result.consumed.copy()
+            var cspans = result.spans.copy()
+            _ = _remember(
+                entries,
+                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy()),
+            )
+            if interesting and is_shortlex_smaller(consumed, best):
+                best = consumed^
+                best_spans = cspans^
+                improved = True
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        var n_red = len(best)
+        for i in range(n_red):
+            if hit_budget:
+                break
+            if improved:
+                break
+            if best.nodes[i].forced:
+                continue
+            if best.nodes[i].kind != ChoiceKind.INTEGER:
+                continue
+            for j in range(i + 1, len(best)):
+                if best.nodes[j].forced:
+                    continue
+                if best.nodes[j].kind != ChoiceKind.INTEGER:
+                    continue
+                var a = best.nodes[i].value
+                var max_j = best.nodes[j].max_value
+                if a == UInt64(0):
+                    continue
+                if best.nodes[j].value >= max_j:
+                    continue
+                var base0 = best.with_value_at(i, UInt64(0))
+                var probe0max = base0.with_value_at(j, max_j)
+                var key0 = probe0max.values()
+                var idx0 = _lookup(entries, key0)
+                if idx0 < 0:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
+                    evaluations += 1
+                    var result = evaluate(probe0max^)
+
+                    idx0 = _remember(
+                        entries,
+                        _CacheEntry(
+                            key0^,
+                            result.is_interesting,
+                            result.consumed.copy(),
+                            result.spans.copy(),
+                        ),
+                    )
+                if hit_budget:
+                    break
+                if entries[idx0].is_interesting:
+                    var probe0z = base0.with_value_at(j, UInt64(0))
+                    var key0z = probe0z.values()
+                    var idx0z = _lookup(entries, key0z)
+                    if idx0z < 0:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var result = evaluate(probe0z^)
+
+                        idx0z = _remember(
+                            entries,
+                            _CacheEntry(
+                                key0z^,
+                                result.is_interesting,
+                                result.consumed.copy(),
+                                result.spans.copy(),
+                            ),
+                        )
+                    if hit_budget:
+                        break
+                    var jstar: UInt64
+                    if entries[idx0z].is_interesting:
+                        jstar = UInt64(0)
+                    else:
+                        var lo = UInt64(0)
+                        var hi = max_j
+                        while hi - lo > UInt64(1):
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            var mid = lo + (hi - lo) // UInt64(2)
+                            var pr = base0.with_value_at(j, mid)
+                            var pkey = pr.values()
+                            var pidx = _lookup(entries, pkey)
+                            if pidx < 0:
+                                evaluations += 1
+                                var presult = evaluate(pr^)
+
+                                pidx = _remember(
+                                    entries,
+                                    _CacheEntry(
+                                        pkey^,
+                                        presult.is_interesting,
+                                        presult.consumed.copy(),
+                                        presult.spans.copy(),
+                                    ),
+                                )
+                            if hit_budget:
+                                break
+                            if entries[pidx].is_interesting:
+                                hi = mid
+                            else:
+                                lo = mid
+                        if hit_budget:
+                            break
+                        jstar = hi
+                    var fincand = base0.with_value_at(j, jstar)
+                    var fkey = fincand.values()
+                    var fidx = _lookup(entries, fkey)
+                    if fidx < 0:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var result = evaluate(fincand^)
+
+                        fidx = _remember(
+                            entries,
+                            _CacheEntry(
+                                fkey^,
+                                result.is_interesting,
+                                result.consumed.copy(),
+                                result.spans.copy(),
+                            ),
+                        )
+                    if hit_budget:
+                        break
+                    if is_shortlex_smaller(entries[fidx].consumed, best):
+                        best = entries[fidx].consumed.copy()
+                        best_spans = entries[fidx].spans.copy()
+                        improved = True
+                        break
+                else:
+                    var lo = UInt64(0)
+                    var hi = a
+                    while hi - lo > UInt64(1):
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        var mid = lo + (hi - lo) // UInt64(2)
+                        var tm = best.with_value_at(i, mid)
+                        var pr = tm.with_value_at(j, max_j)
+                        var pkey = pr.values()
+                        var pidx = _lookup(entries, pkey)
+                        if pidx < 0:
+                            evaluations += 1
+                            var presult = evaluate(pr^)
+
+                            pidx = _remember(
+                                entries,
+                                _CacheEntry(
+                                    pkey^,
+                                    presult.is_interesting,
+                                    presult.consumed.copy(),
+                                    presult.spans.copy(),
+                                ),
+                            )
+                        if hit_budget:
+                            break
+                        if entries[pidx].is_interesting:
+                            hi = mid
+                        else:
+                            lo = mid
+                    if hit_budget:
+                        break
+                    if hi < a:
+                        var base_i_hi = best.with_value_at(i, hi)
+                        var probez = base_i_hi.with_value_at(j, UInt64(0))
+                        var zkey = probez.values()
+                        var zidx = _lookup(entries, zkey)
+                        if zidx < 0:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            evaluations += 1
+                            var result = evaluate(probez^)
+
+                            zidx = _remember(
+                                entries,
+                                _CacheEntry(
+                                    zkey^,
+                                    result.is_interesting,
+                                    result.consumed.copy(),
+                                    result.spans.copy(),
+                                ),
+                            )
+                        if hit_budget:
+                            break
+                        var jstar: UInt64
+                        if entries[zidx].is_interesting:
+                            jstar = UInt64(0)
+                        else:
+                            var lo2 = UInt64(0)
+                            var hi2 = max_j
+                            while hi2 - lo2 > UInt64(1):
+                                if evaluations >= max_evaluations:
+                                    hit_budget = True
+                                    break
+                                var mid2 = lo2 + (hi2 - lo2) // UInt64(2)
+                                var pr2 = base_i_hi.with_value_at(j, mid2)
+                                var pkey2 = pr2.values()
+                                var pidx2 = _lookup(entries, pkey2)
+                                if pidx2 < 0:
+                                    evaluations += 1
+                                    var presult = evaluate(pr2^)
+
+                                    pidx2 = _remember(
+                                        entries,
+                                        _CacheEntry(
+                                            pkey2^,
+                                            presult.is_interesting,
+                                            presult.consumed.copy(),
+                                            presult.spans.copy(),
+                                        ),
+                                    )
+                                if hit_budget:
+                                    break
+                                if entries[pidx2].is_interesting:
+                                    hi2 = mid2
+                                else:
+                                    lo2 = mid2
+                            if hit_budget:
+                                break
+                            jstar = hi2
+                        var candh = base_i_hi.with_value_at(j, jstar)
+                        var hkey = candh.values()
+                        var hidx = _lookup(entries, hkey)
+                        if hidx < 0:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            evaluations += 1
+                            var result = evaluate(candh^)
+
+                            hidx = _remember(
+                                entries,
+                                _CacheEntry(
+                                    hkey^,
+                                    result.is_interesting,
+                                    result.consumed.copy(),
+                                    result.spans.copy(),
+                                ),
+                            )
+                        if hit_budget:
+                            break
+                        if is_shortlex_smaller(entries[hidx].consumed, best):
+                            best = entries[hidx].consumed.copy()
+                            best_spans = entries[hidx].spans.copy()
+                            improved = True
+                            break
+            if hit_budget:
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        var seen = List[UInt64]()
+        var n_dup = len(best)
+        for i in range(n_dup):
+            if hit_budget:
+                break
+            if improved:
                 break
             if best.nodes[i].forced:
                 continue
@@ -340,43 +718,53 @@ def shrink[
             if v == UInt64(0):
                 continue
             var already = False
-            for k in range(len(seen_dups)):
-                if seen_dups[k] == v:
+            for k in range(len(seen)):
+                if seen[k] == v:
                     already = True
                     break
             if already:
                 continue
-            seen_dups.append(v)
             var group = List[Int]()
-            for k in range(n):
+            for k in range(len(best)):
                 if best.nodes[k].forced:
                     continue
                 if best.nodes[k].value == v:
                     group.append(k)
+            seen.append(v)
             if len(group) < 2:
                 continue
             var cand0 = best.copy()
             for g in range(len(group)):
                 cand0 = cand0.with_value_at(group[g], UInt64(0))
-            var idx0 = _lookup(entries, slots, cand0)
-            var c0_int: Bool
-            var c0_cons: ChoiceSequence
-            if idx0 >= 0:
-                c0_int = entries[idx0].is_interesting
-                c0_cons = entries[idx0].consumed.copy()
-            else:
+            var key0 = cand0.values()
+            var idx0 = _lookup(entries, key0)
+            if idx0 < 0:
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
                 evaluations += 1
-                var res = evaluate(cand0^)
-                c0_int = res.is_interesting
-                c0_cons = res.consumed.copy()
-                _append_cache_entry(entries, slots, cand0, c0_int, c0_cons)
-            if c0_int and is_shortlex_smaller(c0_cons, best):
-                best = c0_cons^
+                var result = evaluate(cand0^)
+
+                idx0 = _remember(
+                    entries,
+                    _CacheEntry(
+                        key0^,
+                        result.is_interesting,
+                        result.consumed.copy(),
+                        result.spans.copy(),
+                    ),
+                )
+            if hit_budget:
+                break
+            if entries[idx0].is_interesting and is_shortlex_smaller(
+                entries[idx0].consumed, best
+            ):
+                best = entries[idx0].consumed.copy()
+                best_spans = entries[idx0].spans.copy()
                 improved = True
                 break
             var lo = UInt64(0)
             var hi = v
-            var dup_changed = False
             while hi - lo > UInt64(1):
                 if evaluations >= max_evaluations:
                     hit_budget = True
@@ -385,189 +773,58 @@ def shrink[
                 var probe = best.copy()
                 for g in range(len(group)):
                     probe = probe.with_value_at(group[g], mid)
-                var pidx = _lookup(entries, slots, probe)
-                var p_int: Bool
-                var p_cons: ChoiceSequence
-                if pidx >= 0:
-                    p_int = entries[pidx].is_interesting
-                    p_cons = entries[pidx].consumed.copy()
-                else:
+                var pkey = probe.values()
+                var pidx = _lookup(entries, pkey)
+                if pidx < 0:
                     evaluations += 1
-                    var res = evaluate(probe^)
-                    p_int = res.is_interesting
-                    p_cons = res.consumed.copy()
-                    _append_cache_entry(entries, slots, probe, p_int, p_cons)
-                if p_int:
+                    var presult = evaluate(probe^)
+
+                    pidx = _remember(
+                        entries,
+                        _CacheEntry(
+                            pkey^,
+                            presult.is_interesting,
+                            presult.consumed.copy(),
+                            presult.spans.copy(),
+                        ),
+                    )
+                if hit_budget:
+                    break
+                if entries[pidx].is_interesting:
                     hi = mid
-                    if is_shortlex_smaller(p_cons, best):
-                        best = p_cons^
-                        dup_changed = True
                 else:
                     lo = mid
             if hit_budget:
                 break
-            if dup_changed:
-                improved = True
-                break
-        if hit_budget:
-            break
-        if improved:
-            continue
-
-        # redistribute: move value from earlier integer choice to later one
-        var redist_changed = False
-        for i in range(n):
-            if redist_changed or evaluations >= max_evaluations:
-                break
-            if best.nodes[i].forced or best.nodes[i].kind != ChoiceKind.INTEGER:
-                continue
-            var a = best.nodes[i].value
-            if a == UInt64(0):
-                continue
-            for j in range(i + 1, n):
-                if evaluations >= max_evaluations:
-                    hit_budget = True
-                    break
-                if (
-                    best.nodes[j].forced
-                    or best.nodes[j].kind != ChoiceKind.INTEGER
-                ):
-                    continue
-                var b = best.nodes[j].value
-                var max_j = best.nodes[j].max_value
-                if b >= max_j:
-                    continue
-
-                var j_maxed = best.with_value_at(j, max_j)
-                var probe0 = j_maxed.with_value_at(i, UInt64(0))
-                var idx0 = _lookup(entries, slots, probe0)
-                var p0_int: Bool
-                var p0_cons: ChoiceSequence
-                if idx0 >= 0:
-                    p0_int = entries[idx0].is_interesting
-                    p0_cons = entries[idx0].consumed.copy()
-                else:
+            if hi < v:
+                var candh = best.copy()
+                for g in range(len(group)):
+                    candh = candh.with_value_at(group[g], hi)
+                var hkey = candh.values()
+                var hidx = _lookup(entries, hkey)
+                if hidx < 0:
                     if evaluations >= max_evaluations:
                         hit_budget = True
                         break
                     evaluations += 1
-                    var res = evaluate(probe0^)
-                    p0_int = res.is_interesting
-                    p0_cons = res.consumed.copy()
-                    _append_cache_entry(entries, slots, probe0, p0_int, p0_cons)
+                    var result = evaluate(candh^)
 
-                var target_i = UInt64(0)
-                var found_target_i = False
-                if p0_int:
-                    target_i = UInt64(0)
-                    found_target_i = True
-                else:
-                    var lo_i = UInt64(0)
-                    var hi_i = a
-                    while hi_i - lo_i > UInt64(1):
-                        if evaluations >= max_evaluations:
-                            hit_budget = True
-                            break
-                        var mid_i = lo_i + (hi_i - lo_i) // UInt64(2)
-                        var probe_i = j_maxed.with_value_at(i, mid_i)
-                        var idx_i = _lookup(entries, slots, probe_i)
-                        var pi_int: Bool
-                        var pi_cons: ChoiceSequence
-                        if idx_i >= 0:
-                            pi_int = entries[idx_i].is_interesting
-                            pi_cons = entries[idx_i].consumed.copy()
-                        else:
-                            if evaluations >= max_evaluations:
-                                hit_budget = True
-                                break
-                            evaluations += 1
-                            var res = evaluate(probe_i^)
-                            pi_int = res.is_interesting
-                            pi_cons = res.consumed.copy()
-                            _append_cache_entry(
-                                entries, slots, probe_i, pi_int, pi_cons
-                            )
-                        if pi_int:
-                            hi_i = mid_i
-                        else:
-                            lo_i = mid_i
-                    if hit_budget:
-                        break
-                    if hi_i < a:
-                        target_i = hi_i
-                        found_target_i = True
-
-                if found_target_i:
-                    if evaluations >= max_evaluations:
-                        hit_budget = True
-                        break
-                    var base_seq = best.with_value_at(i, target_i)
-                    var probe_j0 = base_seq.with_value_at(j, UInt64(0))
-                    var idx_j0 = _lookup(entries, slots, probe_j0)
-                    var pj0_int: Bool
-                    var pj0_cons: ChoiceSequence
-                    if idx_j0 >= 0:
-                        pj0_int = entries[idx_j0].is_interesting
-                        pj0_cons = entries[idx_j0].consumed.copy()
-                    else:
-                        if evaluations >= max_evaluations:
-                            hit_budget = True
-                            break
-                        evaluations += 1
-                        var res = evaluate(probe_j0^)
-                        pj0_int = res.is_interesting
-                        pj0_cons = res.consumed.copy()
-                        _append_cache_entry(
-                            entries, slots, probe_j0, pj0_int, pj0_cons
-                        )
-
-                    if pj0_int and is_shortlex_smaller(pj0_cons, best):
-                        best = pj0_cons^
-                        redist_changed = True
-                        improved = True
-                        break
-
-                    var lo_j = UInt64(0)
-                    var hi_j = max_j
-                    var best_j_cand = ChoiceSequence()
-                    var had_j_cand = False
-                    while hi_j - lo_j > UInt64(1):
-                        if evaluations >= max_evaluations:
-                            hit_budget = True
-                            break
-                        var mid_j = lo_j + (hi_j - lo_j) // UInt64(2)
-                        var probe_j = base_seq.with_value_at(j, mid_j)
-                        var idx_j = _lookup(entries, slots, probe_j)
-                        var pj_int: Bool
-                        var pj_cons: ChoiceSequence
-                        if idx_j >= 0:
-                            pj_int = entries[idx_j].is_interesting
-                            pj_cons = entries[idx_j].consumed.copy()
-                        else:
-                            if evaluations >= max_evaluations:
-                                hit_budget = True
-                                break
-                            evaluations += 1
-                            var res = evaluate(probe_j^)
-                            pj_int = res.is_interesting
-                            pj_cons = res.consumed.copy()
-                            _append_cache_entry(
-                                entries, slots, probe_j, pj_int, pj_cons
-                            )
-                        if pj_int:
-                            hi_j = mid_j
-                            if is_shortlex_smaller(pj_cons, best):
-                                best_j_cand = pj_cons^
-                                had_j_cand = True
-                        else:
-                            lo_j = mid_j
-                    if had_j_cand:
-                        best = best_j_cand^
-                        redist_changed = True
-                        improved = True
-                        break
-                    if hit_budget:
-                        break
+                    hidx = _remember(
+                        entries,
+                        _CacheEntry(
+                            hkey^,
+                            result.is_interesting,
+                            result.consumed.copy(),
+                            result.spans.copy(),
+                        ),
+                    )
+                if hit_budget:
+                    break
+                if is_shortlex_smaller(entries[hidx].consumed, best):
+                    best = entries[hidx].consumed.copy()
+                    best_spans = entries[hidx].spans.copy()
+                    improved = True
+                    break
         if hit_budget:
             break
         if not improved:
@@ -579,7 +836,10 @@ def shrink[
 def shrink_with[
     E: def(ChoiceSequence) raises -> Evaluation
 ](
-    eval_fn: E, initial: ChoiceSequence, max_evaluations: Int
+    eval_fn: E,
+    initial: ChoiceSequence,
+    initial_spans: List[Span],
+    max_evaluations: Int,
 ) raises -> ShrinkResult:
     """Same loop as `shrink`, with a runtime closure as the evaluator.
 
@@ -591,85 +851,101 @@ def shrink_with[
     the compiler allows it.
     """
     var best = initial.copy()
+    var best_spans = initial_spans.copy()
     if max_evaluations <= 0:
         return ShrinkResult(best^, 0, False)
 
     var entries = List[_CacheEntry]()
-    var slots = _empty_cache_slots(max_evaluations)
     var evaluations = 0
     var hit_budget = False
 
     while True:
         var improved = False
 
-        # Candidates are walked one bounded page at a time. Cache hits
-        # cost no evaluation, so they must not consume the cap: paging
-        # makes a page of hits advance `fetched` and simply fetch the
-        # next one, instead of hiding later uncached candidates behind a
-        # cached prefix and reporting a fixed point with budget left.
+        # Cache hits cost no evaluation, so they must not consume the
+        # materialization cap: refetch with a larger limit when the batch
+        # held only hits, otherwise a cached prefix hides later uncached
+        # candidates and the run reports a fixed point with budget
+        # remaining.
         var fetched = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _page_size(max_evaluations - evaluations)
-            var removals = delete_chunks(best.copy(), page, fetched)
-            var index = 0
-            while index < len(removals):
-                var cand = removals[index].copy()
-                index += 1
+            var want = _batch_size(max_evaluations - evaluations)
+            var removals = delete_chunks(best.copy(), want, fetched)
+            var batch_index = 0
+            while batch_index < len(removals):
+                var cand = removals[batch_index].copy()
                 fetched += 1
-                if _lookup(entries, slots, cand) >= 0:
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
                     continue
                 evaluations += 1
                 var result = eval_fn(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                _append_cache_entry(entries, slots, cand, interesting, consumed)
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
+                    best_spans = cspans^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(removals) < page:
+            if len(removals) < want:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        # Candidates are walked one bounded page at a time. Cache hits
-        # cost no evaluation, so they must not consume the cap: paging
-        # makes a page of hits advance `fetched` and simply fetch the
-        # next one, instead of hiding later uncached candidates behind a
-        # cached prefix and reporting a fixed point with budget left.
+        # Cache hits cost no evaluation, so they must not consume the
+        # materialization cap: refetch with a larger limit when the batch
+        # held only hits, otherwise a cached prefix hides later uncached
+        # candidates and the run reports a fixed point with budget
+        # remaining.
         var zeroed_count = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _page_size(max_evaluations - evaluations)
-            var zeroings = zero_chunks(best.copy(), page, zeroed_count)
-            var index = 0
-            while index < len(zeroings):
-                var cand = zeroings[index].copy()
-                index += 1
+            var want = _batch_size(max_evaluations - evaluations)
+            var zeroings = zero_chunks(best.copy(), want, zeroed_count)
+            var batch_index = 0
+            while batch_index < len(zeroings):
+                var cand = zeroings[batch_index].copy()
                 zeroed_count += 1
-                if _lookup(entries, slots, cand) >= 0:
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
                     continue
                 evaluations += 1
                 var result = eval_fn(cand^)
                 var interesting = result.is_interesting
                 var consumed = result.consumed.copy()
-                _append_cache_entry(entries, slots, cand, interesting, consumed)
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
                 if interesting and is_shortlex_smaller(consumed, best):
                     best = consumed^
+                    best_spans = cspans^
                     improved = True
                     break
             if improved or hit_budget:
                 break
-            if len(zeroings) < page:
+            if len(zeroings) < want:
                 break
         if hit_budget:
             break
@@ -687,52 +963,72 @@ def shrink_with[
                 continue
             var current = best.nodes[i].value
             var trial = best.with_value_at(i, UInt64(0))
-            var idx = _lookup(entries, slots, trial)
+            var key = trial.values()
+            var idx = _lookup(entries, key)
             var zero_interesting = False
             var zero_consumed = trial.copy()
+            var zero_spans = best_spans.copy()
             if idx >= 0:
                 zero_interesting = entries[idx].is_interesting
                 zero_consumed = entries[idx].consumed.copy()
+                zero_spans = entries[idx].spans.copy()
             else:
                 evaluations += 1
                 var result = eval_fn(trial^)
                 zero_interesting = result.is_interesting
                 zero_consumed = result.consumed.copy()
-                _append_cache_entry(
-                    entries, slots, trial, zero_interesting, zero_consumed
+                zero_spans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^,
+                        zero_interesting,
+                        zero_consumed.copy(),
+                        zero_spans.copy(),
+                    ),
                 )
             if zero_interesting and is_shortlex_smaller(zero_consumed, best):
                 best = zero_consumed^
+                best_spans = zero_spans^
                 improved = True
                 break
+            var candidate = UInt64(1)
             var changed = False
-            var candidate_value = UInt64(1)
-            while candidate_value < current:
+            while candidate < current:
                 if evaluations >= max_evaluations:
                     hit_budget = True
                     break
-                var probe = best.with_value_at(i, candidate_value)
-                var pidx = _lookup(entries, slots, probe)
+                var probe = best.with_value_at(i, candidate)
+                var pkey = probe.values()
+                var pidx = _lookup(entries, pkey)
                 var p_interesting = False
                 var p_consumed = probe.copy()
+                var p_spans = best_spans.copy()
                 if pidx >= 0:
                     p_interesting = entries[pidx].is_interesting
                     p_consumed = entries[pidx].consumed.copy()
+                    p_spans = entries[pidx].spans.copy()
                 else:
                     evaluations += 1
                     var presult = eval_fn(probe^)
                     p_interesting = presult.is_interesting
                     p_consumed = presult.consumed.copy()
-                    _append_cache_entry(
-                        entries, slots, probe, p_interesting, p_consumed
+                    p_spans = presult.spans.copy()
+                    _ = _remember(
+                        entries,
+                        _CacheEntry(
+                            pkey^,
+                            p_interesting,
+                            p_consumed.copy(),
+                            p_spans.copy(),
+                        ),
                     )
                 if p_interesting and is_shortlex_smaller(p_consumed, best):
                     best = p_consumed^
+                    best_spans = p_spans^
                     changed = True
-                else:
-                    candidate_value += UInt64(1)
-                    continue
-                break
+                    break
+                candidate += UInt64(1)
             if hit_budget:
                 break
             if changed:
@@ -743,11 +1039,404 @@ def shrink_with[
         if improved:
             continue
 
-        # lower_duplicates: lower same-valued choices together
-        var seen_dups = List[UInt64]()
-        for i in range(n):
+        var span_fetched = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
+                break
+            var want = _batch_size(max_evaluations - evaluations)
+            var span_removals = delete_spans(
+                best.copy(), best_spans.copy(), want, span_fetched
+            )
+            var batch_index = 0
+            while batch_index < len(span_removals):
+                var cand = span_removals[batch_index].copy()
+                span_fetched += 1
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = eval_fn(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_removals) < want:
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        var span_zeroed = 0
+        while True:
+            if evaluations >= max_evaluations:
+                hit_budget = True
+                break
+            var want = _batch_size(max_evaluations - evaluations)
+            var span_zeroings = zero_spans(
+                best.copy(), best_spans.copy(), want, span_zeroed
+            )
+            var batch_index = 0
+            while batch_index < len(span_zeroings):
+                var cand = span_zeroings[batch_index].copy()
+                span_zeroed += 1
+                batch_index += 1
+                var key = cand.values()
+                if _lookup(entries, key) >= 0:
+                    continue
+                evaluations += 1
+                var result = eval_fn(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _ = _remember(
+                    entries,
+                    _CacheEntry(
+                        key^, interesting, consumed.copy(), cspans.copy()
+                    ),
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_zeroings) < want:
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        var span_sorts = sort_spans(best.copy(), best_spans.copy())
+        for j in range(len(span_sorts)):
+            if evaluations >= max_evaluations:
+                hit_budget = True
+                break
+            var cand = span_sorts[j].copy()
+            var key = cand.values()
+            if _lookup(entries, key) >= 0:
+                continue
+            evaluations += 1
+            var result = eval_fn(cand^)
+            var interesting = result.is_interesting
+            var consumed = result.consumed.copy()
+            var cspans = result.spans.copy()
+            _ = _remember(
+                entries,
+                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy()),
+            )
+            if interesting and is_shortlex_smaller(consumed, best):
+                best = consumed^
+                best_spans = cspans^
+                improved = True
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        var span_swaps = swap_adjacent_spans(best.copy(), best_spans.copy())
+        for j in range(len(span_swaps)):
+            if evaluations >= max_evaluations:
+                hit_budget = True
+                break
+            var cand = span_swaps[j].copy()
+            var key = cand.values()
+            if _lookup(entries, key) >= 0:
+                continue
+            evaluations += 1
+            var result = eval_fn(cand^)
+            var interesting = result.is_interesting
+            var consumed = result.consumed.copy()
+            var cspans = result.spans.copy()
+            _ = _remember(
+                entries,
+                _CacheEntry(key^, interesting, consumed.copy(), cspans.copy()),
+            )
+            if interesting and is_shortlex_smaller(consumed, best):
+                best = consumed^
+                best_spans = cspans^
+                improved = True
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        var n_red = len(best)
+        for i in range(n_red):
+            if hit_budget:
+                break
+            if improved:
+                break
+            if best.nodes[i].forced:
+                continue
+            if best.nodes[i].kind != ChoiceKind.INTEGER:
+                continue
+            for j in range(i + 1, len(best)):
+                if best.nodes[j].forced:
+                    continue
+                if best.nodes[j].kind != ChoiceKind.INTEGER:
+                    continue
+                var a = best.nodes[i].value
+                var max_j = best.nodes[j].max_value
+                if a == UInt64(0):
+                    continue
+                if best.nodes[j].value >= max_j:
+                    continue
+                var base0 = best.with_value_at(i, UInt64(0))
+                var probe0max = base0.with_value_at(j, max_j)
+                var key0 = probe0max.values()
+                var idx0 = _lookup(entries, key0)
+                if idx0 < 0:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
+                    evaluations += 1
+                    var result = eval_fn(probe0max^)
+
+                    idx0 = _remember(
+                        entries,
+                        _CacheEntry(
+                            key0^,
+                            result.is_interesting,
+                            result.consumed.copy(),
+                            result.spans.copy(),
+                        ),
+                    )
+                if hit_budget:
+                    break
+                if entries[idx0].is_interesting:
+                    var probe0z = base0.with_value_at(j, UInt64(0))
+                    var key0z = probe0z.values()
+                    var idx0z = _lookup(entries, key0z)
+                    if idx0z < 0:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var result = eval_fn(probe0z^)
+
+                        idx0z = _remember(
+                            entries,
+                            _CacheEntry(
+                                key0z^,
+                                result.is_interesting,
+                                result.consumed.copy(),
+                                result.spans.copy(),
+                            ),
+                        )
+                    if hit_budget:
+                        break
+                    var jstar: UInt64
+                    if entries[idx0z].is_interesting:
+                        jstar = UInt64(0)
+                    else:
+                        var lo = UInt64(0)
+                        var hi = max_j
+                        while hi - lo > UInt64(1):
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            var mid = lo + (hi - lo) // UInt64(2)
+                            var pr = base0.with_value_at(j, mid)
+                            var pkey = pr.values()
+                            var pidx = _lookup(entries, pkey)
+                            if pidx < 0:
+                                evaluations += 1
+                                var presult = eval_fn(pr^)
+
+                                pidx = _remember(
+                                    entries,
+                                    _CacheEntry(
+                                        pkey^,
+                                        presult.is_interesting,
+                                        presult.consumed.copy(),
+                                        presult.spans.copy(),
+                                    ),
+                                )
+                            if hit_budget:
+                                break
+                            if entries[pidx].is_interesting:
+                                hi = mid
+                            else:
+                                lo = mid
+                        if hit_budget:
+                            break
+                        jstar = hi
+                    var fincand = base0.with_value_at(j, jstar)
+                    var fkey = fincand.values()
+                    var fidx = _lookup(entries, fkey)
+                    if fidx < 0:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var result = eval_fn(fincand^)
+
+                        fidx = _remember(
+                            entries,
+                            _CacheEntry(
+                                fkey^,
+                                result.is_interesting,
+                                result.consumed.copy(),
+                                result.spans.copy(),
+                            ),
+                        )
+                    if hit_budget:
+                        break
+                    if is_shortlex_smaller(entries[fidx].consumed, best):
+                        best = entries[fidx].consumed.copy()
+                        best_spans = entries[fidx].spans.copy()
+                        improved = True
+                        break
+                else:
+                    var lo = UInt64(0)
+                    var hi = a
+                    while hi - lo > UInt64(1):
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        var mid = lo + (hi - lo) // UInt64(2)
+                        var tm = best.with_value_at(i, mid)
+                        var pr = tm.with_value_at(j, max_j)
+                        var pkey = pr.values()
+                        var pidx = _lookup(entries, pkey)
+                        if pidx < 0:
+                            evaluations += 1
+                            var presult = eval_fn(pr^)
+
+                            pidx = _remember(
+                                entries,
+                                _CacheEntry(
+                                    pkey^,
+                                    presult.is_interesting,
+                                    presult.consumed.copy(),
+                                    presult.spans.copy(),
+                                ),
+                            )
+                        if hit_budget:
+                            break
+                        if entries[pidx].is_interesting:
+                            hi = mid
+                        else:
+                            lo = mid
+                    if hit_budget:
+                        break
+                    if hi < a:
+                        var base_i_hi = best.with_value_at(i, hi)
+                        var probez = base_i_hi.with_value_at(j, UInt64(0))
+                        var zkey = probez.values()
+                        var zidx = _lookup(entries, zkey)
+                        if zidx < 0:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            evaluations += 1
+                            var result = eval_fn(probez^)
+
+                            zidx = _remember(
+                                entries,
+                                _CacheEntry(
+                                    zkey^,
+                                    result.is_interesting,
+                                    result.consumed.copy(),
+                                    result.spans.copy(),
+                                ),
+                            )
+                        if hit_budget:
+                            break
+                        var jstar: UInt64
+                        if entries[zidx].is_interesting:
+                            jstar = UInt64(0)
+                        else:
+                            var lo2 = UInt64(0)
+                            var hi2 = max_j
+                            while hi2 - lo2 > UInt64(1):
+                                if evaluations >= max_evaluations:
+                                    hit_budget = True
+                                    break
+                                var mid2 = lo2 + (hi2 - lo2) // UInt64(2)
+                                var pr2 = base_i_hi.with_value_at(j, mid2)
+                                var pkey2 = pr2.values()
+                                var pidx2 = _lookup(entries, pkey2)
+                                if pidx2 < 0:
+                                    evaluations += 1
+                                    var presult = eval_fn(pr2^)
+
+                                    pidx2 = _remember(
+                                        entries,
+                                        _CacheEntry(
+                                            pkey2^,
+                                            presult.is_interesting,
+                                            presult.consumed.copy(),
+                                            presult.spans.copy(),
+                                        ),
+                                    )
+                                if hit_budget:
+                                    break
+                                if entries[pidx2].is_interesting:
+                                    hi2 = mid2
+                                else:
+                                    lo2 = mid2
+                            if hit_budget:
+                                break
+                            jstar = hi2
+                        var candh = base_i_hi.with_value_at(j, jstar)
+                        var hkey = candh.values()
+                        var hidx = _lookup(entries, hkey)
+                        if hidx < 0:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            evaluations += 1
+                            var result = eval_fn(candh^)
+
+                            hidx = _remember(
+                                entries,
+                                _CacheEntry(
+                                    hkey^,
+                                    result.is_interesting,
+                                    result.consumed.copy(),
+                                    result.spans.copy(),
+                                ),
+                            )
+                        if hit_budget:
+                            break
+                        if is_shortlex_smaller(entries[hidx].consumed, best):
+                            best = entries[hidx].consumed.copy()
+                            best_spans = entries[hidx].spans.copy()
+                            improved = True
+                            break
+            if hit_budget:
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        var seen = List[UInt64]()
+        var n_dup = len(best)
+        for i in range(n_dup):
+            if hit_budget:
+                break
+            if improved:
                 break
             if best.nodes[i].forced:
                 continue
@@ -755,43 +1444,53 @@ def shrink_with[
             if v == UInt64(0):
                 continue
             var already = False
-            for k in range(len(seen_dups)):
-                if seen_dups[k] == v:
+            for k in range(len(seen)):
+                if seen[k] == v:
                     already = True
                     break
             if already:
                 continue
-            seen_dups.append(v)
             var group = List[Int]()
-            for k in range(n):
+            for k in range(len(best)):
                 if best.nodes[k].forced:
                     continue
                 if best.nodes[k].value == v:
                     group.append(k)
+            seen.append(v)
             if len(group) < 2:
                 continue
             var cand0 = best.copy()
             for g in range(len(group)):
                 cand0 = cand0.with_value_at(group[g], UInt64(0))
-            var idx0 = _lookup(entries, slots, cand0)
-            var c0_int: Bool
-            var c0_cons: ChoiceSequence
-            if idx0 >= 0:
-                c0_int = entries[idx0].is_interesting
-                c0_cons = entries[idx0].consumed.copy()
-            else:
+            var key0 = cand0.values()
+            var idx0 = _lookup(entries, key0)
+            if idx0 < 0:
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
                 evaluations += 1
-                var res = eval_fn(cand0^)
-                c0_int = res.is_interesting
-                c0_cons = res.consumed.copy()
-                _append_cache_entry(entries, slots, cand0, c0_int, c0_cons)
-            if c0_int and is_shortlex_smaller(c0_cons, best):
-                best = c0_cons^
+                var result = eval_fn(cand0^)
+
+                idx0 = _remember(
+                    entries,
+                    _CacheEntry(
+                        key0^,
+                        result.is_interesting,
+                        result.consumed.copy(),
+                        result.spans.copy(),
+                    ),
+                )
+            if hit_budget:
+                break
+            if entries[idx0].is_interesting and is_shortlex_smaller(
+                entries[idx0].consumed, best
+            ):
+                best = entries[idx0].consumed.copy()
+                best_spans = entries[idx0].spans.copy()
                 improved = True
                 break
             var lo = UInt64(0)
             var hi = v
-            var dup_changed = False
             while hi - lo > UInt64(1):
                 if evaluations >= max_evaluations:
                     hit_budget = True
@@ -800,189 +1499,58 @@ def shrink_with[
                 var probe = best.copy()
                 for g in range(len(group)):
                     probe = probe.with_value_at(group[g], mid)
-                var pidx = _lookup(entries, slots, probe)
-                var p_int: Bool
-                var p_cons: ChoiceSequence
-                if pidx >= 0:
-                    p_int = entries[pidx].is_interesting
-                    p_cons = entries[pidx].consumed.copy()
-                else:
+                var pkey = probe.values()
+                var pidx = _lookup(entries, pkey)
+                if pidx < 0:
                     evaluations += 1
-                    var res = eval_fn(probe^)
-                    p_int = res.is_interesting
-                    p_cons = res.consumed.copy()
-                    _append_cache_entry(entries, slots, probe, p_int, p_cons)
-                if p_int:
+                    var presult = eval_fn(probe^)
+
+                    pidx = _remember(
+                        entries,
+                        _CacheEntry(
+                            pkey^,
+                            presult.is_interesting,
+                            presult.consumed.copy(),
+                            presult.spans.copy(),
+                        ),
+                    )
+                if hit_budget:
+                    break
+                if entries[pidx].is_interesting:
                     hi = mid
-                    if is_shortlex_smaller(p_cons, best):
-                        best = p_cons^
-                        dup_changed = True
                 else:
                     lo = mid
             if hit_budget:
                 break
-            if dup_changed:
-                improved = True
-                break
-        if hit_budget:
-            break
-        if improved:
-            continue
-
-        # redistribute: move value from earlier integer choice to later one
-        var redist_changed = False
-        for i in range(n):
-            if redist_changed or evaluations >= max_evaluations:
-                break
-            if best.nodes[i].forced or best.nodes[i].kind != ChoiceKind.INTEGER:
-                continue
-            var a = best.nodes[i].value
-            if a == UInt64(0):
-                continue
-            for j in range(i + 1, n):
-                if evaluations >= max_evaluations:
-                    hit_budget = True
-                    break
-                if (
-                    best.nodes[j].forced
-                    or best.nodes[j].kind != ChoiceKind.INTEGER
-                ):
-                    continue
-                var b = best.nodes[j].value
-                var max_j = best.nodes[j].max_value
-                if b >= max_j:
-                    continue
-
-                var j_maxed = best.with_value_at(j, max_j)
-                var probe0 = j_maxed.with_value_at(i, UInt64(0))
-                var idx0 = _lookup(entries, slots, probe0)
-                var p0_int: Bool
-                var p0_cons: ChoiceSequence
-                if idx0 >= 0:
-                    p0_int = entries[idx0].is_interesting
-                    p0_cons = entries[idx0].consumed.copy()
-                else:
+            if hi < v:
+                var candh = best.copy()
+                for g in range(len(group)):
+                    candh = candh.with_value_at(group[g], hi)
+                var hkey = candh.values()
+                var hidx = _lookup(entries, hkey)
+                if hidx < 0:
                     if evaluations >= max_evaluations:
                         hit_budget = True
                         break
                     evaluations += 1
-                    var res = eval_fn(probe0^)
-                    p0_int = res.is_interesting
-                    p0_cons = res.consumed.copy()
-                    _append_cache_entry(entries, slots, probe0, p0_int, p0_cons)
+                    var result = eval_fn(candh^)
 
-                var target_i = UInt64(0)
-                var found_target_i = False
-                if p0_int:
-                    target_i = UInt64(0)
-                    found_target_i = True
-                else:
-                    var lo_i = UInt64(0)
-                    var hi_i = a
-                    while hi_i - lo_i > UInt64(1):
-                        if evaluations >= max_evaluations:
-                            hit_budget = True
-                            break
-                        var mid_i = lo_i + (hi_i - lo_i) // UInt64(2)
-                        var probe_i = j_maxed.with_value_at(i, mid_i)
-                        var idx_i = _lookup(entries, slots, probe_i)
-                        var pi_int: Bool
-                        var pi_cons: ChoiceSequence
-                        if idx_i >= 0:
-                            pi_int = entries[idx_i].is_interesting
-                            pi_cons = entries[idx_i].consumed.copy()
-                        else:
-                            if evaluations >= max_evaluations:
-                                hit_budget = True
-                                break
-                            evaluations += 1
-                            var res = eval_fn(probe_i^)
-                            pi_int = res.is_interesting
-                            pi_cons = res.consumed.copy()
-                            _append_cache_entry(
-                                entries, slots, probe_i, pi_int, pi_cons
-                            )
-                        if pi_int:
-                            hi_i = mid_i
-                        else:
-                            lo_i = mid_i
-                    if hit_budget:
-                        break
-                    if hi_i < a:
-                        target_i = hi_i
-                        found_target_i = True
-
-                if found_target_i:
-                    if evaluations >= max_evaluations:
-                        hit_budget = True
-                        break
-                    var base_seq = best.with_value_at(i, target_i)
-                    var probe_j0 = base_seq.with_value_at(j, UInt64(0))
-                    var idx_j0 = _lookup(entries, slots, probe_j0)
-                    var pj0_int: Bool
-                    var pj0_cons: ChoiceSequence
-                    if idx_j0 >= 0:
-                        pj0_int = entries[idx_j0].is_interesting
-                        pj0_cons = entries[idx_j0].consumed.copy()
-                    else:
-                        if evaluations >= max_evaluations:
-                            hit_budget = True
-                            break
-                        evaluations += 1
-                        var res = eval_fn(probe_j0^)
-                        pj0_int = res.is_interesting
-                        pj0_cons = res.consumed.copy()
-                        _append_cache_entry(
-                            entries, slots, probe_j0, pj0_int, pj0_cons
-                        )
-
-                    if pj0_int and is_shortlex_smaller(pj0_cons, best):
-                        best = pj0_cons^
-                        redist_changed = True
-                        improved = True
-                        break
-
-                    var lo_j = UInt64(0)
-                    var hi_j = max_j
-                    var best_j_cand = ChoiceSequence()
-                    var had_j_cand = False
-                    while hi_j - lo_j > UInt64(1):
-                        if evaluations >= max_evaluations:
-                            hit_budget = True
-                            break
-                        var mid_j = lo_j + (hi_j - lo_j) // UInt64(2)
-                        var probe_j = base_seq.with_value_at(j, mid_j)
-                        var idx_j = _lookup(entries, slots, probe_j)
-                        var pj_int: Bool
-                        var pj_cons: ChoiceSequence
-                        if idx_j >= 0:
-                            pj_int = entries[idx_j].is_interesting
-                            pj_cons = entries[idx_j].consumed.copy()
-                        else:
-                            if evaluations >= max_evaluations:
-                                hit_budget = True
-                                break
-                            evaluations += 1
-                            var res = eval_fn(probe_j^)
-                            pj_int = res.is_interesting
-                            pj_cons = res.consumed.copy()
-                            _append_cache_entry(
-                                entries, slots, probe_j, pj_int, pj_cons
-                            )
-                        if pj_int:
-                            hi_j = mid_j
-                            if is_shortlex_smaller(pj_cons, best):
-                                best_j_cand = pj_cons^
-                                had_j_cand = True
-                        else:
-                            lo_j = mid_j
-                    if had_j_cand:
-                        best = best_j_cand^
-                        redist_changed = True
-                        improved = True
-                        break
-                    if hit_budget:
-                        break
+                    hidx = _remember(
+                        entries,
+                        _CacheEntry(
+                            hkey^,
+                            result.is_interesting,
+                            result.consumed.copy(),
+                            result.spans.copy(),
+                        ),
+                    )
+                if hit_budget:
+                    break
+                if is_shortlex_smaller(entries[hidx].consumed, best):
+                    best = entries[hidx].consumed.copy()
+                    best_spans = entries[hidx].spans.copy()
+                    improved = True
+                    break
         if hit_budget:
             break
         if not improved:
