@@ -8,6 +8,7 @@ from proptest.choice import (
     is_shortlex_smaller,
     shortlex_compare,
 )
+from proptest.database import ExampleDatabase
 from proptest.encoding import (
     decode_sequence,
     decode_values,
@@ -15,7 +16,12 @@ from proptest.encoding import (
     encode_values,
 )
 from proptest.prng import SplitMix64, Xoshiro256StarStar, derive
-from proptest.runner import Settings, Verbosity, for_all
+from proptest.runner import (
+    DEFAULT_DATABASE_DIR,
+    Settings,
+    Verbosity,
+    for_all,
+)
 from proptest.shrink.passes import (
     delete_chunks,
     minimize_individual,

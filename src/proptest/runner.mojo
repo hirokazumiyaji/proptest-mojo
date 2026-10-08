@@ -14,6 +14,7 @@ from std.os import getenv
 from std.time import perf_counter_ns
 
 from proptest.choice import ChoiceSequence
+from proptest.database import ExampleDatabase, sha256_hex
 from proptest.encoding import decode_sequence, encode_sequence
 from proptest.prng import Xoshiro256StarStar, derive
 from proptest.shrink.shrinker import Evaluation, shrink_with
@@ -21,6 +22,7 @@ from proptest.testcase import DEFAULT_MAX_CHOICES, Status, TestCase
 
 comptime DEFAULT_MAX_EXAMPLES = 100
 comptime DEFAULT_MAX_SHRINK_EVALUATIONS = 5000
+comptime DEFAULT_DATABASE_DIR = ".proptest-mojo"
 comptime SEED_ENV_VAR = "PROPTEST_SEED"
 comptime MAX_EXAMPLES_ENV_VAR = "PROPTEST_MAX_EXAMPLES"
 comptime TARGET_MUTATION_PROBABILITY = 0.1
@@ -60,7 +62,9 @@ struct Settings(Copyable, Movable, Writable):
     time-derived seed. A default `max_examples` resolves to
     `PROPTEST_MAX_EXAMPLES` when set, so CI can raise the count without
     code changes; any explicitly different value wins over the
-    environment.
+    environment. An empty `name` disables the example database; a
+    non-empty one persists shrunken counterexamples under
+    `database_dir` and replays them before generation.
     """
 
     var max_examples: Int
@@ -69,6 +73,8 @@ struct Settings(Copyable, Movable, Writable):
     var max_shrink_evaluations: Int
     var replay: Optional[String]
     var verbosity: Verbosity
+    var name: String
+    var database_dir: String
     # Tracked separately from `max_examples`: an explicit
     # `Settings(max_examples=100)` must still beat `PROPTEST_MAX_EXAMPLES`,
     # so equality with the default cannot stand in for "supplied".
@@ -82,6 +88,8 @@ struct Settings(Copyable, Movable, Writable):
         max_shrink_evaluations: Int = DEFAULT_MAX_SHRINK_EVALUATIONS,
         replay: Optional[String] = None,
         verbosity: Verbosity = Verbosity.NORMAL,
+        name: String = "",
+        database_dir: String = DEFAULT_DATABASE_DIR,
     ):
         self.max_examples_set = max_examples is not None
         self.max_examples = (
@@ -93,6 +101,8 @@ struct Settings(Copyable, Movable, Writable):
         self.max_shrink_evaluations = max_shrink_evaluations
         self.replay = replay.copy()
         self.verbosity = verbosity
+        self.name = name.copy()
+        self.database_dir = database_dir.copy()
 
     def effective_seed(self) raises -> UInt64:
         """Explicit seed, else `PROPTEST_SEED`, else time-derived."""
@@ -157,6 +167,10 @@ struct Settings(Copyable, Movable, Writable):
         )
         if self.replay is not None:
             writer.write(', replay="', self.replay.value(), '"')
+        if self.name.byte_length() > 0:
+            writer.write(', name="', self.name, '"')
+        if self.database_dir != DEFAULT_DATABASE_DIR:
+            writer.write(', database_dir="', self.database_dir, '"')
         writer.write(")")
 
 
@@ -197,37 +211,28 @@ def for_all[
     failure raises nothing. The first `INTERESTING` execution is
     shrunk with `shrink_with`, replayed to collect draw records, and
     reported as an `Error` carrying the records, notes, the failure
-    message, the seed, and the replay string. When `settings.replay` is
-    set, only those choices run once: a reproduced failure is reported
-    as-is with no generation or shrinking, while a run that no longer fails
-    raises instead of searching for a new counterexample. Executions
-    rejected by `assume` (or an unsatisfiable `filter`, which rejects the
-    same way) are skipped; too many rejections or overruns fail the run
-    with a health-check `Error` naming the rejection rate. `VERBOSE`
-    settings print every example as it runs.
+    message, the seed, and the replay string. When `settings.name` is
+    set, saved counterexamples replay before generation and the shrunk
+    result is persisted. When `settings.replay` is set, only those choices
+    run once: a reproduced failure is reported as-is with no generation or
+    shrinking, while a run that no longer fails raises instead of searching
+    for a new counterexample. Executions rejected by `assume` (or an
+    unsatisfiable `filter`, which rejects the same way) are skipped; too many
+    rejections or overruns fail the run with a health-check `Error`
+    naming the rejection rate. `VERBOSE` settings print every example
+    as it runs.
     """
     if settings.replay is not None:
         _replay_only(prop, settings, String(settings.replay.value()))
         return
     var seed = settings.effective_seed()
     var max_examples = settings.effective_max_examples()
+    var db = ExampleDatabase(settings.database_dir.copy(), settings.name.copy())
+    var replays_run = _replay_database(prop, settings, seed, db)
     var verbose = settings.verbosity == Verbosity.VERBOSE
 
-    def evaluate(
-        candidate: ChoiceSequence,
-    ) raises {imm prop, imm settings} -> Evaluation:
-        var tc = TestCase.replaying(candidate.copy(), settings.max_choices)
-        var raised = False
-        try:
-            prop(tc)
-        except:
-            raised = True
-        return Evaluation(
-            raised and tc.status == Status.RUNNING, tc.choices.copy()
-        )
-
     var valid_count = 0
-    var examples_run = 0
+    var examples_run = replays_run
     var invalid_count = 0
     var overrun_count = 0
     var attempt = UInt64(0)
@@ -307,29 +312,143 @@ def for_all[
                 best_score = tc.target_score
                 best_seq = tc.choices.copy()
             continue
-        var shrink_result = shrink_with(
-            evaluate, tc.choices.copy(), settings.max_shrink_evaluations
+        if not _shrink_and_raise(
+            prop, settings, seed, examples_run, tc.choices.copy(), message, db
+        ):
+            continue
+
+
+def _replay_database[
+    P: def(mut TestCase) raises -> None
+](prop: P, settings: Settings, seed: UInt64, db: ExampleDatabase) raises -> Int:
+    """Replay saved counterexamples before generation (spec phase 1).
+
+    The first replay that still fails short-circuits to shrinking and
+    reporting. Replays that no longer fail are stale, so their files are
+    deleted. Returns the number of database replay executions performed.
+    """
+    var saved = db.load()
+    var replays_run = 0
+    for i in range(len(saved)):
+        var entry = saved[i].copy()
+        var token = entry.replay.copy()
+        var saved_seq = ChoiceSequence()
+        try:
+            saved_seq = decode_sequence(token)
+        except:
+            db.remove_file(entry.filename.copy())
+            continue
+        if len(saved_seq) > settings.max_choices:
+            db.remove_file(entry.filename.copy())
+            continue
+        var tc = TestCase.replaying(saved_seq.copy(), settings.max_choices)
+        var raised = False
+        var message = String("")
+        replays_run += 1
+        try:
+            prop(tc)
+        except e:
+            raised = True
+            message = String(e)
+        if not raised or tc.status != Status.RUNNING:
+            db.remove_file(entry.filename.copy())
+            continue
+        if not _shrink_and_raise(
+            prop,
+            settings,
+            seed,
+            replays_run,
+            tc.choices.copy(),
+            message,
+            db,
+            entry.filename.copy(),
+        ):
+            continue
+    return replays_run
+
+
+def _shrink_and_raise[
+    P: def(mut TestCase) raises -> None
+](
+    prop: P,
+    settings: Settings,
+    seed: UInt64,
+    examples_run: Int,
+    failing: ChoiceSequence,
+    failure_message: String,
+    db: ExampleDatabase,
+    entry_file: String = "",
+) raises -> Bool:
+    """Shrink `failing`, persist the best replay, and raise the report.
+
+    Shared by the database-replay and generation paths so both persist
+    to the example database and report identically. Re-verifies that the
+    reported replay is INTERESTING before saving or reporting; if a flaky
+    failure disappears, prunes any stale database entry and returns False.
+    """
+
+    def evaluate(
+        candidate: ChoiceSequence,
+    ) raises {imm prop, imm settings} -> Evaluation:
+        var tc = TestCase.replaying(candidate.copy(), settings.max_choices)
+        var raised = False
+        try:
+            prop(tc)
+        except:
+            raised = True
+        return Evaluation(
+            raised and tc.status == Status.RUNNING, tc.choices.copy()
         )
-        var report_tc = TestCase.replaying(
-            shrink_result.best.copy(), settings.max_choices
-        )
+
+    var shrink_result = shrink_with(
+        evaluate, failing.copy(), settings.max_shrink_evaluations
+    )
+    var report_tc = TestCase.replaying(
+        shrink_result.best.copy(), settings.max_choices
+    )
+    var report_raised = False
+    var replay_message = failure_message.copy()
+    try:
+        prop(report_tc)
+    except e:
+        report_raised = True
+        replay_message = String(e)
+
+    var report_failed = report_raised and report_tc.status == Status.RUNNING
+
+    if not report_failed:
+        report_tc = TestCase.replaying(failing.copy(), settings.max_choices)
+        report_raised = False
+        replay_message = failure_message.copy()
         try:
             prop(report_tc)
         except e:
-            message = String(e)
-        raise Error(
-            _format_report(
-                examples_run,
-                shrink_result.evaluations,
-                report_tc.draw_labels.copy(),
-                report_tc.draw_values.copy(),
-                report_tc.notes.copy(),
-                message,
-                Optional[UInt64](seed),
-                shrink_result.hit_budget,
-                encode_sequence(report_tc.choices),
-            )
+            report_raised = True
+            replay_message = String(e)
+        report_failed = report_raised and report_tc.status == Status.RUNNING
+
+    if not report_failed:
+        if entry_file.byte_length() > 0:
+            db.remove_file(entry_file.copy())
+        return False
+
+    var replay_token = encode_sequence(report_tc.choices.copy())
+    if entry_file.byte_length() > 0 and entry_file != sha256_hex(replay_token):
+        db.remove_file(entry_file.copy())
+    db.save(replay_token)
+    raise Error(
+        _format_report(
+            examples_run,
+            shrink_result.evaluations,
+            report_tc.draw_labels.copy(),
+            report_tc.draw_values.copy(),
+            report_tc.notes.copy(),
+            replay_message^,
+            Optional[UInt64](seed),
+            shrink_result.hit_budget,
+            replay_token^,
         )
+    )
 
 
 def _replay_only[
