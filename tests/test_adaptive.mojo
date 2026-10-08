@@ -6,6 +6,7 @@ from proptest.choice import (
     shortlex_compare,
 )
 from proptest.shrink.adaptive import lower_duplicates, redistribute
+from proptest.shrink.shrinker import Evaluation, shrink
 from std.testing import TestSuite, assert_equal, assert_true
 
 
@@ -158,6 +159,42 @@ def test_lower_duplicates_handles_trivial_inputs() raises:
         lower_duplicates[_equal_and_over_100](zeros.copy()) == zeros.copy(),
         msg="zeros leave nothing to lower",
     )
+
+
+def _sum_over_10_pair(seq: ChoiceSequence) -> Bool:
+    if len(seq) != 2:
+        return False
+    return seq.nodes[0].value + seq.nodes[1].value > UInt64(10)
+
+
+def _sum_over_10_eval(seq: ChoiceSequence) -> Evaluation:
+    return Evaluation(_sum_over_10_pair(seq), seq.copy())
+
+
+def _equal_and_over_5_pair(seq: ChoiceSequence) -> Bool:
+    if len(seq) != 2:
+        return False
+    var x = seq.nodes[0].value
+    var y = seq.nodes[1].value
+    return x == y and x > UInt64(5)
+
+
+def _equal_and_over_5_eval(seq: ChoiceSequence) -> Evaluation:
+    return Evaluation(_equal_and_over_5_pair(seq), seq.copy())
+
+
+def test_shrink_loop_invokes_redistribute() raises:
+    var seq = _seq(UInt64(5), UInt64(7))
+    var res = shrink[_sum_over_10_eval](seq.copy(), 200)
+    assert_equal(res.best[0].value, UInt64(0))
+    assert_equal(res.best[1].value, UInt64(11))
+
+
+def test_shrink_loop_invokes_lower_duplicates() raises:
+    var seq = _seq(UInt64(20), UInt64(20))
+    var res = shrink[_equal_and_over_5_eval](seq.copy(), 200)
+    assert_equal(res.best[0].value, UInt64(6))
+    assert_equal(res.best[1].value, UInt64(6))
 
 
 def main() raises:
