@@ -197,5 +197,14 @@ def test_shrink_loop_invokes_lower_duplicates() raises:
     assert_equal(res.best[1].value, UInt64(6))
 
 
+def test_shrink_redistribute_respects_max_evaluations() raises:
+    var seq = _seq(UInt64(5), UInt64(7))
+    for budget in range(1, 10):
+        var res = shrink[_sum_over_10_eval](seq.copy(), budget)
+        assert_true(res.evaluations <= budget)
+        if res.evaluations == budget:
+            assert_true(res.hit_budget)
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

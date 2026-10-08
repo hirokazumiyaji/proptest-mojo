@@ -447,6 +447,9 @@ def shrink[
                     p0_int = entries[idx0].is_interesting
                     p0_cons = entries[idx0].consumed.copy()
                 else:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
                     evaluations += 1
                     var res = evaluate(probe0^)
                     p0_int = res.is_interesting
@@ -474,6 +477,9 @@ def shrink[
                             pi_int = entries[idx_i].is_interesting
                             pi_cons = entries[idx_i].consumed.copy()
                         else:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
                             evaluations += 1
                             var res = evaluate(probe_i^)
                             pi_int = res.is_interesting
@@ -485,11 +491,16 @@ def shrink[
                             hi_i = mid_i
                         else:
                             lo_i = mid_i
+                    if hit_budget:
+                        break
                     if hi_i < a:
                         target_i = hi_i
                         found_target_i = True
 
                 if found_target_i:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
                     var base_seq = best.with_value_at(i, target_i)
                     var probe_j0 = base_seq.with_value_at(j, UInt64(0))
                     var idx_j0 = _lookup(entries, slots, probe_j0)
@@ -499,6 +510,9 @@ def shrink[
                         pj0_int = entries[idx_j0].is_interesting
                         pj0_cons = entries[idx_j0].consumed.copy()
                     else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
                         evaluations += 1
                         var res = evaluate(probe_j0^)
                         pj0_int = res.is_interesting
@@ -530,6 +544,9 @@ def shrink[
                             pj_int = entries[idx_j].is_interesting
                             pj_cons = entries[idx_j].consumed.copy()
                         else:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
                             evaluations += 1
                             var res = evaluate(probe_j^)
                             pj_int = res.is_interesting
@@ -548,6 +565,8 @@ def shrink[
                         best = best_j_cand^
                         redist_changed = True
                         improved = True
+                        break
+                    if hit_budget:
                         break
         if hit_budget:
             break
@@ -843,6 +862,9 @@ def shrink_with[
                     p0_int = entries[idx0].is_interesting
                     p0_cons = entries[idx0].consumed.copy()
                 else:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
                     evaluations += 1
                     var res = eval_fn(probe0^)
                     p0_int = res.is_interesting
@@ -870,6 +892,9 @@ def shrink_with[
                             pi_int = entries[idx_i].is_interesting
                             pi_cons = entries[idx_i].consumed.copy()
                         else:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
                             evaluations += 1
                             var res = eval_fn(probe_i^)
                             pi_int = res.is_interesting
@@ -881,11 +906,16 @@ def shrink_with[
                             hi_i = mid_i
                         else:
                             lo_i = mid_i
+                    if hit_budget:
+                        break
                     if hi_i < a:
                         target_i = hi_i
                         found_target_i = True
 
                 if found_target_i:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
                     var base_seq = best.with_value_at(i, target_i)
                     var probe_j0 = base_seq.with_value_at(j, UInt64(0))
                     var idx_j0 = _lookup(entries, slots, probe_j0)
@@ -895,6 +925,9 @@ def shrink_with[
                         pj0_int = entries[idx_j0].is_interesting
                         pj0_cons = entries[idx_j0].consumed.copy()
                     else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
                         evaluations += 1
                         var res = eval_fn(probe_j0^)
                         pj0_int = res.is_interesting
@@ -926,6 +959,9 @@ def shrink_with[
                             pj_int = entries[idx_j].is_interesting
                             pj_cons = entries[idx_j].consumed.copy()
                         else:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
                             evaluations += 1
                             var res = eval_fn(probe_j^)
                             pj_int = res.is_interesting
@@ -944,6 +980,8 @@ def shrink_with[
                         best = best_j_cand^
                         redist_changed = True
                         improved = True
+                        break
+                    if hit_budget:
                         break
         if hit_budget:
             break
