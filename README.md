@@ -65,4 +65,5 @@ The `< /dev/null` redirection keeps execution consistent with CI. Example progra
 - [Examples](examples/README.md): runnable programs
 - [Specifications](docs/specs/README.md): current design and behavior
 - [Architecture decision records](docs/adr/README.md): recorded design decisions
+- [v0.1.0 release notes](docs/releases/v0.1.0.md)
 - [Documentation guide](docs/README.md): documentation conventions

@@ -13,7 +13,7 @@ from std.io import Writer
 from std.os import getenv
 from std.time import perf_counter_ns
 
-from proptest.choice import ChoiceSequence
+from proptest.choice import ChoiceSequence, Span
 from proptest.database import ExampleDatabase, sha256_hex
 from proptest.encoding import decode_sequence, encode_sequence
 from proptest.prng import Xoshiro256StarStar, derive
@@ -314,7 +314,14 @@ def for_all[
                 best_seq = tc.choices.copy()
             continue
         if not _shrink_and_raise(
-            prop, settings, seed, examples_run, tc.choices.copy(), message, db
+            prop,
+            settings,
+            seed,
+            examples_run,
+            tc.choices.copy(),
+            tc.spans.copy(),
+            message,
+            db,
         ):
             continue
 
@@ -360,6 +367,7 @@ def _replay_database[
             seed,
             replays_run,
             tc.choices.copy(),
+            tc.spans.copy(),
             message,
             db,
             entry.filename.copy(),
@@ -376,6 +384,7 @@ def _shrink_and_raise[
     seed: UInt64,
     examples_run: Int,
     failing: ChoiceSequence,
+    failing_spans: List[Span],
     failure_message: String,
     db: ExampleDatabase,
     entry_file: String = "",
@@ -398,11 +407,16 @@ def _shrink_and_raise[
         except:
             raised = True
         return Evaluation(
-            raised and tc.status == Status.RUNNING, tc.choices.copy()
+            raised and tc.status == Status.RUNNING,
+            tc.choices.copy(),
+            tc.spans.copy(),
         )
 
     var shrink_result = shrink_with(
-        evaluate, failing.copy(), settings.max_shrink_evaluations
+        evaluate,
+        failing.copy(),
+        failing_spans.copy(),
+        settings.max_shrink_evaluations,
     )
     var report_tc = TestCase.replaying(
         shrink_result.best.copy(), settings.max_choices

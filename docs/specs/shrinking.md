@@ -19,13 +19,13 @@ The runner (the imperative shell) evaluates candidates.
 def evaluate(candidate: ChoiceSequence) -> Evaluation   # status and the choices actually consumed
 ```
 
-- Evaluate candidates with a `TestCase` in **replay mode**. Choices after the prefix is exhausted are 0.
+- Evaluate candidates with a TestCase in replay mode. Choices after the prefix is exhausted are 0.
 - Adopt the choice sequence from the evaluation result (the choices actually consumed); it may be shorter than the candidate.
-- Generate candidates in small, fixed-size batches instead of using the full remaining evaluation budget as `limit`. Each candidate copies the entire choice sequence. If all 5000 default evaluations were materialized for an input with 8192 choices, roughly 40 million nodes would be held before checking the first candidate.
-- Enumeration passes produce candidate sequences eagerly, and each candidate copies the whole sequence. With close to 8192 choices, generating every candidate could require several gigabytes and cause OOM even with a budget of one. Enumeration passes therefore accept `limit`, and the shrinking loop passes only the remaining evaluation budget.
-- Cache hits do not consume evaluations, so they must not consume `limit`. If an entire batch consists of cache hits, increase `limit` and request another batch. Otherwise, later candidates might never be reached and the shrinker could incorrectly report a fixed point with budget remaining.
+- Generate candidates in small, fixed-size batches. Each candidate copies the full sequence, so materializing all 5000 default evaluations for 8192 choices would retain roughly 40 million nodes before checking the first candidate.
+- Enumeration passes accept a limit to bound eager candidate creation. Without it, generating all candidates for a near-8192-choice sequence could require several gigabytes, even with an evaluation budget of one.
+- Cache hits do not consume evaluations or the batch limit. When a batch contains only cache hits, request the next page so later uncached candidates are reached.
 - Cache evaluation results by choice values to avoid evaluating the same candidate twice.
-- By default, adopt any `INTERESTING` result; the failure message does not have to match.
+- By default, adopt any INTERESTING result; the failure message does not have to match.
 
 ## Pass types
 
@@ -52,7 +52,7 @@ Apply passes in order and restart from the first pass whenever one improves the 
 |------|------|-----------|----------------|---|
 | `delete_chunks` | Enumeration | Delete contiguous ranges of lengths 8, 4, 2, and 1; order results by shortlex | Remove extra choices | M1 |
 | `zero_chunks` | Enumeration | Set contiguous ranges of lengths 8, 4, 2, and 1 to 0; order results by shortlex | Simplify several values at once | M1 |
-| `minimize_individual` | Adaptive | Replace each choice with 0, then minimize by binary search if that fails | `x = 1000` → `x = 101` | M1 |
+| `minimize_individual` | Adaptive | Replace each choice with 0, then enumerate smaller values in increasing order | `x = 1000` → `x = 101` | M1 |
 | `delete_spans` | Enumeration | Delete whole spans, starting with deeper spans | Remove a list element | M3 |
 | `zero_spans` | Enumeration | Set every choice in a span to 0 | Simplify an element to its simplest value | M3 |
 | `sort_spans` | Enumeration | Sort sibling spans with the same label and depth by their choice sequences | `[3, 1, 2]` → `[1, 2, 3]` | M3 |

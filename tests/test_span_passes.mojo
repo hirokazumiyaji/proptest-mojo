@@ -85,6 +85,22 @@ def test_delete_spans_removes_each_element() raises:
     assert_equal(cands[2][3].value, UInt64(99))
 
 
+def test_delete_spans_pages_candidates() raises:
+    var seq = _seq(
+        UInt64(1),
+        UInt64(5),
+        UInt64(1),
+        UInt64(99),
+        UInt64(1),
+        UInt64(7),
+        UInt64(0),
+    )
+    var all = delete_spans(seq.copy(), _list_spans())
+    var page = delete_spans(seq.copy(), _list_spans(), 1, 1)
+    assert_equal(len(page), 1)
+    assert_equal(page[0], all[1])
+
+
 def test_delete_spans_deepest_first() raises:
     var seq = _seq(
         UInt64(1),
@@ -188,6 +204,23 @@ def test_zero_spans_zeroes_each_span() raises:
             is_shortlex_smaller(cands[i].copy(), seq.copy()),
             msg="every span zeroing must be shortlex-smaller",
         )
+
+
+def test_zero_spans_pages_candidates() raises:
+    var seq = _seq(
+        UInt64(1),
+        UInt64(5),
+        UInt64(1),
+        UInt64(99),
+        UInt64(1),
+        UInt64(7),
+        UInt64(8),
+    )
+    var spans = _list_spans()
+    var all = zero_spans(seq.copy(), spans.copy())
+    var page = zero_spans(seq.copy(), spans.copy(), 1, 1)
+    assert_equal(len(page), 1)
+    assert_equal(page[0], all[1])
 
 
 def test_zero_spans_deepest_first() raises:
