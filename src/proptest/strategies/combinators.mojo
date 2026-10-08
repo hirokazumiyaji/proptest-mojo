@@ -16,6 +16,13 @@ comptime MAX_FILTER_ATTEMPTS = 3
 comptime FILTER_SPAN_LABEL = UInt64(0x46494C544552)
 
 
+def _truncate_draw_records(mut tc: TestCase, labels: Int, values: Int):
+    while len(tc.draw_labels) > labels:
+        _ = tc.draw_labels.pop()
+    while len(tc.draw_values) > values:
+        _ = tc.draw_values.pop()
+
+
 @fieldwise_init
 struct Map[
     S: Strategy, U: Copyable & Writable & Deinitable, f: def(S.Value) thin -> U
@@ -55,6 +62,8 @@ struct Filter[S: Strategy, p: def(S.Value) thin -> Bool](Strategy):
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
         for _ in range(MAX_FILTER_ATTEMPTS):
+            var labels = len(tc.draw_labels)
+            var values = len(tc.draw_values)
             tc.start_span(FILTER_SPAN_LABEL)
             try:
                 var value = self.base.draw(tc)
@@ -63,8 +72,10 @@ struct Filter[S: Strategy, p: def(S.Value) thin -> Bool](Strategy):
                     return value^
             except e:
                 tc.stop_span(discard=True)
+                _truncate_draw_records(tc, labels, values)
                 raise e
             tc.stop_span(discard=True)
+            _truncate_draw_records(tc, labels, values)
         tc.assume(False)
         raise Error("unreachable")
 

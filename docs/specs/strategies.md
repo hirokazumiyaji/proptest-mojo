@@ -1,6 +1,6 @@
 # Strategy
 
-背景は [ADR-0003](../adr/0003-strategy-trait-with-static-dispatch.md) と [ADR-0005](../adr/0005-thin-functions-as-comptime-parameters.md)。
+背景は [ADR-0003](../adr/0003-strategy-trait-with-static-dispatch.md) と [ADR-0005](../adr/0005-thin-functions-as-comptime-parameters.md) と [ADR-0011](../adr/0011-recursive-strategy-with-runtime-depth.md)。
 
 ## Strategy トレイト
 
@@ -39,18 +39,20 @@ trait Strategy(Copyable, Deinitable):
 | `integers_of[dtype](min, max)` | `Scalar[dtype]`（`Int8`〜`UInt64`） | 同上。範囲省略時はその型の全域 | M2 |
 | `booleans()` | `Bool` | `False` | M1 |
 | `just(value)` | `T` | （選択を消費しない） | M1 |
-| `sampled_from(values)` | `T` | 先頭の要素 | M2 |
+| `sampled_from(values: List[T])` | `T` | 先頭の要素 | M2 |
 | `floats(min, max, allow_nan, allow_infinity)` | `Float64` | 0.0、次いで小さい整数値、単純な分数 | M2 |
 | `text(alphabet, min_size, max_size)` | `String` | 空文字列、次いで先頭の文字 `"0"` 方向 | M2 |
 | `bytes(min_size, max_size)` | `List[UInt8]` | 空列 | M2 |
 | `lists(elements, min_size, max_size)` | `List[T]` | 短いリスト、各要素が単純 | M2 |
 | `unique_lists(elements, min_size, max_size)` | `List[T]`（`T: Equatable`） | 同上 | M2 |
-| `dicts(keys, values, min_size, max_size)` | `Dict[K, V]` | 空の辞書 | M2 |
+| `dicts(keys, values, min_size, max_size)` | `DictList[K, V]`（`K: Equatable`） | 空の辞書 | M2 |
 | `tuples(a, b)` / `tuples(a, b, c)` | 2〜3 要素の値 | 各要素が単純 | M2 |
 | `optionals(s)` | `Optional[T]` | `None` | M2 |
-| `one_of(strategies)` | `S.Value` | 先頭の Strategy | M2 |
+| `one_of(strategies: List[S])` | `S.Value` | 先頭の Strategy | M2 |
+| `one_of2(a: A, b: B) where A.Value == B.Value` | `A.Value` | 先頭の Strategy（`a`） | M2 |
+| `json_tree(max_depth, max_width, minimum, maximum)` | `JsonValue` | `null` | M2 |
 
-`Optional` や `Tuple` など標準ライブラリの型が `Writable` を満たさない場合は、このライブラリが `Writable` を実装した薄い値型を提供する（M2 の実装時に確認し、この表を更新する）。
+標準ライブラリの `Tuple` と `Optional` は `Copyable & Writable & Deinitable` を満たすため、そのまま `Strategy.Value` として使う。反例表示はそれぞれの `Writable` 実装（例: `(0, 1)`、`None`）に従う。`dicts` が `std.Dict` ではなく `DictList`（キーの一意性を保ったペアの `List`）を返すのは、`std.Dict` が現状の Mojo コンパイラでは `draw` の associated type から値返却できないためで、キーが `Equatable` だけで扱える利点もある。
 
 ### 整数の符号化
 
@@ -113,6 +115,32 @@ var sized = flat_map[lists_up_to](integers(0, 10))
 - `filter` は述語を満たさない値を引いた試行の span を `discarded` として記録し、最大 3 回まで引き直す。それでも満たさなければ `tc.assume(False)` 相当で `INVALID` にする。
 - `flat_map` は外側の値に応じて内側の Strategy を作る。内側の Strategy の **型** はコンパイル時に 1 つに決まっている必要がある（値のパラメータだけが変わる）。
 
+## 再帰的な Strategy（`json_tree`）
+
+静的ディスパッチでは `Tree = OneOf[Leaf, Node[Tree]]` のように型が無限に入れ子になるため、再帰は型レベルでなく値レベルで行う（[ADR-0011](../adr/0011-recursive-strategy-with-runtime-depth.md)）。
+
+```mojo
+from proptest.strategies.recursive import JsonValue, json_tree
+
+var tree = json_tree(max_depth=3, max_width=3, minimum=-5, maximum=5)
+var value: JsonValue = tc.draw(tree.copy(), "tree")
+```
+
+- 値 `JsonValue` は `null`・整数・配列の具体的な再帰値である。子は `ArcPointer` の間接参照で持ち、`draw` 後は不変として扱う。
+- Strategy `JsonTree` は 1 つの具体型で、実行時の `max_depth` 予算で再帰を打ち切る。汎用の `prop_recursive(leaf, branch)` コンビネータは提供しない。形状ごとに `JsonTree` と同じ形の Strategy を書く。
+- 符号化は次の通りで、小さい選択ほど単純になる。全選択 0 は `null` を引く。深さ 0 では分岐旗を消費せず葉だけを引く。
+
+```text
+node(depth):
+  depth == 0 -> leaf
+  depth > 0  -> branch_flag in 0..1 (0 = leaf, 1 = array)
+leaf  -> kind in 0..1 (0 = null, 1 = minimum..maximum の整数)
+array -> width in 0..max_width, then one child per element
+```
+
+- 子の描画は `JSON_CHILD_SPAN` の span で囲む。現行の縮小パス（M1）は span を見ないが、M3 の span 系パスで要素単位の操作ができる。
+- `max_depth < 0`、`max_width < 1`、空の整数範囲は `json_tree` が `raise` する。
+
 ## 合成 Strategy（`@composite` / `prop_compose!` 相当）
 
 捕捉が必要な変換や、複数の値を組み合わせる生成は、`Strategy` を実装する struct として書く。
@@ -129,16 +157,74 @@ struct Users(Strategy):
     comptime Value = User
     var max_age: Int
 
+    def span_label(self) -> UInt64:
+        return kind_label("users")
+
     def draw(self, mut tc: TestCase) raises -> User:
         var name = tc.draw(text(min_size=1, max_size=20))
         var age = tc.draw(integers(0, self.max_age))
         return User(name^, age)
 ```
 
+`span_label` は必須なので合成 Strategy でも実装する。構造を保つ `map` は内側の Strategy のラベルを引き継いでよい。`filter` は複数回の試行を含むため、内側の Strategy とは異なる構造ラベルを返す。
+
 property の中で直接 `tc.draw` を重ねてもよい。再利用したい組み合わせだけを合成 Strategy にする。
+
+## 状態機械テスト（Stateful testing）
+
+Hypothesis の `RuleBasedStateMachine` / `proptest-state-machine` に相当する、操作列を生成してモデルとの一致を検証する仕組みである。
+
+```mojo
+trait StateMachine(Movable, Deinitable):
+    def num_rules(self) -> Int:
+        ...
+    def run_rule(mut self, mut tc: TestCase, rule: Int) raises:
+        ...
+    def check_invariants(self) raises:
+        ...
+```
+
+- `StateMachine` を実装する struct が、テスト対象（SUT）とモデル（正しい振る舞いの記録）の両方をフィールドに持つ。
+- `run_state_machine(machine, tc, max_ops=32)` が操作回数を `integers(0, max_ops)` で引き、ルール番号を選択列から 1 つずつ引いて `run_rule` → `check_invariants` の順に実行する。実行後のマシンを返す。
+- `run_rule` は引数を `tc.draw` で引き、前提条件を `tc.assume` で表す（`assume` で棄却された操作列は `INVALID` として捨てられる）。操作の内容は `tc.note` で記録し、反例の報告に残す。
+- 操作回数の選択が全 0 のとき 0 操作になる。各操作は 1 つの span に包まれるため、操作列はコレクションと同様に縮小される。回数の最小化で末尾の操作が削られ、チャンク削除で間の操作が取り除かれる。
+
+使用例（先頭要素を返すバグを持つスタック）:
+
+```mojo
+struct StackMachine(StateMachine):
+    var sut: BuggyStack
+    var model: List[Int]
+
+    def num_rules(self) -> Int:
+        return 2  # 0: push, 1: pop
+
+    def run_rule(mut self, mut tc: TestCase, rule: Int) raises:
+        if rule == 0:
+            var value = tc.draw(integers(0, 10), "push.value")
+            tc.note("push(" + String(value) + ")")
+            self.sut.push(value)
+            self.model.append(value)
+        else:
+            tc.assume(len(self.model) > 0)
+            var got = self.sut.pop()
+            var want = self.model.pop()
+            tc.note("pop() -> " + String(got))
+            if got != want:
+                raise Error("pop mismatch")
+
+    def check_invariants(self) raises:
+        if len(self.sut.items) != len(self.model):
+            raise Error("size mismatch")
+
+def stack_prop(mut tc: TestCase) raises:
+    _ = run_state_machine(StackMachine(), tc)
+```
+
+上のバグ入りスタックは `push(0), push(1), pop` の 3 操作に縮小される。これより短い操作列では 2 要素以上の状態を作れないため、この反例は最短である。
 
 ## 計画中（Planned）
 
 - `Arbitrary` トレイト（M5）: 型ごとの既定 Strategy。`arbitrary[Int]()` で `integers_of[DType.int64]()` を返すなど。
-- 再帰的な Strategy（M5）: 静的ディスパッチでは型が無限に入れ子になるため、深さを型パラメータで区切る方式か、限定的な型消去を調査する。
-- 異種の Strategy を混ぜる `one_of`（M2 で調査）: `Value` が同じ異なる型の Strategy を組み合わせる。コンパイラが型の同一性の証拠を扱えるかを確認して設計する。
+- 異種の Strategy の組み合わせ（M2 で実装済み）: `Value` が同じ異なる型の Strategy は `one_of2(a, b)` で組み合わせる（[ADR-0010](../adr/0010-heterogeneous-one-of.md)）。等価性は trailing `where A.Value == B.Value` で保証され、不一致はコンパイルエラーになる。3 分岐以上は `one_of2` の入れ子、または分岐を 1 つの Strategy 型に寄せてから `one_of` を使う。
+- 再帰的な Strategy（M2 で実装済み）: 値レベルの再帰と実行時深さ制限で行う（[ADR-0011](../adr/0011-recursive-strategy-with-runtime-depth.md)）。`json_tree` が JSON 風の木を生成し、全選択 0 で `null` に縮小する。
