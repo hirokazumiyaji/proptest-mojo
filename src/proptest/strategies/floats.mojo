@@ -87,6 +87,10 @@ struct Floats(Strategy):
         return kind_label("floats")
 
     def draw(self, mut tc: TestCase) raises -> Float64:
+        if isnan(self.min_value) or isnan(self.max_value):
+            raise Error("floats: min_value and max_value must not be NaN")
+        if self.max_value < self.min_value:
+            raise Error("floats: max_value must be >= min_value")
         var p_negative = 0.5
         if self.min_value >= 0.0:
             p_negative = 0.0

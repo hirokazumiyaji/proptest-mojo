@@ -3,13 +3,14 @@ from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence
 from proptest.prng import derive
 from proptest.runner import Settings, for_all
 from proptest.strategies.floats import (
+    Floats,
     float_to_lex,
     floats,
     lex_to_float,
     max_finite,
 )
 from proptest.strategies.primitives import integers
-from std.math import isinf, isnan
+from std.math import inf, isinf, isnan
 from std.testing import TestSuite, assert_equal, assert_true
 
 comptime FLOAT_MAX = UInt64(0xFFFFFFFFFFFFFFFF)
@@ -103,6 +104,33 @@ def test_no_nan_when_bounded() raises:
         _float_prefix(UInt64(0), UInt64(0x7FF8000000000000))
     )
     assert_true(not isnan(tc.draw(s)))
+
+
+def test_direct_float_strategy_rejects_invalid_bounds() raises:
+    var tc = TestCase.replaying(ChoiceSequence())
+    var raised = False
+    try:
+        _ = tc.draw(Floats(10.0, 0.0, False, True))
+    except:
+        raised = True
+    assert_true(raised, msg="direct float construction must validate bounds")
+
+
+def test_infinite_only_bounds_require_infinity() raises:
+    var positive = inf[DType.float64]()
+    var raised = False
+    try:
+        _ = floats(positive, positive, allow_infinity=False)
+    except:
+        raised = True
+    assert_true(raised, msg="positive infinity-only bounds are incompatible")
+    var negative = -inf[DType.float64]()
+    raised = False
+    try:
+        _ = floats(negative, negative, allow_infinity=False)
+    except:
+        raised = True
+    assert_true(raised, msg="negative infinity-only bounds are incompatible")
 
 
 def test_generated_values_in_default_range() raises:
