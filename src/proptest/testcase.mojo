@@ -22,7 +22,6 @@ comptime OVERRUN_INTERRUPT = "proptest: choice budget exhausted (OVERRUN)"
 comptime RAMP_EXAMPLES = UInt64(10)
 # floor(2^64 / 10): matches a 10% probability on an unbiased UInt64 draw.
 comptime EDGE_BIAS_U64_THRESHOLD = UInt64(0x1999999999999999)
-comptime CANON_NAN_BITS = UInt64(0x7FF8000000000000)
 
 
 @fieldwise_init
@@ -177,16 +176,16 @@ struct TestCase(Sized, Writable):
     def draw_float_bits(mut self) raises -> UInt64:
         """Draw a lexicographic float-magnitude code, where 0 is simplest.
 
-        Recorded with `ChoiceKind.FLOAT` over the `0..=CANON_NAN_BITS` range.
+        Recorded with `ChoiceKind.FLOAT` over the full `UInt64` range.
         Replay reuses the recorded code and yields 0 past the prefix end,
         so all-zero choices decode to `0.0` in `floats`.
         """
         self._ensure_capacity()
-        var value = self._supply_integer(CANON_NAN_BITS)
+        var value = self._supply_integer(UInt64(0xFFFFFFFFFFFFFFFF))
         return self._record(
             ChoiceKind.FLOAT,
             value,
-            CANON_NAN_BITS,
+            UInt64(0xFFFFFFFFFFFFFFFF),
             Bool(False),
         )
 
