@@ -15,23 +15,22 @@ trait Strategy(Copyable, Deinitable):
         ...
 ```
 
-`span_label` は Strategy の種類を表すラベルの `UInt64`。`tc.draw` が自動で張る span の `label` に使われる。報告用のラベル（`tc.draw(strategy, label)` の `label`）とは独立で、Strategy の種類だけに依存する。実装は `kind_label("<kind>")` を返す。
 
-`span_label` は必須メソッドで既定値を持たない。共通の既定値では実装を省いた Strategy がすべて同じラベルになり、兄弟 draw として現れたときに再び互換性とみなされてしまうため。
 
-すべての Strategy 実装は次の規約を守る。
 
 `span_label` is required and has no default. A common default would give every strategy that omitted an implementation the same label, causing sibling draws to be treated as compatible again.
+
+span_label returns a UInt64 identifying the strategy kind. It labels the spans created by tc.draw and is independent of the reporting label. Implementations typically return kind_label("<kind>").
 
 Every strategy implementation must follow these rules.
 
 | Rule | Reason |
 |------|------|
-| **決定性**: 同じ選択列からは同じ値を作る。`TestCase` 以外の状態（グローバル変数、時刻、`std.random`）を読まない | 縮小と再現が選択列だけで成り立つため |
-| **単純さの単調性**: 選択の値が小さいほど、生成される値が「単純」になる。全選択 0 のとき最も単純な値を返す | shortlex で小さい選択列が、人間にとって単純な反例に対応するため |
-| **不変性**: `draw` は `self` を変更しない | Strategy は値として自由にコピー・共有されるため |
-| **局所性**: 構造上の単位（コレクションの 1 要素など）ごとに span を張る | 構造的な縮小パスが働くため |
-| **構造ラベル**: `span_label` は Strategy の種類だけで決まり、報告ラベルに依存しない | 縮小パスが同種とみなす span を入れ替えるため |
+| **Determinism**: Produce the same value from the same choice sequence. Do not read state outside TestCase, such as globals, time, or std.random. | Shrinking and replay depend only on the choice sequence. |
+| **Monotonic simplicity**: Smaller choices produce simpler values; all-zero choices produce the simplest value. | Smaller shortlex sequences should correspond to simpler counterexamples. |
+| **Immutability**: draw does not mutate self. | Strategies can be freely copied and shared as values. |
+| **Locality**: Create a span for each structural unit, such as one collection element. | Structural shrinking passes depend on spans. |
+| **Structural labels**: span_label depends only on the strategy kind, not the reporting label. | Shrinking passes swap spans they consider to be of the same kind. |
 
 ## Built-in Strategies
 

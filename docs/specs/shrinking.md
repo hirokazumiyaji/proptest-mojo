@@ -19,13 +19,13 @@ The runner (the imperative shell) evaluates candidates.
 def evaluate(candidate: ChoiceSequence) -> Evaluation   # status and the choices actually consumed
 ```
 
-- 候補は **再生モード** の `TestCase` で実行する。prefix を使い切った後の選択は 0 になる。
-- 採用するのは、評価結果の選択列（実際に消費した分）である。候補より短くなることがある。
-候補は残りの評価予算をそのまま `limit` にせず、固定サイズの小さなバッチに分けて生成する。候補 1 個が選択列全体のコピーなので、既定の 5000 評価予算を全部渡すと 8192 choices の入力では1 つ目を確認する前に 4000 万ノード級を保持してしまう。
-- 列挙パスは候補列を先に全部作るので、候補 1 個が選択列全体のコピーになる。選択列が 8192 choices に近いと全候補の生成だけで数 GB は必要になり、予算が 1 でも OOM する。よって列挙パスは `limit` を取り、縮小ループは残りの評価予算だけを渡す。
-- キャッシュヒットは評価を消費しないので `limit` も消費してはならない。バッチが全てキャッシュヒットだった場合は `limit` を増やして取り直す。さもないと後続の候補に到達できず、予算が残ったまま固定点と報告してしまう。
-- 同じ候補を二度評価しないよう、選択値の列をキーに評価結果をキャッシュする。
-- 既定では任意の `INTERESTING` を採用する（失敗メッセージの一致は要求しない）。
+- Evaluate candidates with a TestCase in replay mode. Choices after the prefix is exhausted are 0.
+- Adopt the choice sequence from the evaluation result (the choices actually consumed); it may be shorter than the candidate.
+- Generate candidates in small, fixed-size batches. Each candidate copies the full sequence, so materializing all 5000 default evaluations for 8192 choices would retain roughly 40 million nodes before checking the first candidate.
+- Enumeration passes accept a limit to bound eager candidate creation. Without it, generating all candidates for a near-8192-choice sequence could require several gigabytes, even with an evaluation budget of one.
+- Cache hits do not consume evaluations or the batch limit. When a batch contains only cache hits, request the next page so later uncached candidates are reached.
+- Cache evaluation results by choice values to avoid evaluating the same candidate twice.
+- By default, adopt any INTERESTING result; the failure message does not have to match.
 
 ## Pass types
 
@@ -52,7 +52,7 @@ Apply passes in order and restart from the first pass whenever one improves the 
 |------|------|-----------|----------------|---|
 | `delete_chunks` | Enumeration | Delete contiguous ranges of lengths 8, 4, 2, and 1; order results by shortlex | Remove extra choices | M1 |
 | `zero_chunks` | Enumeration | Set contiguous ranges of lengths 8, 4, 2, and 1 to 0; order results by shortlex | Simplify several values at once | M1 |
-| `minimize_individual` | Adaptive | Replace each choice with 0, then minimize by binary search if that fails | `x = 1000` → `x = 101` | M1 |
+| `minimize_individual` | Adaptive | Replace each choice with 0, then enumerate smaller values in increasing order | `x = 1000` → `x = 101` | M1 |
 | `delete_spans` | Enumeration | Delete whole spans, starting with deeper spans | Remove a list element | M3 |
 | `zero_spans` | Enumeration | Set every choice in a span to 0 | Simplify an element to its simplest value | M3 |
 | `sort_spans` | Enumeration | Sort sibling spans with the same label and depth by their choice sequences | `[3, 1, 2]` → `[1, 2, 3]` | M3 |

@@ -47,10 +47,10 @@ struct Span(Copyable, Writable):
     var discarded: Bool # Span for an attempt rejected by `filter`
 ```
 
-- `TestCase.start_span(label)` / `stop_span(discard=False)` で記録する。`tc.draw` は自動で span を張る。
-- 縮小パスは span を使って「リストの 1 要素を丸ごと削除する」「同じラベルの span を並べ替える」といった構造的な操作をする。
-- `label` は Strategy の種類だけに依存する。`tc.draw(strategy, label)` の `label` は報告用の `draw_labels` にだけ使い、span のラベルには `Strategy.span_label()`（必須メソッド、実装は `kind_label("<kind>")`）を使う。同じ報告ラベルで異なる Strategy を描くと span ラベルも異なるので、縮小パスが構造的に互換でないブロックを入れ替えない。
-- `draw` は記録スロットを `strategy.draw` に委譲する前に予約し、値が返ってから `Writable` の表現を埋める。合成 Strategy（`Users` パターン）が内部で `tc.draw` を呼ぶとき、自分のレコードが最後に追加されると報告が実装詳細の draw より後になり、`draw #N` の番号も呼出し順とずれる。raise 時は予約したスロットを取り消す。
+- Record spans with TestCase.start_span(label) / stop_span(discard=False); tc.draw creates spans automatically.
+- Shrinking passes use spans for structural operations such as deleting a whole list element or reordering spans with the same label.
+- Span labels depend only on the strategy kind. The label passed to tc.draw(strategy, label) is for reporting; spans use the required Strategy.span_label() method, typically implemented with kind_label("<kind>"). Different strategies with the same reporting label therefore receive distinct span labels.
+- draw reserves a recording slot before delegating to strategy.draw, then fills in its Writable representation after the value returns. This preserves call order in reports when composite strategies call tc.draw internally. The reserved slot is canceled if drawing raises.
 
 ### TestCase
 
