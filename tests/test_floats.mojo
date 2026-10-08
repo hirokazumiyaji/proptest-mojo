@@ -63,6 +63,22 @@ def test_allow_nan_false_never_nan() raises:
         assert_true(not isnan(tc.draw(floats(allow_nan=False))))
 
 
+def test_allow_infinity_false_never_inf() raises:
+    var inf_code = UInt64(0x7FF0000000000000)
+    for sign in range(2):
+        var tc = TestCase.replaying(_float_prefix(UInt64(sign), inf_code))
+        var val = tc.draw(floats(allow_infinity=False))
+        assert_true(not isinf(val), msg="must not be infinity")
+        assert_true(val <= max_finite() and val >= -max_finite())
+
+    # With finite positive lower bound
+    for sign in range(2):
+        var tc = TestCase.replaying(_float_prefix(UInt64(sign), inf_code))
+        var val = tc.draw(floats(min_value=1.0, allow_infinity=False))
+        assert_true(not isinf(val), msg="must not be infinity with lower bound")
+        assert_true(val >= 1.0)
+
+
 def test_ranges_honored() raises:
     var s = floats(min_value=1.5, max_value=2.5)
     var codes = List[UInt64]()
@@ -104,6 +120,45 @@ def _lex_roundtrip_prop(mut tc: TestCase) raises:
 
 def test_roundtrip_property() raises:
     for_all(_lex_roundtrip_prop, Settings(max_examples=20, seed=UInt64(16)))
+
+
+def test_monotonic_above_inf_and_sign_boundary() raises:
+    # Codes above INF_BITS must remain NaN, never wrapping to 0 or subnormal
+    var codes = List[UInt64]()
+    codes.append(UInt64(0x7FF0000000000001))
+    codes.append(UInt64(0x7FFFFFFFFFFFFFFF))
+    codes.append(UInt64(0x8000000000000000))
+    codes.append(UInt64(0x8000000000000001))
+    codes.append(UInt64(0xFFFFFFFFFFFFFFFF))
+    for i in range(len(codes)):
+        assert_true(
+            isnan(lex_to_float(codes[i])),
+            msg="codes above inf must be NaN, not wrapped",
+        )
+
+
+def test_negative_ranges_honored() raises:
+    var s = floats(min_value=-5.0, max_value=-1.0)
+    var tc_zero = TestCase.replaying(ChoiceSequence())
+    assert_equal(tc_zero.draw(s), -1.0)
+    for i in range(16):
+        var tc = TestCase.generating(derive(UInt64(42), UInt64(i)))
+        var value = tc.draw(s)
+        assert_true(
+            value >= -5.0 and value <= -1.0,
+            msg="negative ranged floats must stay in range",
+        )
+
+
+def test_generation_biased_finite() raises:
+    # Most generated floats should be finite (not NaN or Inf)
+    var finite_count = 0
+    for i in range(50):
+        var tc = TestCase.generating(derive(UInt64(99), UInt64(i)))
+        var value = tc.draw(floats())
+        if not isnan(value) and not isinf(value):
+            finite_count += 1
+    assert_true(finite_count >= 40, msg="most generated floats must be finite")
 
 
 def main() raises:

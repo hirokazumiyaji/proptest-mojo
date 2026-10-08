@@ -49,16 +49,17 @@ def float_to_lex(value: Float64) -> UInt64:
 def lex_to_float(code: UInt64) -> Float64:
     """Non-negative float (or canonical NaN) for a magnitude `code`.
 
-    Total: every `UInt64` maps somewhere. The sign bit is cleared,
-    `INF_BITS` maps to `+inf`, larger exponent-saturated patterns map to
-    the canonical NaN, and code 0 maps to `0.0`.
+    Total: every `UInt64` maps somewhere monotonically. Code 0 maps to
+    `0.0`, larger codes map to larger non-negative finite floats up to
+    `INF_BITS - 1`, `INF_BITS` maps to `+inf`, and all codes greater than
+    `INF_BITS` (including the upper half of `UInt64`) map to canonical
+    NaN.
     """
-    var bits = code & MAG_MASK
-    if bits == INF_BITS:
+    if code == INF_BITS:
         return inf[DType.float64]()
-    if bits > INF_BITS:
+    if code > INF_BITS:
         return _bits_to_float(CANON_NAN_BITS)
-    return _bits_to_float(bits)
+    return _bits_to_float(code)
 
 
 def max_finite() -> Float64:
@@ -86,19 +87,38 @@ struct Floats(Strategy):
         return kind_label("floats")
 
     def draw(self, mut tc: TestCase) raises -> Float64:
-        var negative = tc.draw_boolean()
+        var p_negative = 0.5
+        if self.min_value >= 0.0:
+            p_negative = 0.0
+        elif self.max_value <= 0.0:
+            p_negative = 1.0
+        var negative = tc.draw_boolean(p_negative)
+        if self.min_value >= 0.0:
+            negative = False
+        elif self.max_value <= 0.0:
+            negative = True
         var magnitude = lex_to_float(tc.draw_float_bits())
         if isnan(magnitude):
             if self.allow_nan:
                 return _bits_to_float(CANON_NAN_BITS)
             magnitude = 0.0
+        if not self.allow_infinity and isinf(magnitude):
+            magnitude = max_finite()
         var value = magnitude
         if negative:
             value = -magnitude
-        if value < self.min_value:
-            value = self.min_value
-        if value > self.max_value:
-            value = self.max_value
+        var lo = self.min_value
+        var hi = self.max_value
+        if not self.allow_infinity:
+            var fin_max = max_finite()
+            if isinf(lo) and lo < 0.0:
+                lo = -fin_max
+            if isinf(hi) and hi > 0.0:
+                hi = fin_max
+        if value < lo:
+            value = lo
+        if value > hi:
+            value = hi
         return value
 
 
