@@ -170,6 +170,59 @@ struct Users(Strategy):
 
 property の中で直接 `tc.draw` を重ねてもよい。再利用したい組み合わせだけを合成 Strategy にする。
 
+## 状態機械テスト（Stateful testing）
+
+Hypothesis の `RuleBasedStateMachine` / `proptest-state-machine` に相当する、操作列を生成してモデルとの一致を検証する仕組みである。
+
+```mojo
+trait StateMachine(Movable, Deinitable):
+    def num_rules(self) -> Int:
+        ...
+    def run_rule(mut self, mut tc: TestCase, rule: Int) raises:
+        ...
+    def check_invariants(self) raises:
+        ...
+```
+
+- `StateMachine` を実装する struct が、テスト対象（SUT）とモデル（正しい振る舞いの記録）の両方をフィールドに持つ。
+- `run_state_machine(machine, tc, max_ops=32)` が操作回数を `integers(0, max_ops)` で引き、ルール番号を選択列から 1 つずつ引いて `run_rule` → `check_invariants` の順に実行する。実行後のマシンを返す。
+- `run_rule` は引数を `tc.draw` で引き、前提条件を `tc.assume` で表す（`assume` で棄却された操作列は `INVALID` として捨てられる）。操作の内容は `tc.note` で記録し、反例の報告に残す。
+- 操作回数の選択が全 0 のとき 0 操作になる。各操作は 1 つの span に包まれるため、操作列はコレクションと同様に縮小される。回数の最小化で末尾の操作が削られ、チャンク削除で間の操作が取り除かれる。
+
+使用例（先頭要素を返すバグを持つスタック）:
+
+```mojo
+struct StackMachine(StateMachine):
+    var sut: BuggyStack
+    var model: List[Int]
+
+    def num_rules(self) -> Int:
+        return 2  # 0: push, 1: pop
+
+    def run_rule(mut self, mut tc: TestCase, rule: Int) raises:
+        if rule == 0:
+            var value = tc.draw(integers(0, 10), "push.value")
+            tc.note("push(" + String(value) + ")")
+            self.sut.push(value)
+            self.model.append(value)
+        else:
+            tc.assume(len(self.model) > 0)
+            var got = self.sut.pop()
+            var want = self.model.pop()
+            tc.note("pop() -> " + String(got))
+            if got != want:
+                raise Error("pop mismatch")
+
+    def check_invariants(self) raises:
+        if len(self.sut.items) != len(self.model):
+            raise Error("size mismatch")
+
+def stack_prop(mut tc: TestCase) raises:
+    _ = run_state_machine(StackMachine(), tc)
+```
+
+上のバグ入りスタックは `push(0), push(1), pop` の 3 操作に縮小される。これより短い操作列では 2 要素以上の状態を作れないため、この反例は最短である。
+
 ## 計画中（Planned）
 
 - `Arbitrary` トレイト（M5）: 型ごとの既定 Strategy。`arbitrary[Int]()` で `integers_of[DType.int64]()` を返すなど。

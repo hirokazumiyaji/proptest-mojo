@@ -48,7 +48,7 @@ Pure Mojo で、Python の Hypothesis と Rust の proptest に匹敵する Prop
 | 再現 | `@seed`, `@reproduce_failure` | 失敗の永続化ファイル | `Settings(seed=...)`, `Settings(replay=...)` | Implemented (M4) |
 | 反例の永続化 | example database | `proptest-regressions/` | example database | Implemented (M4) |
 | ヘルスチェック | あり | 一部 | あり | Planned (M4) |
-| 状態機械テスト | `RuleBasedStateMachine` | `proptest-state-machine` | `StateMachine` トレイト | Planned (M5) |
+| 状態機械テスト | `RuleBasedStateMachine` | `proptest-state-machine` | `StateMachine` トレイト | Implemented (M5) |
 | 再帰的データ | `recursive` | `prop_recursive` | 調査中 | Planned (M5) |
 | 型からの導出 | `from_type` | `Arbitrary` | `Arbitrary` トレイト | Planned (M5) |
 | Targeted PBT | `target` | なし | `tc.target` | Planned (M5) |
