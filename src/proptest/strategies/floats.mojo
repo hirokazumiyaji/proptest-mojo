@@ -91,6 +91,26 @@ struct Floats(Strategy):
             raise Error("floats: min_value and max_value must not be NaN")
         if self.max_value < self.min_value:
             raise Error("floats: max_value must be >= min_value")
+        if (
+            self.allow_nan
+            and (
+                self.min_value != -inf[DType.float64]()
+                or self.max_value != inf[DType.float64]()
+            )
+        ):
+            raise Error(
+                "floats: allow_nan=True is incompatible with explicit"
+                " min_value/max_value"
+            )
+        if not self.allow_infinity:
+            if isinf(self.min_value) and self.min_value > 0.0:
+                raise Error(
+                    "floats: min_value=+inf requires allow_infinity=True"
+                )
+            if isinf(self.max_value) and self.max_value < 0.0:
+                raise Error(
+                    "floats: max_value=-inf requires allow_infinity=True"
+                )
         var p_negative = 0.5
         if self.min_value >= 0.0:
             p_negative = 0.0

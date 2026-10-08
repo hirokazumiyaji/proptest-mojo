@@ -116,6 +116,27 @@ def test_direct_float_strategy_rejects_invalid_bounds() raises:
     assert_true(raised, msg="direct float construction must validate bounds")
 
 
+def test_direct_float_strategy_rejects_incompatible_flags() raises:
+    var tc = TestCase.replaying(ChoiceSequence())
+    var raised = False
+    try:
+        _ = tc.draw(Floats(0.0, 1.0, True, True))
+    except:
+        raised = True
+    assert_true(raised, msg="bounded direct strategies must reject NaN")
+
+    raised = False
+    var positive_inf = inf[DType.float64]()
+    try:
+        _ = tc.draw(Floats(positive_inf, positive_inf, False, False))
+    except:
+        raised = True
+    assert_true(
+        raised,
+        msg="direct strategies cannot require infinity while forbidding it",
+    )
+
+
 def test_infinite_only_bounds_require_infinity() raises:
     var positive = inf[DType.float64]()
     var raised = False

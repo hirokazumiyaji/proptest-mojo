@@ -18,3 +18,4 @@ To add an ADR, copy [template.md](template.md).
 | [0011](0011-example-database-persistence.md) | Example database persistence format and explicit naming | Accepted | 2026-09-30 |
 | [0012](0012-recursive-strategy-with-runtime-depth.md) | Implement recursive strategies with one struct and a runtime depth limit | Accepted | 2026-09-30 |
 | [0013](0013-state-machine-op-sequence-encoding.md) | Test state machines with a `StateMachine` trait and encoded operation sequences | Accepted | 2026-09-30 |
+| [0015](0015-arbitrary-default-strategies.md) | Define type-based default strategy dispatch | Accepted | 2026-10-08 |
