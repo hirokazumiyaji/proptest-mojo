@@ -22,6 +22,9 @@ comptime OVERRUN_INTERRUPT = "proptest: choice budget exhausted (OVERRUN)"
 comptime RAMP_EXAMPLES = UInt64(10)
 # floor(2^64 / 10): matches a 10% probability on an unbiased UInt64 draw.
 comptime EDGE_BIAS_U64_THRESHOLD = UInt64(0x1999999999999999)
+comptime FLOAT_INF_BITS = UInt64(0x7FF0000000000000)
+comptime FLOAT_NAN_BITS = UInt64(0x7FF8000000000000)
+comptime FLOAT_MAX_FINITE_BITS = UInt64(0x7FEFFFFFFFFFFFFF)
 
 
 @fieldwise_init
@@ -172,6 +175,41 @@ struct TestCase(Sized, Writable):
             ChoiceKind.BOOLEAN, bit, UInt64(1), Bool(False)
         )
         return recorded == UInt64(1)
+
+    def draw_float_bits(mut self) raises -> UInt64:
+        """Draw a lexicographic float-magnitude code, where 0 is simplest.
+
+        Recorded with `ChoiceKind.FLOAT` over the full `UInt64` range.
+        In generating mode, choices are biased toward valid finite floats
+        with edge cases (0, 1, max finite, +inf, NaN).
+        Replay reuses the recorded code and yields 0 past the prefix end,
+        so all-zero choices decode to `0.0` in `floats`.
+        """
+        self._ensure_capacity()
+        var value: UInt64
+        if self.replay_mode:
+            value = self._supply_integer(UInt64(0xFFFFFFFFFFFFFFFF))
+        else:
+            if self.prng.next_u64() < EDGE_BIAS_U64_THRESHOLD:
+                var slot = self.prng.next_u64() % 5
+                if slot == 0:
+                    value = UInt64(0)
+                elif slot == 1:
+                    value = UInt64(1)
+                elif slot == 2:
+                    value = FLOAT_MAX_FINITE_BITS
+                elif slot == 3:
+                    value = FLOAT_INF_BITS
+                else:
+                    value = FLOAT_NAN_BITS
+            else:
+                value = self.prng.next_at_most(FLOAT_MAX_FINITE_BITS)
+        return self._record(
+            ChoiceKind.FLOAT,
+            value,
+            UInt64(0xFFFFFFFFFFFFFFFF),
+            Bool(False),
+        )
 
     def forced_integer(
         mut self, value: UInt64, max_value: UInt64

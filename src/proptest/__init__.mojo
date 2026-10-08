@@ -41,6 +41,13 @@ from proptest.shrink.shrinker import (
 )
 from proptest.strategy import Strategy
 from proptest.strategies.collections import ListOf, lists
+from proptest.strategies.floats import (
+    Floats,
+    float_to_lex,
+    floats,
+    lex_to_float,
+    max_finite,
+)
 from proptest.strategies.choice import (
     OneOf,
     OneOf2,
