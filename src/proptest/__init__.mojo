@@ -16,8 +16,14 @@ from proptest.encoding import (
     encode_values,
 )
 from proptest.prng import SplitMix64, Xoshiro256StarStar, derive
-from proptest.runner import Settings, for_all
+from proptest.runner import (
+    DEFAULT_DATABASE_DIR,
+    Settings,
+    Verbosity,
+    for_all,
+)
 from proptest.shrink.adaptive import lower_duplicates, redistribute
+from proptest.shrink.float_passes import simplify_floats
 from proptest.shrink.passes import (
     delete_chunks,
     minimize_individual,

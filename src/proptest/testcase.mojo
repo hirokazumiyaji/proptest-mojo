@@ -366,6 +366,19 @@ struct TestCase(Sized, Writable):
         return value
 
 
+def _edge_value(max_value: UInt64, selector: UInt64) -> UInt64:
+    # One of 0, 1, max_value, max_value - 1 without recording extra choices.
+    var one = min(UInt64(1), max_value)
+    var slot = selector & UInt64(3)
+    if slot == UInt64(0):
+        return UInt64(0)
+    if slot == UInt64(1):
+        return one
+    if slot == UInt64(2):
+        return max_value
+    return max_value - one
+
+
 def _remove_at(mut items: List[String], index: Int):
     """Drop `items[index]`, shifting the tail left.
 

@@ -13,7 +13,7 @@ from std.io import Writer
 from std.os import getenv
 from std.time import perf_counter_ns
 
-from proptest.choice import ChoiceSequence
+from proptest.choice import ChoiceSequence, Span
 from proptest.database import ExampleDatabase, sha256_hex
 from proptest.encoding import decode_sequence, encode_sequence
 from proptest.prng import Xoshiro256StarStar, derive
@@ -80,11 +80,6 @@ struct Settings(Copyable, Movable, Writable):
     # so equality with the default cannot stand in for "supplied".
     var max_examples_set: Bool
 
-    # Tracked separately from `max_examples`: an explicit
-    # `Settings(max_examples=100)` must still beat `PROPTEST_MAX_EXAMPLES`,
-    # so equality with the default cannot stand in for "supplied".
-    var max_examples_set: Bool
-
     def __init__(
         out self,
         max_examples: Optional[Int] = None,
@@ -128,7 +123,7 @@ struct Settings(Copyable, Movable, Writable):
                     + "'"
                 )
             return parsed
-        return UInt64(abs(Int(monotonic())))
+        return UInt64(abs(perf_counter_ns()))
 
     def effective_max_examples(self) raises -> Int:
         """Explicit count, else `PROPTEST_MAX_EXAMPLES` over the default."""
@@ -177,31 +172,6 @@ struct Settings(Copyable, Movable, Writable):
         if self.database_dir != DEFAULT_DATABASE_DIR:
             writer.write(', database_dir="', self.database_dir, '"')
         writer.write(")")
-
-
-comptime U64_MAX = UInt64(0xFFFFFFFFFFFFFFFF)
-
-
-def _parse_u64(text: String) -> Tuple[Bool, UInt64]:
-    """Parse a decimal string into a `UInt64`.
-
-    Returns `(False, 0)` for a non-numeric or out-of-range value.
-    Accumulating in `UInt64` keeps the whole `0..=UInt64.MAX` domain
-    reachable; a signed `Int` accumulator would reject the upper half of
-    it before the seed could be reported or replayed.
-    """
-    var digits = text.as_bytes()
-    if len(digits) == 0:
-        return (False, UInt64(0))
-    var acc = UInt64(0)
-    for b in digits:
-        if b < 48 or b > 57:
-            return (False, UInt64(0))
-        var digit = UInt64(b - 48)
-        if acc > (U64_MAX - digit) // UInt64(10):
-            return (False, UInt64(0))
-        acc = acc * UInt64(10) + digit
-    return (True, acc)
 
 
 comptime U64_MAX = UInt64(0xFFFFFFFFFFFFFFFF)
@@ -324,6 +294,7 @@ def for_all[
         # the loop, silently passing a run that mostly overran.
         if (
             examples_run >= 10
+            and not raised
             and overrun_count > 0
             and overrun_count * 5 > examples_run
         ):
@@ -343,7 +314,14 @@ def for_all[
                 best_seq = tc.choices.copy()
             continue
         if not _shrink_and_raise(
-            prop, settings, seed, examples_run, tc.choices.copy(), message, db
+            prop,
+            settings,
+            seed,
+            examples_run,
+            tc.choices.copy(),
+            tc.spans.copy(),
+            message,
+            db,
         ):
             continue
 
@@ -389,6 +367,7 @@ def _replay_database[
             seed,
             replays_run,
             tc.choices.copy(),
+            tc.spans.copy(),
             message,
             db,
             entry.filename.copy(),
@@ -405,6 +384,7 @@ def _shrink_and_raise[
     seed: UInt64,
     examples_run: Int,
     failing: ChoiceSequence,
+    failing_spans: List[Span],
     failure_message: String,
     db: ExampleDatabase,
     entry_file: String = "",
@@ -432,76 +412,29 @@ def _shrink_and_raise[
             tc.spans.copy(),
         )
 
-    var valid_count = 0
-    var examples_run = 0
-    var invalid_count = 0
-    var overrun_count = 0
-    var attempt = UInt64(0)
-    while valid_count < max_examples:
-        var tc = _fresh_test_case(settings.max_choices, seed, attempt)
-        var raised = False
-        var message = String("")
-        try:
-            prop(tc)
-        except e:
-            raised = True
-            message = String(e)
-        examples_run += 1
-        attempt += 1
-        if tc.status == Status.INVALID:
-            invalid_count += 1
-            if invalid_count > 10 * max_examples:
-                raise Error(
-                    "gave up after "
-                    + String(examples_run)
-                    + " examples ("
-                    + String(invalid_count)
-                    + " rejected by assume): condition too strict"
-                )
-            continue
-        if tc.status == Status.OVERRUN:
-            overrun_count += 1
-            if examples_run >= 10 and overrun_count * 5 > examples_run:
-                raise Error(
-                    "gave up after "
-                    + String(examples_run)
-                    + " examples ("
-                    + String(overrun_count)
-                    + " overran max_choices="
-                    + String(settings.max_choices)
-                    + "): generated data too large (raise max_choices)"
-                )
-            continue
-        # Rechecked after a VALID attempt too: overruns that happened
-        # while `examples_run < 10` would otherwise escape the ratio
-        # check entirely when the last required valid example completes
-        # the loop, silently passing a run that mostly overran.
-        if (
-            examples_run >= 10
-            and overrun_count > 0
-            and overrun_count * 5 > examples_run
-        ):
-            raise Error(
-                "gave up after "
-                + String(examples_run)
-                + " examples ("
-                + String(overrun_count)
-                + " overran max_choices="
-                + String(settings.max_choices)
-                + "): generated data too large (raise max_choices)"
-            )
-        if not raised:
-            valid_count += 1
-            continue
-        var shrink_result = shrink_with(
-            evaluate,
-            tc.choices.copy(),
-            tc.spans.copy(),
-            settings.max_shrink_evaluations,
-        )
-        var report_tc = TestCase.replaying(
-            shrink_result.best.copy(), settings.max_choices
-        )
+    var shrink_result = shrink_with(
+        evaluate,
+        failing.copy(),
+        failing_spans.copy(),
+        settings.max_shrink_evaluations,
+    )
+    var report_tc = TestCase.replaying(
+        shrink_result.best.copy(), settings.max_choices
+    )
+    var report_raised = False
+    var replay_message = failure_message.copy()
+    try:
+        prop(report_tc)
+    except e:
+        report_raised = True
+        replay_message = String(e)
+
+    var report_failed = report_raised and report_tc.status == Status.RUNNING
+
+    if not report_failed:
+        report_tc = TestCase.replaying(failing.copy(), settings.max_choices)
+        report_raised = False
+        replay_message = failure_message.copy()
         try:
             prop(report_tc)
         except e:
