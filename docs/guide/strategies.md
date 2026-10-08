@@ -1,43 +1,36 @@
-# Strategy 一覧
+# Strategy reference
 
-Strategy は「値の生成方法を表す不変の値」です。`tc.draw` に渡して使います。
-共通の規約 (決定性・単純さの単調性・不変性・局所性) は
-[Specs: Strategy](../specs/strategies.md) を参照してください。
+A Strategy is an immutable value that describes how to generate values. Pass it to `tc.draw`. For shared conventions such as determinism, monotonic simplicity, immutability, and locality, see [Specs: Strategy](../specs/strategies.md).
 
-## 使えるもの
+## Built-in strategies
 
-| 関数 | 値の型 | 縮小の目標 |
-|------|--------|-----------|
-| `integers(min, max)` | `Int` | 範囲内で 0 に最も近い値 |
+| Strategy | Value type | Simplest values |
+|----------|------------|-----------------|
+| `integers(min, max)` | `Int` | Value in range closest to 0 |
+| `integers_of[dtype](min, max)` | Integer scalar type | Value in range closest to 0 |
 | `booleans()` | `Bool` | `False` |
-| `just(value)` | `T` | (選択を消費しない定数) |
-| `map[f](s)` | 変換後の型 | ベース Strategy を通じて縮小 |
-| `filter[p](s)` | `s` と同じ型 | 条件を満たす最も単純な値 |
-| `flat_map[f](s)` | 内側 Strategy の値の型 | 外側・内側の両方を通じて縮小 |
+| `just(value)` | `T` | The given constant; consumes no choices |
+| `floats(...)` | `Float64` | `0.0`, then simpler numeric values |
+| `text(...)` | `String` | Empty string, then simpler characters |
+| `bytes(...)` | `List[UInt8]` | Empty sequence |
+| `lists(elements, ...)` | `List[T]` | Short list with simple elements |
+| `unique_lists(elements, ...)` | `List[T]` | Short list with simple elements |
+| `dicts(keys, values, ...)` | `DictList[K, V]` | Empty dictionary |
+| `tuples(a, b)` / `tuples(a, b, c)` | Tuple of 2 or 3 values | Each element simplified |
+| `optionals(strategy)` | `Optional[T]` | `None` |
+| `one_of(strategies)` / `one_of2(a, b)` | Strategy value | First strategy |
+| `sampled_from(values)` | `T` | First element |
+| `json_tree(...)` | `JsonValue` | `null` |
+
+The `map`, `filter`, and `flat_map` combinators derive strategies from other strategies. See [composition](composition.md) for examples and for implementing a custom Strategy struct.
 
 ```mojo
-from proptest import Integers, booleans, integers, just
-from proptest.strategies.combinators import filter, flat_map, map
+from proptest import booleans, integers, just, lists
 
-var any_int = integers(-100, 100)  # raises: max < min なら Error
-var flag = booleans()
+var any_ints = integers(-100, 100)
+var flags = booleans()
 var constant = just(42)
+var small_lists = lists(integers(0, 10), max_size=5)
 ```
 
-`map` / `filter` / `flat_map` の使い方と自作の合成 Strategy については
-[composition](composition.md) を参照してください。
-
-## 計画中のもの
-
-次の Strategy は M2 以降で計画中です。API 形は
-[Specs: Strategy](../specs/strategies.md) の表が最新です。
-
-- 数値・真偽の拡張: `integers_of[dtype]`、`floats`
-- 文字列・バイト列: `text`、`bytes`
-- コレクション: `lists`、`unique_lists`、`dicts`
-- 構造: `tuples`、`optionals`、`one_of`、`sampled_from`
-- 高度な生成: 再帰的データ、`Arbitrary` トレイト、`tc.target`
-
-コレクションが必要な今は、[composition](composition.md) の合成 Strategy
-struct パターンで自作してください。動く例が
-[`examples/lists.mojo`](../../examples/lists.mojo) にあります。
+See [Specs: Strategy](../specs/strategies.md) for complete signatures and shrinking behavior. `Arbitrary`-based derivation is planned.

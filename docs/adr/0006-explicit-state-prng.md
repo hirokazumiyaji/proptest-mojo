@@ -1,27 +1,26 @@
-# ADR-0006: 明示的な状態を持つ自前の PRNG を使う
+# ADR-0006: Use a custom PRNG with explicit state
 
-- 状態: Accepted
-- 日付: 2026-09-26
-- 関連: [specs/runner.md](../specs/runner.md)
+- Status: Accepted
+- Date: 2026-09-26
+- Related: [specs/runner.md](../specs/runner.md)
 
-## 文脈
+## Context
 
-生成は乱数に依存する。反例の再現性、並列実行時の独立性、テストの決定性のために、乱数状態の扱いを決める必要がある。
-`std.random` はプロセス全体のグローバル状態を持ち、`seed()` の呼び出し順に結果が依存する。
+Generation depends on randomness. We needed to decide how to handle random state to make counterexamples reproducible, runs independent under parallel execution, and tests deterministic. `std.random` has process-wide global state, so results depend on the order of `seed()` calls.
 
-## 決定
+## Decision
 
-- SplitMix64（シード展開用）と xoshiro256\*\*（生成用）を自前で実装する。
-- PRNG は値型とし、グローバル状態を持たない。状態は `TestCase` が所有する。
-- 各 example の PRNG は `(run_seed, example_index)` から純粋関数で導出する。これにより任意の example を単独で再現できる。
-- `std.random` はライブラリ内で使わない。
+- Implement SplitMix64 (for seed expansion) and xoshiro256** (for generation) ourselves.
+- Make the PRNG a value type with no global state. `TestCase` owns its state.
+- Derive each example's PRNG using a pure function of `(run_seed, example_index)`. This allows any example to be reproduced independently.
+- Do not use `std.random` in the library.
 
-## 検討した代替案
+## Alternatives Considered
 
-- `std.random` を使う: グローバル状態のため、property 内でユーザーが `std.random` を使うと生成列が変わり再現性が壊れる。
-- 暗号学的乱数: 不要に遅い。
+- Use `std.random`: its global state means that if users call `std.random` inside a property, the generated sequence changes and reproducibility breaks.
+- Use cryptographic randomness: unnecessarily slow.
 
-## 結果
+## Consequences
 
-- シード 1 つで実行全体が決定的に再現できる。
-- アルゴリズムを変えると同じシードでも別の値になるため、変更時はリリースノートに明記する。
+- A single seed deterministically reproduces the entire run.
+- Changing the algorithm changes the generated values for the same seed, so algorithm changes must be noted in release notes.

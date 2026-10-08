@@ -1,8 +1,8 @@
-# 合成
+# Composition
 
-## `map`: 変換する
+## `map`: transform values
 
-純粋関数で引き直します。縮小はベース Strategy を通じて効きます。
+Transform values with a pure function. Shrinking works through the base Strategy.
 
 ```mojo
 from proptest.strategies.combinators import map
@@ -13,11 +13,9 @@ def double(x: Int) -> Int:
 var y = tc.draw(map[double](integers(0, 100)), "y")
 ```
 
-## `filter`: 絞り込む
+## `filter`: restrict values
 
-述語を満たす値だけ通します。棄却された試行は破棄 span として記録され、
-上限回数 (`MAX_FILTER_ATTEMPTS`) を超えるとその example を捨てます
-(`assume` と同じ扱い)。
+Allows only values that satisfy a predicate. Rejected attempts are recorded as discarded spans. If the limit (`MAX_FILTER_ATTEMPTS`) is exceeded, the example is discarded, as with `assume`.
 
 ```mojo
 from proptest.strategies.combinators import filter
@@ -28,13 +26,11 @@ def is_even(x: Int) -> Bool:
 var z = tc.draw(filter[is_even](integers(0, 100)), "z")
 ```
 
-条件が厳しすぎると example が捨てられ続けます。可能な範囲は
-`filter` より範囲指定 (`integers(0, 100)` の bounds など) で表す方が速いです。
+If the condition is too strict, examples will keep being discarded. When possible, use bounds such as `integers(0, 100)` instead of filtering; this is faster.
 
-## `flat_map`: 依存させる
+## `flat_map`: make a Strategy depend on a value
 
-外側の値から内側の Strategy を作ります。内側 Strategy の「型」は
-コンパイル時に固定され、値のパラメータだけが外側に依存できます。
+Build an inner Strategy from an outer value. The inner Strategy's type is fixed at compile time; only its value parameters can depend on the outer value.
 
 ```mojo
 from proptest import Integers
@@ -46,19 +42,17 @@ def capped(n: Int) -> Integers:
 var w = tc.draw(flat_map[capped](integers(0, 10)), "w")
 ```
 
-動く例は [`examples/combinators.mojo`](../../examples/combinators.mojo) です。
+See [`examples/combinators.mojo`](../../examples/combinators.mojo) for a runnable example.
 
-## 合成 Strategy struct: パラメータを捕捉する
+## Custom composite Strategy structs: capture parameters
 
-コンビネータが受け取れるのは捕捉を持たない (thin) 関数だけです。
-境界・サイズ・文字集合などのパラメータを持つ生成は、パラメータを
-フィールドに持つ struct に `Strategy` を実装します。
+Combinators accept only thin functions, which cannot capture values. To generate values with parameters such as bounds, sizes, or character sets, implement `Strategy` on a struct that stores those parameters in fields.
 
 ```mojo
 from proptest import TestCase, booleans, integers
 from proptest.strategy import Strategy, kind_label
 
-# `User` は例示用の自作型。実装側で定義済みと仮定します。
+# `User` is a custom type assumed to be defined by the implementation.
 @fieldwise_init
 struct Users(Strategy):
     comptime Value = User
@@ -73,7 +67,4 @@ struct Users(Strategy):
         return User(age, admin)
 ```
 
-規約は [Specs: Strategy](../specs/strategies.md) の表に従います。
-特に、全選択 0 のときに最も単純な値を返すこと
-(例: `Users(120)` なら `User(age=0, admin=False)`) を守ると縮小が効きます。
-リストの合成例は [`examples/lists.mojo`](../../examples/lists.mojo) です。
+Follow the conventions in the [Specs: Strategy](../specs/strategies.md) table. In particular, return the simplest value when all choices are zero (for example, `Users(120)` should return `User(age=0, admin=False)`) to enable shrinking. See [`examples/lists.mojo`](../../examples/lists.mojo) for a composite list example.

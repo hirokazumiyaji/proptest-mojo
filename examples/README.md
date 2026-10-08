@@ -1,15 +1,14 @@
-# examples
+# Examples
 
-動く使用例です。CI はすべて実行します (失敗例は `try` で受けて報告を
-表示するので、終了コードは 0 です)。
+Runnable usage examples. CI runs all of them. Each example catches and displays its expected failure with `try`, so it exits with status 0.
 
-| ファイル | 内容 | 対応ガイド |
-|----------|------|-----------|
-| `basic.mojo` | 最小の使い方: 通る性質と縮小される性質 | [basics](../docs/guide/basics.md) |
-| `combinators.mojo` | `map` / `filter` / `flat_map` の導出 | [composition](../docs/guide/composition.md) |
-| `lists.mojo` | 合成 Strategy struct で作る整数リスト | [composition](../docs/guide/composition.md) |
+| File | Contents | Related guide |
+|------|----------|---------------|
+| `basic.mojo` | Minimal usage: a passing property and one that gets shrunk | [basics](../docs/guide/basics.md) |
+| `combinators.mojo` | Deriving Strategies with `map`, `filter`, and `flat_map` | [composition](../docs/guide/composition.md) |
+| `lists.mojo` | An integer list built with a composite Strategy struct | [composition](../docs/guide/composition.md) |
 
-実行方法:
+Run the examples with:
 
 ```sh
 pixi run mojo run -I src examples/basic.mojo < /dev/null
