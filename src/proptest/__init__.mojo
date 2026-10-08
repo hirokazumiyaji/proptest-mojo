@@ -22,6 +22,7 @@ from proptest.runner import (
     Verbosity,
     for_all,
 )
+from proptest.shrink.float_passes import simplify_floats
 from proptest.shrink.passes import (
     delete_chunks,
     minimize_individual,
