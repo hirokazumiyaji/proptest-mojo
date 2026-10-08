@@ -15,7 +15,7 @@ A tagged Git checkout works when consumers pass its `src` directory through `-I`
 - Distribute v0.1.0 as source through a tagged Git checkout. Consumers can clone the tag and run Mojo with `-I <checkout>/src`; setup steps are in [the setup guide](../guide/setup.md).
 - Do not distribute `.mojoc` or `.mojopkg` artifacts. Keep `pixi run build` for local build checks.
 - Defer conda packaging until the repository has package metadata and a publishing workflow.
-- Follow SemVer. Keep the workspace version and `VERSION` constant in sync; the smoke test checks this.
+- Follow SemVer. Keep the workspace version and `VERSION` constant in sync. Before each release, compare `pixi.toml`'s `[workspace].version` with the `VERSION` constant in `src/proptest/__init__.mojo`; the smoke test only checks the constant's expected format.
 - For each release, verify CI, include release notes in the PR, then tag the merged commit and publish a GitHub Release. Recommend that consumers pin a release tag.
 
 ## Consequences
