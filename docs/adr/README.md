@@ -1,16 +1,20 @@
 # Architecture Decision Records
 
-設計判断の履歴です。運用ルールは [docs/README.md](../README.md) を参照してください。
-新しい ADR は [template.md](template.md) をコピーして作成します。
+This directory records the project's architectural decisions. See [docs/README.md](../README.md) for documentation conventions.
+To add an ADR, copy [template.md](template.md).
 
-| No. | タイトル | 状態 | 日付 |
-|-----|----------|------|------|
-| [0001](0001-documentation-and-task-management.md) | ドキュメントとタスク管理の方針 | Accepted | 2026-09-26 |
-| [0002](0002-choice-sequence-based-shrinking.md) | 選択列（choice sequence）ベースの内部縮小を採用する | Accepted | 2026-09-26 |
-| [0003](0003-strategy-trait-with-static-dispatch.md) | Strategy をトレイトとジェネリック struct で静的ディスパッチする | Accepted | 2026-09-26 |
-| [0004](0004-property-as-testcase-closure.md) | Property を `def(mut TestCase) raises` のクロージャで表現する | Accepted | 2026-09-26 |
-| [0005](0005-thin-functions-as-comptime-parameters.md) | コンビネータの関数は thin 関数を comptime パラメータで受け取る | Accepted | 2026-09-26 |
-| [0006](0006-explicit-state-prng.md) | 明示的な状態を持つ自前の PRNG を使う | Accepted | 2026-09-26 |
-| [0007](0007-toolchain-pixi-and-mojo-nightly.md) | ツールチェーンに pixi と Mojo nightly を使う | Accepted | 2026-09-26 |
-| [0008](0008-functional-core-imperative-shell.md) | 関数型コア・命令型シェルで構成する | Accepted | 2026-09-26 |
-| [0009](0009-testcase-draw-module-cycle.md) | TestCase.draw のために testcase と strategy の参照循環を許す | Accepted | 2026-09-30 |
+| No. | Title | Status | Date |
+|-----|-------|--------|------|
+| [0001](0001-documentation-and-task-management.md) | Documentation and task management policy | Accepted | 2026-09-26 |
+| [0002](0002-choice-sequence-based-shrinking.md) | Use choice-sequence-based internal shrinking | Accepted | 2026-09-26 |
+| [0003](0003-strategy-trait-with-static-dispatch.md) | Statically dispatch strategies through a trait and generic structs | Accepted | 2026-09-26 |
+| [0004](0004-property-as-testcase-closure.md) | Represent properties as `def(mut TestCase) raises` closures | Accepted | 2026-09-26 |
+| [0005](0005-thin-functions-as-comptime-parameters.md) | Pass combinator functions as thin comptime parameters | Accepted | 2026-09-26 |
+| [0006](0006-explicit-state-prng.md) | Use a custom PRNG with explicit state | Accepted | 2026-09-26 |
+| [0007](0007-toolchain-pixi-and-mojo-nightly.md) | Use pixi and Mojo nightly for the toolchain | Accepted | 2026-09-26 |
+| [0008](0008-functional-core-imperative-shell.md) | Use a functional core and imperative shell | Accepted | 2026-09-26 |
+| [0009](0009-testcase-draw-module-cycle.md) | Allow a reference cycle between testcase and strategy for `TestCase.draw` | Accepted | 2026-09-30 |
+| [0010](0010-heterogeneous-one-of.md) | Implement heterogeneous `one_of` with `where` clauses and `rebind` | Accepted | 2026-09-30 |
+| [0011](0011-example-database-persistence.md) | Example database persistence format and explicit naming | Accepted | 2026-09-30 |
+| [0012](0012-recursive-strategy-with-runtime-depth.md) | Implement recursive strategies with one struct and a runtime depth limit | Accepted | 2026-09-30 |
+| [0013](0013-state-machine-op-sequence-encoding.md) | Test state machines with a `StateMachine` trait and encoded operation sequences | Accepted | 2026-09-30 |

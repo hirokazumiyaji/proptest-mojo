@@ -64,7 +64,10 @@ struct ShrinkResult(Copyable, Movable, Writable):
 
 @fieldwise_init
 struct _CacheEntry(Copyable, Movable):
-    var values: List[UInt64]
+    var sequence: ChoiceSequence
+    var fingerprint: UInt64
+    var secondary_fingerprint: UInt64
+    var length: Int
     var is_interesting: Bool
     var consumed: ChoiceSequence
     var spans: List[Span]
@@ -86,13 +89,11 @@ def _batch_size(remaining: Int) -> Int:
     return CANDIDATE_BATCH
 
 
-def _values_equal(a: List[UInt64], b: List[UInt64]) -> Bool:
-    if len(a) != len(b):
-        return False
-    for i in range(len(a)):
-        if a[i] != b[i]:
-            return False
-    return True
+# Candidates are materialized in fixed-size batches rather than up to
+# the whole remaining budget: each candidate copies the entire sequence, so
+# the default 5,000-evaluation budget would retain tens of millions of
+# `ChoiceNode`s before the first one is evaluated.
+comptime CANDIDATE_BATCH = 64
 
 
 def _remember(mut entries: List[_CacheEntry], entry: _CacheEntry) -> Int:
@@ -107,7 +108,51 @@ def _lookup(entries: List[_CacheEntry], values: List[UInt64]) -> Int:
     for i in range(len(entries)):
         if _values_equal(entries[i].values, values):
             return i
+        slot += 1
+        if slot == len(slots):
+            slot = 0
     return -1
+
+
+def _append_cache_entry(
+    mut entries: List[_CacheEntry],
+    mut slots: List[Int],
+    sequence: ChoiceSequence,
+    is_interesting: Bool,
+    consumed: ChoiceSequence,
+):
+    var (fingerprint, secondary_fingerprint) = _fingerprints(sequence)
+    var cached_consumed = ChoiceSequence()
+    if is_interesting:
+        cached_consumed = consumed.copy()
+    entries.append(
+        _CacheEntry(
+            sequence.copy(),
+            fingerprint,
+            secondary_fingerprint,
+            len(sequence),
+            is_interesting,
+            cached_consumed^,
+        )
+    )
+    var slot = _cache_slot(
+        fingerprint, secondary_fingerprint, len(sequence), len(slots)
+    )
+    while slots[slot] >= 0:
+        slot += 1
+        if slot == len(slots):
+            slot = 0
+    slots[slot] = len(entries) - 1
+
+
+def _empty_cache_slots(max_evaluations: Int) -> List[Int]:
+    var capacity = 1
+    while capacity < max_evaluations * 2:
+        capacity *= 2
+    var slots = List[Int]()
+    for _ in range(capacity):
+        slots.append(-1)
+    return slots^
 
 
 def shrink[
@@ -130,6 +175,7 @@ def shrink[
         return ShrinkResult(best^, 0, False)
 
     var entries = List[_CacheEntry]()
+    var slots = _empty_cache_slots(max_evaluations)
     var evaluations = 0
     var hit_budget = False
 
@@ -237,8 +283,7 @@ def shrink[
                 continue
             var current = best.nodes[i].value
             var trial = best.with_value_at(i, UInt64(0))
-            var key = trial.values()
-            var idx = _lookup(entries, key)
+            var idx = _lookup(entries, slots, trial)
             var zero_interesting = False
             var zero_consumed = trial.copy()
             var zero_spans = best_spans.copy()
@@ -266,17 +311,14 @@ def shrink[
                 best_spans = zero_spans^
                 improved = True
                 break
-            var lo = UInt64(0)
-            var hi = current
             var changed = False
-            while hi - lo > UInt64(1):
+            var candidate_value = UInt64(1)
+            while candidate_value < current:
                 if evaluations >= max_evaluations:
                     hit_budget = True
                     break
-                var mid = lo + (hi - lo) // UInt64(2)
-                var probe = best.with_value_at(i, mid)
-                var pkey = probe.values()
-                var pidx = _lookup(entries, pkey)
+                var probe = best.with_value_at(i, candidate_value)
+                var pidx = _lookup(entries, slots, probe)
                 var p_interesting = False
                 var p_consumed = probe.copy()
                 var p_spans = best_spans.copy()
@@ -797,7 +839,9 @@ def shrink[
                 if entries[pidx].is_interesting:
                     hi = mid
                 else:
-                    lo = mid
+                    candidate_value += UInt64(1)
+                    continue
+                break
             if hit_budget:
                 break
             if hi < v:
@@ -830,6 +874,251 @@ def shrink[
                 break
         if hit_budget:
             break
+        if improved:
+            continue
+
+        # lower_duplicates: lower same-valued choices together
+        var seen_dups = List[UInt64]()
+        for i in range(n):
+            if evaluations >= max_evaluations:
+                hit_budget = True
+                break
+            if best.nodes[i].forced:
+                continue
+            var v = best.nodes[i].value
+            if v == UInt64(0):
+                continue
+            var already = False
+            for k in range(len(seen_dups)):
+                if seen_dups[k] == v:
+                    already = True
+                    break
+            if already:
+                continue
+            seen_dups.append(v)
+            var group = List[Int]()
+            for k in range(n):
+                if best.nodes[k].forced:
+                    continue
+                if best.nodes[k].value == v:
+                    group.append(k)
+            if len(group) < 2:
+                continue
+            var cand0 = best.copy()
+            for g in range(len(group)):
+                cand0 = cand0.with_value_at(group[g], UInt64(0))
+            var idx0 = _lookup(entries, slots, cand0)
+            var c0_int: Bool
+            var c0_cons: ChoiceSequence
+            if idx0 >= 0:
+                c0_int = entries[idx0].is_interesting
+                c0_cons = entries[idx0].consumed.copy()
+            else:
+                evaluations += 1
+                var res = evaluate(cand0^)
+                c0_int = res.is_interesting
+                c0_cons = res.consumed.copy()
+                _append_cache_entry(entries, slots, cand0, c0_int, c0_cons)
+            if c0_int and is_shortlex_smaller(c0_cons, best):
+                best = c0_cons^
+                improved = True
+                break
+            var lo = UInt64(0)
+            var hi = v
+            var dup_changed = False
+            while hi - lo > UInt64(1):
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
+                var mid = lo + (hi - lo) // UInt64(2)
+                var probe = best.copy()
+                for g in range(len(group)):
+                    probe = probe.with_value_at(group[g], mid)
+                var pidx = _lookup(entries, slots, probe)
+                var p_int: Bool
+                var p_cons: ChoiceSequence
+                if pidx >= 0:
+                    p_int = entries[pidx].is_interesting
+                    p_cons = entries[pidx].consumed.copy()
+                else:
+                    evaluations += 1
+                    var res = evaluate(probe^)
+                    p_int = res.is_interesting
+                    p_cons = res.consumed.copy()
+                    _append_cache_entry(entries, slots, probe, p_int, p_cons)
+                if p_int:
+                    hi = mid
+                    if is_shortlex_smaller(p_cons, best):
+                        best = p_cons^
+                        dup_changed = True
+                else:
+                    lo = mid
+            if hit_budget:
+                break
+            if dup_changed:
+                improved = True
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        # redistribute: move value from earlier integer choice to later one
+        var redist_changed = False
+        for i in range(n):
+            if redist_changed or evaluations >= max_evaluations:
+                break
+            if best.nodes[i].forced or best.nodes[i].kind != ChoiceKind.INTEGER:
+                continue
+            var a = best.nodes[i].value
+            if a == UInt64(0):
+                continue
+            for j in range(i + 1, n):
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
+                if (
+                    best.nodes[j].forced
+                    or best.nodes[j].kind != ChoiceKind.INTEGER
+                ):
+                    continue
+                var b = best.nodes[j].value
+                var max_j = best.nodes[j].max_value
+                if b >= max_j:
+                    continue
+
+                var j_maxed = best.with_value_at(j, max_j)
+                var probe0 = j_maxed.with_value_at(i, UInt64(0))
+                var idx0 = _lookup(entries, slots, probe0)
+                var p0_int: Bool
+                var p0_cons: ChoiceSequence
+                if idx0 >= 0:
+                    p0_int = entries[idx0].is_interesting
+                    p0_cons = entries[idx0].consumed.copy()
+                else:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
+                    evaluations += 1
+                    var res = evaluate(probe0^)
+                    p0_int = res.is_interesting
+                    p0_cons = res.consumed.copy()
+                    _append_cache_entry(entries, slots, probe0, p0_int, p0_cons)
+
+                var target_i = UInt64(0)
+                var found_target_i = False
+                if p0_int:
+                    target_i = UInt64(0)
+                    found_target_i = True
+                else:
+                    var lo_i = UInt64(0)
+                    var hi_i = a
+                    while hi_i - lo_i > UInt64(1):
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        var mid_i = lo_i + (hi_i - lo_i) // UInt64(2)
+                        var probe_i = j_maxed.with_value_at(i, mid_i)
+                        var idx_i = _lookup(entries, slots, probe_i)
+                        var pi_int: Bool
+                        var pi_cons: ChoiceSequence
+                        if idx_i >= 0:
+                            pi_int = entries[idx_i].is_interesting
+                            pi_cons = entries[idx_i].consumed.copy()
+                        else:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            evaluations += 1
+                            var res = evaluate(probe_i^)
+                            pi_int = res.is_interesting
+                            pi_cons = res.consumed.copy()
+                            _append_cache_entry(
+                                entries, slots, probe_i, pi_int, pi_cons
+                            )
+                        if pi_int:
+                            hi_i = mid_i
+                        else:
+                            lo_i = mid_i
+                    if hit_budget:
+                        break
+                    if hi_i < a:
+                        target_i = hi_i
+                        found_target_i = True
+
+                if found_target_i:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
+                    var base_seq = best.with_value_at(i, target_i)
+                    var probe_j0 = base_seq.with_value_at(j, UInt64(0))
+                    var idx_j0 = _lookup(entries, slots, probe_j0)
+                    var pj0_int: Bool
+                    var pj0_cons: ChoiceSequence
+                    if idx_j0 >= 0:
+                        pj0_int = entries[idx_j0].is_interesting
+                        pj0_cons = entries[idx_j0].consumed.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var res = evaluate(probe_j0^)
+                        pj0_int = res.is_interesting
+                        pj0_cons = res.consumed.copy()
+                        _append_cache_entry(
+                            entries, slots, probe_j0, pj0_int, pj0_cons
+                        )
+
+                    if pj0_int and is_shortlex_smaller(pj0_cons, best):
+                        best = pj0_cons^
+                        redist_changed = True
+                        improved = True
+                        break
+
+                    var lo_j = UInt64(0)
+                    var hi_j = max_j
+                    var best_j_cand = ChoiceSequence()
+                    var had_j_cand = False
+                    while hi_j - lo_j > UInt64(1):
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        var mid_j = lo_j + (hi_j - lo_j) // UInt64(2)
+                        var probe_j = base_seq.with_value_at(j, mid_j)
+                        var idx_j = _lookup(entries, slots, probe_j)
+                        var pj_int: Bool
+                        var pj_cons: ChoiceSequence
+                        if idx_j >= 0:
+                            pj_int = entries[idx_j].is_interesting
+                            pj_cons = entries[idx_j].consumed.copy()
+                        else:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            evaluations += 1
+                            var res = evaluate(probe_j^)
+                            pj_int = res.is_interesting
+                            pj_cons = res.consumed.copy()
+                            _append_cache_entry(
+                                entries, slots, probe_j, pj_int, pj_cons
+                            )
+                        if pj_int:
+                            hi_j = mid_j
+                            if is_shortlex_smaller(pj_cons, best):
+                                best_j_cand = pj_cons^
+                                had_j_cand = True
+                        else:
+                            lo_j = mid_j
+                    if had_j_cand:
+                        best = best_j_cand^
+                        redist_changed = True
+                        improved = True
+                        break
+                    if hit_budget:
+                        break
+        if hit_budget:
+            break
         if not improved:
             break
 
@@ -859,6 +1148,7 @@ def shrink_with[
         return ShrinkResult(best^, 0, False)
 
     var entries = List[_CacheEntry]()
+    var slots = _empty_cache_slots(max_evaluations)
     var evaluations = 0
     var hit_budget = False
 
@@ -966,8 +1256,7 @@ def shrink_with[
                 continue
             var current = best.nodes[i].value
             var trial = best.with_value_at(i, UInt64(0))
-            var key = trial.values()
-            var idx = _lookup(entries, key)
+            var idx = _lookup(entries, slots, trial)
             var zero_interesting = False
             var zero_consumed = trial.copy()
             var zero_spans = best_spans.copy()
@@ -995,17 +1284,14 @@ def shrink_with[
                 best_spans = zero_spans^
                 improved = True
                 break
-            var lo = UInt64(0)
-            var hi = current
             var changed = False
-            while hi - lo > UInt64(1):
+            var candidate_value = UInt64(1)
+            while candidate_value < current:
                 if evaluations >= max_evaluations:
                     hit_budget = True
                     break
-                var mid = lo + (hi - lo) // UInt64(2)
-                var probe = best.with_value_at(i, mid)
-                var pkey = probe.values()
-                var pidx = _lookup(entries, pkey)
+                var probe = best.with_value_at(i, candidate_value)
+                var pidx = _lookup(entries, slots, probe)
                 var p_interesting = False
                 var p_consumed = probe.copy()
                 var p_spans = best_spans.copy()
@@ -1526,7 +1812,9 @@ def shrink_with[
                 if entries[pidx].is_interesting:
                     hi = mid
                 else:
-                    lo = mid
+                    candidate_value += UInt64(1)
+                    continue
+                break
             if hit_budget:
                 break
             if hi < v:
@@ -1557,6 +1845,251 @@ def shrink_with[
                 best_spans = entries[hidx].spans.copy()
                 improved = True
                 break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        # lower_duplicates: lower same-valued choices together
+        var seen_dups = List[UInt64]()
+        for i in range(n):
+            if evaluations >= max_evaluations:
+                hit_budget = True
+                break
+            if best.nodes[i].forced:
+                continue
+            var v = best.nodes[i].value
+            if v == UInt64(0):
+                continue
+            var already = False
+            for k in range(len(seen_dups)):
+                if seen_dups[k] == v:
+                    already = True
+                    break
+            if already:
+                continue
+            seen_dups.append(v)
+            var group = List[Int]()
+            for k in range(n):
+                if best.nodes[k].forced:
+                    continue
+                if best.nodes[k].value == v:
+                    group.append(k)
+            if len(group) < 2:
+                continue
+            var cand0 = best.copy()
+            for g in range(len(group)):
+                cand0 = cand0.with_value_at(group[g], UInt64(0))
+            var idx0 = _lookup(entries, slots, cand0)
+            var c0_int: Bool
+            var c0_cons: ChoiceSequence
+            if idx0 >= 0:
+                c0_int = entries[idx0].is_interesting
+                c0_cons = entries[idx0].consumed.copy()
+            else:
+                evaluations += 1
+                var res = eval_fn(cand0^)
+                c0_int = res.is_interesting
+                c0_cons = res.consumed.copy()
+                _append_cache_entry(entries, slots, cand0, c0_int, c0_cons)
+            if c0_int and is_shortlex_smaller(c0_cons, best):
+                best = c0_cons^
+                improved = True
+                break
+            var lo = UInt64(0)
+            var hi = v
+            var dup_changed = False
+            while hi - lo > UInt64(1):
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
+                var mid = lo + (hi - lo) // UInt64(2)
+                var probe = best.copy()
+                for g in range(len(group)):
+                    probe = probe.with_value_at(group[g], mid)
+                var pidx = _lookup(entries, slots, probe)
+                var p_int: Bool
+                var p_cons: ChoiceSequence
+                if pidx >= 0:
+                    p_int = entries[pidx].is_interesting
+                    p_cons = entries[pidx].consumed.copy()
+                else:
+                    evaluations += 1
+                    var res = eval_fn(probe^)
+                    p_int = res.is_interesting
+                    p_cons = res.consumed.copy()
+                    _append_cache_entry(entries, slots, probe, p_int, p_cons)
+                if p_int:
+                    hi = mid
+                    if is_shortlex_smaller(p_cons, best):
+                        best = p_cons^
+                        dup_changed = True
+                else:
+                    lo = mid
+            if hit_budget:
+                break
+            if dup_changed:
+                improved = True
+                break
+        if hit_budget:
+            break
+        if improved:
+            continue
+
+        # redistribute: move value from earlier integer choice to later one
+        var redist_changed = False
+        for i in range(n):
+            if redist_changed or evaluations >= max_evaluations:
+                break
+            if best.nodes[i].forced or best.nodes[i].kind != ChoiceKind.INTEGER:
+                continue
+            var a = best.nodes[i].value
+            if a == UInt64(0):
+                continue
+            for j in range(i + 1, n):
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
+                if (
+                    best.nodes[j].forced
+                    or best.nodes[j].kind != ChoiceKind.INTEGER
+                ):
+                    continue
+                var b = best.nodes[j].value
+                var max_j = best.nodes[j].max_value
+                if b >= max_j:
+                    continue
+
+                var j_maxed = best.with_value_at(j, max_j)
+                var probe0 = j_maxed.with_value_at(i, UInt64(0))
+                var idx0 = _lookup(entries, slots, probe0)
+                var p0_int: Bool
+                var p0_cons: ChoiceSequence
+                if idx0 >= 0:
+                    p0_int = entries[idx0].is_interesting
+                    p0_cons = entries[idx0].consumed.copy()
+                else:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
+                    evaluations += 1
+                    var res = eval_fn(probe0^)
+                    p0_int = res.is_interesting
+                    p0_cons = res.consumed.copy()
+                    _append_cache_entry(entries, slots, probe0, p0_int, p0_cons)
+
+                var target_i = UInt64(0)
+                var found_target_i = False
+                if p0_int:
+                    target_i = UInt64(0)
+                    found_target_i = True
+                else:
+                    var lo_i = UInt64(0)
+                    var hi_i = a
+                    while hi_i - lo_i > UInt64(1):
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        var mid_i = lo_i + (hi_i - lo_i) // UInt64(2)
+                        var probe_i = j_maxed.with_value_at(i, mid_i)
+                        var idx_i = _lookup(entries, slots, probe_i)
+                        var pi_int: Bool
+                        var pi_cons: ChoiceSequence
+                        if idx_i >= 0:
+                            pi_int = entries[idx_i].is_interesting
+                            pi_cons = entries[idx_i].consumed.copy()
+                        else:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            evaluations += 1
+                            var res = eval_fn(probe_i^)
+                            pi_int = res.is_interesting
+                            pi_cons = res.consumed.copy()
+                            _append_cache_entry(
+                                entries, slots, probe_i, pi_int, pi_cons
+                            )
+                        if pi_int:
+                            hi_i = mid_i
+                        else:
+                            lo_i = mid_i
+                    if hit_budget:
+                        break
+                    if hi_i < a:
+                        target_i = hi_i
+                        found_target_i = True
+
+                if found_target_i:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
+                    var base_seq = best.with_value_at(i, target_i)
+                    var probe_j0 = base_seq.with_value_at(j, UInt64(0))
+                    var idx_j0 = _lookup(entries, slots, probe_j0)
+                    var pj0_int: Bool
+                    var pj0_cons: ChoiceSequence
+                    if idx_j0 >= 0:
+                        pj0_int = entries[idx_j0].is_interesting
+                        pj0_cons = entries[idx_j0].consumed.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var res = eval_fn(probe_j0^)
+                        pj0_int = res.is_interesting
+                        pj0_cons = res.consumed.copy()
+                        _append_cache_entry(
+                            entries, slots, probe_j0, pj0_int, pj0_cons
+                        )
+
+                    if pj0_int and is_shortlex_smaller(pj0_cons, best):
+                        best = pj0_cons^
+                        redist_changed = True
+                        improved = True
+                        break
+
+                    var lo_j = UInt64(0)
+                    var hi_j = max_j
+                    var best_j_cand = ChoiceSequence()
+                    var had_j_cand = False
+                    while hi_j - lo_j > UInt64(1):
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        var mid_j = lo_j + (hi_j - lo_j) // UInt64(2)
+                        var probe_j = base_seq.with_value_at(j, mid_j)
+                        var idx_j = _lookup(entries, slots, probe_j)
+                        var pj_int: Bool
+                        var pj_cons: ChoiceSequence
+                        if idx_j >= 0:
+                            pj_int = entries[idx_j].is_interesting
+                            pj_cons = entries[idx_j].consumed.copy()
+                        else:
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            evaluations += 1
+                            var res = eval_fn(probe_j^)
+                            pj_int = res.is_interesting
+                            pj_cons = res.consumed.copy()
+                            _append_cache_entry(
+                                entries, slots, probe_j, pj_int, pj_cons
+                            )
+                        if pj_int:
+                            hi_j = mid_j
+                            if is_shortlex_smaller(pj_cons, best):
+                                best_j_cand = pj_cons^
+                                had_j_cand = True
+                        else:
+                            lo_j = mid_j
+                    if had_j_cand:
+                        best = best_j_cand^
+                        redist_changed = True
+                        improved = True
+                        break
+                    if hit_budget:
+                        break
         if hit_budget:
             break
         if not improved:

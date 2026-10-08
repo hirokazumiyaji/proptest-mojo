@@ -1,42 +1,42 @@
-# アーキテクチャ
+# Architecture
 
-## レイヤーと依存方向
+## Layers and dependency direction
 
 ```text
-┌──────────────────────────── 命令型シェル ────────────────────────────┐
-│ runner       for_all / Settings / Report / 生成フェーズ / 縮小ループ   │
-│ database     example database（ファイル I/O）                          │
+┌──────────────────────────── Imperative shell ────────────────────────────┐
+│ runner       for_all / Settings / Report / generation phase / shrinking loop   │
+│ database     example database (file I/O)                          │
 └───────────────┬──────────────────────────────────────────────────────┘
-                │ 呼び出す
+                │ calls
 ┌───────────────▼──────────────────────────────────────────────────────┐
-│ testcase     TestCase: 選択の記録・再生、span、状態、PRNG の所有        │
+│ testcase     TestCase: choice recording and replay, spans, state, PRNG ownership        │
 └───────────────┬──────────────────────────────────────────────────────┘
-                │ 依存
-┌───────────────▼──────────────── 関数型コア ──────────────────────────┐
-│ strategies   Strategy トレイト、組み込み Strategy、コンビネータ        │
-│ shrink       縮小パス（選択列 → 候補の列）、shortlex 順序              │
-│ choice       ChoiceNode / ChoiceSequence / Span / シリアライズ         │
-│ prng         SplitMix64 / xoshiro256**、シード導出                      │
+                │ depends on
+┌───────────────▼──────────────── Functional core ──────────────────────────┐
+│ strategies   `Strategy` trait, built-in strategies, combinators        │
+│ shrink       shrinking passes (choice sequence → candidate sequences), shortlex ordering              │
+│ choice       ChoiceNode / ChoiceSequence / Span / serialization         │
+│ prng         SplitMix64 / xoshiro256** and seed derivation                      │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-依存は上から下への一方向のみとする。唯一の例外は `testcase` と `strategies` の間の参照循環である（[ADR-0009](../adr/0009-testcase-draw-module-cycle.md)）。
-`strategies` が `testcase` に依存するのは `draw(self, mut tc: TestCase)` のシグネチャのためであり、`TestCase` のプリミティブ（`draw_integer` など）以外は使わない。
-逆方向の `testcase` から `strategies` への依存は、`TestCase.draw` のジェネリック境界（`S: Strategy`）のためだけにあり、実行時の呼び出し方向（シェルからコアへ）は変わらない。
-`shrink` は `testcase` と `runner` に依存しない。候補の評価はランナーが行う。
+Dependencies flow in one direction, from top to bottom. The only exception is the reference cycle between `testcase` and `strategies`（[ADR-0009](../adr/0009-testcase-draw-module-cycle.md)）。
+`strategies` depends on `testcase` for the `draw(self, mut tc: TestCase)` signature and uses only `TestCase` primitives such as `draw_integer`.
+The reverse dependency, from `testcase` to `strategies`, exists only for the generic bound (`S: Strategy`) on `TestCase.draw`; runtime calls still flow from the shell to the core.
+`shrink` does not depend on `testcase` or `runner`. The runner evaluates candidates.
 
-## パッケージ構成
+## Package structure
 
 ```text
 pixi.toml
 pixi.lock
 src/proptest/
-  __init__.mojo              公開 API の再エクスポート
-  prng.mojo                  PRNG と導出関数
+  __init__.mojo              Public API re-exports
+  prng.mojo                  PRNG and derivation functions
   choice.mojo                ChoiceKind / ChoiceNode / ChoiceSequence / Span / shortlex
-  encoding.mojo              選択列のシリアライズ（replay 文字列、database）
-  testcase.mojo              TestCase, Status, 例外の分類
-  strategy.mojo              Strategy トレイト
+  encoding.mojo              Choice-sequence serialization (replay strings, database)
+  testcase.mojo              TestCase, Status, exception classification
+  strategy.mojo              `Strategy` trait
   strategies/
     primitives.mojo          integers, integers_of, booleans, just
     floats.mojo              floats
@@ -45,74 +45,74 @@ src/proptest/
     choice.mojo              one_of, sampled_from
     combinators.mojo         map, filter, flat_map
   shrink/
-    passes.mojo              各縮小パス（純粋関数）
-    shrinker.mojo            縮小ループ（評価関数を受け取る）
+    passes.mojo              Individual shrinking passes (pure functions)
+    shrinker.mojo            shrinking loop (accepts an evaluation function)
   runner.mojo                for_all, Settings, Report
   database.mojo              ExampleDatabase
-  stateful.mojo              StateMachine（Planned: M5）
+  stateful.mojo              StateMachine (Planned: M5)
 tests/
-  test_*.mojo                単体テスト・プロパティテスト
-  shrink_quality/            縮小品質の回帰テスト
-examples/                    利用例
+  test_*.mojo                unit tests and property tests
+  shrink_quality/            shrinking quality regression tests
+examples/                    Usage examples
 ```
 
-`pixi.toml` のタスク:
+Tasks in `pixi.toml`:
 
-| タスク | 内容 |
+| Task | Description |
 |--------|------|
-| `test` | `tests/**/test_*.mojo` を `mojo run -I src` で全実行（1 つでも失敗したら非 0） |
+| `test` | Run all `tests/**/test_*.mojo` files with `mojo run -I src` (returns non-zero if any fail) |
 | `format` | `mojo format src tests` |
-| `format-check` | コピー上で `mojo format` し、作業ツリーと diff（index 非破壊） |
-| `build` | `mojo precompile src/proptest -o proptest.mojoc`（成果物は gitignore） |
+| `format-check` | Run `mojo format` on a copy and diff against the working tree (does not modify the index) |
+| `build` | `mojo precompile src/proptest -o proptest.mojoc` (the artifact is gitignored) |
 
-対応プラットフォームは `osx-arm64` と `linux-64`（ADR-0007 の Linux / macOS CI 前提）。
+Supported platforms are `osx-arm64` and `linux-64` (Linux/macOS CI assumptions in ADR-0007).
 
-CI（`.github/workflows/ci.yml`）は PR と `main` への push で、`ubuntu-24.04` と `macos-15` の両方で `pixi run format-check` と `pixi run test` を実行する（`prefix-dev/setup-pixi`、キャッシュ有効）。
+On pull requests and pushes to `main`, CI (`.github/workflows/ci.yml`) runs `pixi run format-check` and `pixi run test` on both `ubuntu-24.04` and `macos-15` (using `prefix-dev/setup-pixi` with caching enabled).
 
-## PRNG（`prng.mojo`）
+## PRNG (`prng.mojo`)
 
-値型・グローバル状態なし（ADR-0006）。
+Value type; no global state (ADR-0006).
 
-| API | 役割 |
+| API | Role |
 |-----|------|
-| `SplitMix64` | シード展開用。`next_u64()` |
-| `Xoshiro256StarStar` | 生成用。`from_seed` / `next_u64` / `next_below` / `next_float64` |
-| `derive(run_seed, index)` | 各 example の PRNG を純粋に導出 |
+| `SplitMix64` | For seed expansion: `next_u64()`. |
+| `Xoshiro256StarStar` | For generation: `from_seed` / `next_u64` / `next_below` / `next_float64` |
+| `derive(run_seed, index)` | Purely derives the PRNG for each example |
 
-`std.random` はライブラリ内で使わない。
+`std.random` is not used by the library.
 
-## 1 回の `for_all` のデータフロー
+## Data flow for one `for_all` call
 
 ```text
 for_all(prop, settings)
  │
- ├─ 1. 再生フェーズ: database と settings.replay の選択列を TestCase(prefix=...) で再実行
+ ├─ 1. Replay phase: replay choice sequences from the database and `settings.replay` using `TestCase(prefix=...)`
  │
- ├─ 2. 生成フェーズ: i = 0..max_examples
+ ├─ 2. generation phase: i = 0..max_examples
  │      tc = TestCase.generating(derive(seed, i))
  │      prop(tc)
- │        └─ tc.draw(strategy) → strategy.draw(tc) → tc.draw_integer(...) → 記録
- │      結果: VALID / INVALID(assume・filter) / OVERRUN / INTERESTING(失敗)
+ │        └─ tc.draw(strategy) → strategy.draw(tc) → tc.draw_integer(...) → recording
+ │      Result: VALID / INVALID (`assume` or `filter`) / OVERRUN / INTERESTING (failure)
  │
- ├─ 3. 縮小フェーズ（INTERESTING が出たら）
+ ├─ 3. Shrinking phase (when INTERESTING occurs)
  │      best = tc.choices
  │      loop: for pass in passes:
- │              for cand in pass(best):              ← 純粋関数
+ │              for cand in pass(best):              ← pure function
  │                 if shortlex(cand) < shortlex(best) and evaluate(cand) is INTERESTING:
- │                     best = evaluate の結果の選択列（実際に消費した分だけ）
- │      固定点または予算切れで終了
+ │                     best = choice sequence from evaluate result (only choices actually consumed)
+ │      Stop at a fixed point or when the budget is exhausted
  │
- └─ 4. 報告: best を再生して draw のラベルと値を収集し、例外として送出
-          database に best を保存
+ └─ 4. Report: replay `best`, collect draw labels and values, and raise an exception
+          Save `best` to the database
 ```
 
-## 主要な型の責務
+## Responsibilities of key types
 
-| 型 | 可変性 | 責務 |
+| Type | Mutability | Responsibility |
 |----|--------|------|
-| `Strategy` 実装 | 不変 | 選択列から値を決定的に作る |
-| `ChoiceSequence` | 不変として扱う | 選択の列。比較・シリアライズの単位 |
-| `TestCase` | 可変（唯一） | 選択の供給（prefix 再生または PRNG）、記録、span、状態 |
-| `Settings` | 不変 | 実行パラメータ |
-| `Shrinker` | ループ内でのみ可変 | 現在の最良の選択列を保持し、パスを固定点まで適用 |
-| `Report` | 不変 | 反例の表示内容と再現情報 |
+| `Strategy` implementation | Immutable | Deterministically creates values from a choice sequence |
+| `ChoiceSequence` | Treated as immutable | Sequence of choices; unit of comparison and serialization |
+| `TestCase` | Mutable (the only one) | Supplies choices (prefix replay or PRNG), records them, and tracks spans and state |
+| `Settings` | Immutable | Execution parameters |
+| `Shrinker` | Mutable only inside the loop | Holds the current best choice sequence and applies passes to a fixed point |
+| `Report` | Immutable | Counterexample display and replay information |

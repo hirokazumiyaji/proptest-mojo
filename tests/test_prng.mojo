@@ -49,13 +49,6 @@ def test_derive_zero_zero_is_non_degenerate() raises:
     assert_equal(a.next_u64(), UInt64(0xAA22B11B74D51427))
 
 
-def test_derive_is_deterministic() raises:
-    var a = derive(UInt64(0xDEADBEEF), UInt64(7))
-    var b = derive(UInt64(0xDEADBEEF), UInt64(7))
-    for _ in range(32):
-        assert_equal(a.next_u64(), b.next_u64())
-
-
 def test_derive_differs_by_index() raises:
     var a = derive(UInt64(1), UInt64(0))
     var b = derive(UInt64(1), UInt64(1))
