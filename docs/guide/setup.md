@@ -1,12 +1,11 @@
-# セットアップ
+# Setup
 
-## 前提
+## Prerequisites
 
-- [pixi](https://pixi.sh/): ツールチェーン (Mojo nightly) の管理に使います。
-  `pixi.toml` の `platforms` は `osx-arm64` と `linux-64` です。
-- Mojo を直接呼ばず、必ず `pixi run mojo ...` 経由で実行します。
+- [pixi](https://pixi.sh/): manages the toolchain (Mojo nightly). The `platforms` in `pixi.toml` are `osx-arm64` and `linux-64`.
+- Run Mojo through `pixi run mojo ...`; do not invoke Mojo directly.
 
-## 手順
+## Installation
 
 ```sh
 git clone https://github.com/hirokazumiyaji/proptest-mojo.git
@@ -14,41 +13,34 @@ cd proptest-mojo
 pixi install
 ```
 
-## 実行方法
+## Running commands
 
-| 目的 | コマンド |
-|------|----------|
-| テスト | `pixi run test` (`tests/**/test_*.mojo` を全実行) |
-| example 実行 | `pixi run mojo run -I src examples/basic.mojo < /dev/null` |
-| フォーマット | `pixi run format` |
-| フォーマット検査 | `pixi run format-check` |
+| Purpose | Command |
+|---------|---------|
+| Tests | `pixi run test` (runs all `tests/**/test_*.mojo` files) |
+| Run an example | `pixi run mojo run -I src examples/basic.mojo < /dev/null` |
+| Format | `pixi run format` |
+| Check formatting | `pixi run format-check` |
 
-`for_all` は標準入力を読みませんが、CI と同じ条件にするため
-`< /dev/null` を付ける運用です。
+`for_all` does not read standard input, but use `< /dev/null` to match the conditions used in CI.
 
-## 自分のテストで使う
+## Use in your own tests
 
-このリポジトリ内で試す場合、`src` を `-I` で通せば
-`from proptest import ...` で import できます。
+To try the library within this repository, add `src` to the import path with `-I` and import with `from proptest import ...`.
 
 ```sh
 pixi run mojo run -I src path/to/my_property_test.mojo < /dev/null
 ```
 
-`std.testing.TestSuite` の中で使う場合は、`for_all(prop)` が反例つきの
-`Error` を送出するので、そのままテスト失敗として扱えます
-(詳細は [basics](basics.md) と [Specs: ランナー](../specs/runner.md))。
+When used inside `std.testing.TestSuite`, `for_all(prop)` raises an `Error` containing the counterexample, so the test runner will treat it as a test failure. See [basics](basics.md) and [Specs: Runner](../specs/runner.md) for details.
 
-## CI での回し方
+## Running in CI
 
-生成数を増やしたいときはコードを変えずに環境変数で上書きできます
-(既定と異なる値を明示したときは、その値が環境変数より優先されます。
-既定値と同じ値を明示した場合は環境変数が有効です)。
+Override the example count with an environment variable without changing the code. An explicitly configured value other than the default takes precedence over the environment variable. If the explicitly configured value equals the default, the environment variable takes effect.
 
 ```sh
 PROPTEST_MAX_EXAMPLES=1000 PROPTEST_SEED=42 pixi run test
 ```
 
-- `PROPTEST_MAX_EXAMPLES`: `Settings` の既定の生成数を上書きする。
-- `PROPTEST_SEED`: `Settings(seed=None)` のときのシードを固定する。
-  詳細は [replay](replay.md)。
+- `PROPTEST_MAX_EXAMPLES`: overrides the default example count in `Settings`.
+- `PROPTEST_SEED`: fixes the seed when `Settings(seed=None)` is used. See [replay](replay.md) for details.

@@ -1,37 +1,34 @@
-# ADR-0008: 関数型コア・命令型シェルで構成する
+# ADR-0008: Use a functional core and imperative shell
 
-- 状態: Accepted
-- 日付: 2026-09-26
-- 関連: [specs/architecture.md](../specs/architecture.md)、[specs/coding-guidelines.md](../specs/coding-guidelines.md)
+- Status: Accepted
+- Date: 2026-09-26
+- Related: [specs/architecture.md](../specs/architecture.md), [specs/coding-guidelines.md](../specs/coding-guidelines.md)
 
-## 文脈
+## Context
 
-関数型を意識した実装にしたい。
-一方で Mojo は純粋関数型言語ではなく、所有権（`var` / `mut` / `^`）を持つ命令型の言語である。
-PBT エンジンには本質的な副作用（乱数、property の実行、時間計測、example database のファイル I/O、レポート出力）がある。
-すべてを純粋にしようとすると、Mojo ではコピーが増えて遅く読みにくくなる。
+We want an implementation shaped by functional programming. Mojo, however, is an imperative language with ownership (`var` / `mut` / `^`), not a purely functional language. A property-based testing engine has inherent side effects: randomness, property execution, timing, example database file I/O, and report output. Trying to make everything pure in Mojo would add copies, making the code slower and harder to read.
 
-## 決定
+## Decision
 
-「関数型コア・命令型シェル」で構成する。
+Structure the project as a "functional core and imperative shell."
 
-- **関数型コア**（純粋・決定的）
-  - Strategy: 不変の値。`draw` は `TestCase` 以外を変更しない。
-  - 選択列の操作: shortlex 比較、シリアライズ、span の計算。
-  - 縮小パス: 「選択列 → 候補の選択列のリスト」を返す純粋関数。評価（property の実行）は含まない。
-  - PRNG の導出: `(seed, index) → 状態` の純粋関数。
-- **命令型シェル**（副作用を持つ）
-  - `TestCase`: 選択の記録と PRNG の状態を持つ唯一の可変オブジェクト。
-  - ランナー: property の実行、縮小ループ、レポート、example database の I/O。
-- 局所的な可変性（関数内の `var` とループ）は、外から観測できない限り許容する。
+- **Functional core** (pure and deterministic)
+  - Strategies are immutable values. `draw` does not modify anything except `TestCase`.
+  - Choice-sequence operations include shortlex comparison, serialization, and span calculation.
+  - Shrink passes are pure functions that return a list of candidate choice sequences from an input sequence. They do not evaluate properties.
+  - PRNG derivation is a pure function from `(seed, index)` to state.
+- **Imperative shell** (side effects)
+  - `TestCase` is the only mutable object that records choices and holds PRNG state.
+  - The runner executes properties, runs the shrinking loop, produces reports, and performs example database I/O.
+- Local mutation (`var` and loops inside a function) is allowed when it is not externally observable.
 
-## 検討した代替案
+## Alternatives Considered
 
-- 全面的な純粋化（State モナド風に `TestCase` を値で受け渡す）: Mojo の所有権モデルでは `mut` 参照で渡すほうが自然で速い。可読性の利得がない。
-- 制約を設けない命令型実装: 縮小パスと評価が絡み合い、パス単体のテストが難しくなる。
+- Make everything pure (pass `TestCase` around like a State monad): passing a `mut` reference is more natural and faster with Mojo's ownership model, without a readability benefit.
+- An unrestricted imperative implementation: shrink passes and evaluation would become entangled, making it difficult to test each pass independently.
 
-## 結果
+## Consequences
 
-- 縮小パスを property なしで単体テストできる（入力の選択列と出力の候補を比較するだけ）。
-- 副作用の置き場所が `TestCase` とランナーに限定され、再現性の議論が単純になる。
-- 具体的な書き方の規約は Specs の coding-guidelines に置き、ここでは原則だけを決める。
+- Shrink passes can be tested without a property by comparing input choice sequences with candidate outputs.
+- Side effects are confined to `TestCase` and the runner, simplifying reasoning about reproducibility.
+- Put detailed coding conventions in the Specs' coding guidelines; this ADR defines only the principles.

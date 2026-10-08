@@ -1,29 +1,27 @@
-# ADR-0001: ドキュメントとタスク管理の方針
+# ADR-0001: Documentation and task management policy
 
-- 状態: Accepted
-- 日付: 2026-09-26
-- 関連: [docs/README.md](../README.md)
+- Status: Accepted
+- Date: 2026-09-26
+- Related: [docs/README.md](../README.md)
 
-## 文脈
+## Context
 
-プロジェクト開始時点で、設計の「現在の姿」と「なぜそうなったか」の両方を残したい。
-両者を 1 つの文書に混ぜると、現在の設計を読むために過去の議論を読み飛ばす必要が生じ、逆に経緯を追うときは書き換えで失われている。
-また、作業メモや計画の下書きがリポジトリに混入すると、どれが正の情報か分からなくなる。
+From the start of the project, we wanted to preserve both the current design and the reasons behind it. Combining them in one document would force readers of the current design to skip past historical discussions, while rewriting the document would erase the history. Committing working notes and draft plans would also make it unclear which information is authoritative.
 
-## 決定
+## Decision
 
-- `docs/specs/` を **現在の設計** を表す living document とする。実装変更と同じ PR で更新する。
-- `docs/adr/` を **判断の履歴** とする。判断ごとに連番の ADR を追加し、承認後は状態行以外を書き換えない。
-- 一時的なドキュメント（作業メモ、TODO、調査下書き、スパイク）はコミットしない。`tmp/`、`scratch/`、`tasks/`、`.claude/tasks/`、`*.local.md` を `.gitignore` で除外する。
-- タスクは GitHub Issues と Milestones で管理する。ドキュメントに TODO リストを置かない。
+- Treat `docs/specs/` as living documents describing the **current design**. Update them in the same PR as implementation changes.
+- Treat `docs/adr/` as the **decision history**. Add a numbered ADR for each decision and, after acceptance, change only its status line.
+- Do not commit temporary documents (working notes, TODOs, research drafts, or spikes). Exclude `tmp/`, `scratch/`, `tasks/`, `.claude/tasks/`, and `*.local.md` in `.gitignore`.
+- Track tasks with GitHub Issues and Milestones. Do not keep TODO lists in documentation.
 
-## 検討した代替案
+## Alternatives Considered
 
-- 設計書 1 本に変更履歴節を持たせる: 現在の設計と履歴が混ざり、どちらも読みにくくなる。
-- ADR のみで運用する: 現在の設計を知るには全 ADR を順に読んで差分を合成する必要がある。
-- タスクをリポジトリ内の Markdown で管理する: PR・コミットとの相互リンクや進捗の可視化が弱い。
+- Keep a change history section in a single design document: current design and history become mixed, making both harder to read.
+- Use ADRs alone: readers would have to read every ADR in sequence and synthesize the current design from the changes.
+- Track tasks in repository Markdown: linking tasks to PRs and commits and visualizing progress are less effective.
 
-## 結果
+## Consequences
 
-- Specs は常に最新であることが求められ、PR レビューで Specs の更新漏れを確認する必要がある。
-- 判断を覆す場合は新しい ADR を起こし、古い ADR の状態を `Superseded by ADR-NNNN` にする。
+- Specs must stay up to date, so PR reviews need to check that relevant Specs were updated.
+- To reverse a decision, create a new ADR and set the old ADR's status to `Superseded by ADR-NNNN`.

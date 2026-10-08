@@ -1,34 +1,34 @@
-# ADR-0012: 再帰的 Strategy を実行時深さ制限の単一 struct で実現する
+# ADR-0012: Implement recursive strategies with one struct and a runtime depth limit
 
-- 状態: Accepted
-- 日付: 2026-09-30
-- 関連: Issue #29、[specs/strategies.md](../specs/strategies.md)、[ADR-0003](0003-strategy-trait-with-static-dispatch.md)
+- Status: Accepted
+- Date: 2026-09-30
+- Related: Issue #29, [specs/strategies.md](../specs/strategies.md), [ADR-0003](0003-strategy-trait-with-static-dispatch.md)
 
-## 文脈
+## Context
 
-木構造などの再帰的なデータを生成する必要がある。静的ディスパッチ（ADR-0003）の下では、素朴な再帰型 `Tree = OneOf[Leaf, Node[Tree]]` は型が無限に入れ子になり書けない。`specs/strategies.md` の Planned にある通り、深さを型パラメータで区切る方式か、限定的な型消去かをスパイクで比較した（`mojo 1.2.0.dev2026092605`、worktree 内のみで検証しコミットしていない）。
+We need to generate recursive data such as trees. With static dispatch (ADR-0003), a naive recursive type such as `Tree = OneOf[Leaf, Node[Tree]]` cannot be written because its type nests infinitely. As noted under Planned in `specs/strategies.md`, a spike compared limiting depth with type parameters against limited type erasure (`mojo 1.2.0.dev2026092605`, tested only in a worktree and not committed).
 
-検証結果:
+Results:
 
-- 深さ型パラメータ: `Branch[S: Strategy](Strategy) where S.Value == Int` の入れ子はコンパイル・実行できた。ただし深さごとに異なる型（`OneOf2[Integers, Branch[OneOf2[...]]]`）が必要で、型名が深さに比例して伸びる。木の値型自体も再帰（`List[Self]` は `field 'children' has non-'Deinitable' type` で却下）されるため、型レベルの再帰だけでは JSON 風の値は作れない。
-- 限定的な型消去: `def(...) -> T` 型はトレイト扱いで struct のフィールドにできず（ADR-0003）、単一の `Gen[T]` 型は作れない。`ArcPointer` と手書き vtable による消去は unsafe が増えるため採用しない。
-- 実行時深さ制限: `List[Self]` の代わりに `List[ArcPointer[Self]]` の間接参照を使うと、具体的な再帰値型 `JsonValue`（null・整数・配列）がコンパイル・実行できた。その値型に対する単一の `JsonTree` Strategy が実行時の `max_depth` フィールドで再帰を打ち切り、型は 1 つで済む。全ゼロ選択で `null` を引き、深さ・幅の上限が選択予算内に収まることも確認した。
+- **Depth as a type parameter:** nested `Branch[S: Strategy](Strategy) where S.Value == Int` compiled and ran. However, each depth requires a different type (`OneOf2[Integers, Branch[OneOf2[...]]]`), so type names grow with depth. The recursive value type itself is also a problem (`List[Self]` is rejected with `field 'children' has non-'Deinitable' type`), so type-level recursion alone cannot produce JSON-like values.
+- **Limited type erasure:** `def(...) -> T` is treated as a trait and cannot be stored in a struct field (ADR-0003), so a single `Gen[T]` type is not possible. Erasure with `ArcPointer` and a hand-written vtable would add unsafe code, so it was not chosen.
+- **Runtime depth limit:** indirect references using `List[ArcPointer[Self]]` instead of `List[Self]` allow a concrete recursive value type, `JsonValue` (null, integers, and arrays), to compile and run. One `JsonTree` strategy for that type stops recursion using a runtime `max_depth` field. There is only one strategy type. We also confirmed that all-zero choices produce `null` and that depth and width limits fit within the choice budget.
 
-## 決定
+## Decision
 
-- 再帰は型レベルでなく値レベルで行う。`src/proptest/strategies/recursive.mojo` に具体的な再帰値 `JsonValue` と、実行時の深さ予算を持つ単一の `JsonTree` Strategy を置く。
-- `JsonValue` の子は `ArcPointer` の間接参照とし、unsafe な vtable は導入しない。値は `draw` 後は不変として扱い、コピー間の共有を観測しない。
-- 符号化は `node(depth)` が分岐旗（0=葉、1=配列）、葉が種別（0=null、1=整数）、配列が幅（0..max_width）と子の再帰とし、深さ 0 では分岐旗を消費しない。全ゼロ選択は `null` を引く。
-- 汎用の `prop_recursive(leaf, branch)` コンビネータは作らない。分岐の作り方が値型ごとに異なる上、内側 Strategy の型を静的に 1 つに決める必要（`flat_map` と同じ制約）があり、単一 struct の方が正直なため。再帰が必要な形状ごとに `JsonTree` と同じ形の bespoke な Strategy を書く。
+- Express recursion at the value level rather than the type level. Put the concrete recursive value `JsonValue` and a single `JsonTree` strategy with a runtime depth budget in `src/proptest/strategies/recursive.mojo`.
+- Store `JsonValue` children through `ArcPointer` indirection; do not introduce an unsafe vtable. Treat values as immutable after `draw`, and do not observe sharing between copies.
+- Encode `node(depth)` as a branch flag (0 = leaf, 1 = array); a leaf draws a kind (0 = null, 1 = integer); an array draws a width (`0..max_width`) and its children recursively. At depth 0, do not consume a branch flag. All-zero choices produce `null`.
+- Do not create a generic `prop_recursive(leaf, branch)` combinator. Branch construction varies by value type, and the inner strategy type must be statically determined (the same constraint as `flat_map`), so a single struct is more honest. Write a bespoke strategy like `JsonTree` for each recursive shape.
 
-## 検討した代替案
+## Alternatives Considered
 
-- 深さを型パラメータで区切る方式: 動作するが、深さごとに型が増え、再帰値型の問題も残る。深い木で型名が実用に耐えないため不採用。
-- `ArcPointer` と手書き vtable による Strategy の型消去: ADR-0003 で unsafe 増加を理由に却下済み。値の間接参照（safe）で足りたため不要。
-- JSON を `String` 値として生成する方式: 再帰値型を避けられるが、構造の検査（深さ・要素数）が文字列解析になり、縮小の局所性も失うため不採用。
+- Limit depth with a type parameter: works, but adds a new type at every depth and leaves the recursive value-type problem unresolved. Type names become impractical for deep trees.
+- Erase strategy types with `ArcPointer` and a hand-written vtable: rejected in ADR-0003 because it adds unsafe code. Safe indirection for values was sufficient.
+- Generate JSON as a `String`: avoids recursive value types, but checking structure (depth and element count) requires parsing strings and loses locality when shrinking.
 
-## 結果
+## Consequences
 
-- `json_tree(max_depth, max_width, minimum, maximum)` で JSON 風の木が生成でき、縮小で空配列 `[]`・`null` などの単純な木に落ちる（`tests/test_recursive.mojo` の `for_all` 回帰で保証）。
-- 制約: 再帰の形状ごとに新しい値型と Strategy が必要になる。`Arbitrary` トレイト（M5）は依然として Planned に残る。
-- 子の描画は `JSON_CHILD_SPAN` の span で囲む。現行の縮小パス（M1）は span を見ないが、M3 の span 系パスが来たときに要素単位の操作ができる。
+- `json_tree(max_depth, max_width, minimum, maximum)` generates JSON-like trees that shrink to simple trees such as `[]` and `null` (covered by the `for_all` regression test in `tests/test_recursive.mojo`).
+- Each recursive shape needs its own value type and strategy. The `Arbitrary` trait (M5) remains Planned.
+- Child draws are wrapped in the `JSON_CHILD_SPAN` span. The current shrink passes (M1) ignore spans, but span-aware passes planned for M3 can operate on individual elements.

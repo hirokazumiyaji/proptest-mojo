@@ -1,38 +1,37 @@
-# ADR-0005: コンビネータの関数は thin 関数を comptime パラメータで受け取る
+# ADR-0005: Pass combinator functions as thin comptime parameters
 
-- 状態: Accepted
-- 日付: 2026-09-26
-- 関連: [specs/strategies.md](../specs/strategies.md)、[specs/coding-guidelines.md](../specs/coding-guidelines.md)
+- Status: Accepted
+- Date: 2026-09-26
+- Related: [specs/strategies.md](../specs/strategies.md), [specs/coding-guidelines.md](../specs/coding-guidelines.md)
 
-## 文脈
+## Context
 
-`map`・`filter`・`flat_map` はユーザー関数を Strategy の中に保持する必要がある。
-Mojo 1.2.0.dev2026092605 での検証結果は次の通り。
+`map`, `filter`, and `flat_map` need to retain user functions within a strategy. Experiments with Mojo 1.2.0.dev2026092605 produced these results:
 
-| 保持の方法 | 結果 |
-|------------|------|
-| 捕捉クロージャを型パラメータ `F: def(T) -> U` にしてフィールド `var f: Self.F` に保持 | クロージャ型が `Copyable` でなく、Strategy の `Copyable` 要件を満たせない。関連型を含むと推論も失敗する |
-| thin 関数ポインタをフィールド `var f: def(Self.S.Value) thin -> Self.U` に保持 | 動作する |
-| thin 関数を comptime パラメータ `f: def(S.Value) thin -> U` にする | 動作する。`map[show](map[double](s))` の形で `S`・`U` も推論される |
-| トレイトのデフォルトメソッド `s.map[f]()` | 依存型付きの関数パラメータがトレイト要件と一致せずコンパイルできない |
+| Storage method | Result |
+|----------------|--------|
+| Store a capturing closure in a field `var f: Self.F` with type parameter `F: def(T) -> U` | Closure types are not `Copyable`, so they cannot satisfy the `Copyable` requirement for strategies. Type inference also fails when the type includes an associated type. |
+| Store a thin function pointer in a field `var f: def(Self.S.Value) thin -> Self.U` | Works. |
+| Make the thin function a comptime parameter `f: def(S.Value) thin -> U` | Works. `S` and `U` are also inferred in expressions such as `map[show](map[double](s))`. |
+| Use a trait default method such as `s.map[f]()` | Does not compile because a function parameter with a dependent type does not match the trait requirement. |
 
-## 決定
+## Decision
 
-- `map`・`filter`・`flat_map` は、捕捉を持たない（thin な）関数を comptime パラメータで受け取る自由関数とする。
+- Make `map`, `filter`, and `flat_map` free functions that take non-capturing (thin) functions as comptime parameters.
 
   ```mojo
   def map[S: Strategy, U: ..., //, f: def(S.Value) thin -> U](s: S) -> Map[S, U, f]
   ```
 
-- 外部の値に依存する変換（捕捉が必要なケース）は、フィールドにパラメータを持つ合成 Strategy（ユーザー定義 struct が `Strategy` を実装する）で書く。これは Hypothesis の `@composite`、proptest の `prop_compose!` に相当する公式パターンとして文書化する。
+- For transformations that depend on external values and need captures, use a composed strategy with parameters stored in fields (a user-defined struct implementing `Strategy`). Document this as the standard pattern corresponding to Hypothesis `@composite` and proptest `prop_compose!`.
 
-## 検討した代替案
+## Alternatives Considered
 
-- 実行時の thin 関数ポインタをフィールドに持つ: 動作するが、comptime パラメータに比べてインライン化の機会を失う。型パラメータが 1 つ減る利点は、型推論が効くため小さい。
-- 捕捉クロージャを受け入れる: 現行コンパイラでは保持できない。
+- Store a runtime thin function pointer in a field: works, but loses inlining opportunities compared with a comptime parameter. The benefit of removing one type parameter is small because type inference works.
+- Accept capturing closures: the current compiler cannot store them.
 
-## 結果
+## Consequences
 
-- コンビネータに渡す関数はトップレベル（またはモジュールレベル）の純粋関数になり、関数型の書き方と相性が良い。
-- 捕捉が必要なケースは合成 Strategy を書く分だけ冗長になる。
-- コンパイラが捕捉クロージャの保持やトレイトのデフォルトメソッドをサポートしたら、メソッドチェーン API の追加を別 ADR で検討する。
+- Functions passed to combinators are top-level or module-level pure functions, which fits the functional style.
+- Cases that need captures require the more verbose step of defining a composed strategy.
+- If the compiler supports storing capturing closures or trait default methods, consider adding a method-chain API in a separate ADR.

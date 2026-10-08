@@ -1,11 +1,10 @@
-# ユーザーガイド
+# User Guide
 
-数分で property-based testing を始めるための手引きです。設計の詳細は
-[Specs](../specs/README.md) を参照してください。
+Get started with property-based testing in a few minutes. For design details, see the [Specs](../specs/README.md).
 
-## 3 分クイックスタート
+## 3-minute quick start
 
-前提: [pixi](https://pixi.sh/) が入っていること。
+Prerequisite: [pixi](https://pixi.sh/) must be installed.
 
 ```sh
 git clone https://github.com/hirokazumiyaji/proptest-mojo.git
@@ -14,8 +13,7 @@ pixi install
 pixi run mojo run -I src examples/basic.mojo < /dev/null
 ```
 
-`examples/basic.mojo` は「通る性質」と「縮小される性質」の両方を示します。
-通る性質だけなら、自分のテストはこの形です。
+`examples/basic.mojo` demonstrates both a passing property and a property that gets shrunk. For a passing property, your test can look like this:
 
 ```mojo
 from proptest import Settings, TestCase, for_all, integers
@@ -30,17 +28,16 @@ def main() raises:
     for_all(_addition_commutes, Settings(seed=UInt64(1)))
 ```
 
-## 目次
+## Contents
 
-| 頁 | 内容 |
-|----|------|
-| [setup](setup.md) | セットアップ: 依存関係、実行方法、CI での回し方 |
-| [basics](basics.md) | 基本: `for_all`、`TestCase.draw`、`assume`、`note` |
-| [strategies](strategies.md) | Strategy 一覧: 使えるものと計画中のもの |
-| [composition](composition.md) | 合成: `map` / `filter` / `flat_map` と合成 Strategy struct |
-| [shrinking](shrinking.md) | 縮小: 報告書の読み方と縮小しやすい書き方 |
-| [replay](replay.md) | 再現: シード固定と環境変数 |
-| [stateful](stateful.md) | 状態機械テスト: 計画 (M5) と現時点の代替手段 |
+| Page | Contents |
+|------|----------|
+| [setup](setup.md) | Setup: dependencies, running tests, and CI usage |
+| [basics](basics.md) | Basics: `for_all`, `TestCase.draw`, `assume`, and `note` |
+| [strategies](strategies.md) | Strategy reference: available and planned strategies |
+| [composition](composition.md) | Composition: `map`, `filter`, `flat_map`, and custom Strategy structs |
+| [shrinking](shrinking.md) | Shrinking: reading reports and writing shrink-friendly properties |
+| [replay](replay.md) | Reproduction: fixed seeds and environment variables |
+| [stateful](stateful.md) | State-machine testing with generated and shrunk operation sequences |
 
-対応する動くコードは [`examples/`](../../examples/README.md) にあります。
-CI は全 example を実行します。
+Runnable examples are in [`examples/`](../../examples/README.md). CI runs every example.

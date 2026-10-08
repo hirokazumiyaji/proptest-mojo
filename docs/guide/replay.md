@@ -1,41 +1,33 @@
-# 再現
+# Reproducing failures
 
-実行は決定的です。同じシードでは同じ example 列が生成され、
-同じ反例が同じ報告になります。
+Runs are deterministic. The same seed generates the same sequence of examples and produces the same report for the same counterexample.
 
-## シード固定
+## Fixing the seed
 
-報告書の `Seed:` 行の値を使います。
+Use the value shown on the report's `Seed:` line.
 
 ```mojo
 for_all(prop, Settings(seed=UInt64(3)))
 ```
 
-環境変数でも固定できます。`Settings(seed=None)` (既定) のときだけ有効で、
-コードで明示した値は環境変数より優先されます (`basic.mojo` のように
-`Settings(seed=UInt64(1))` を書いた example では、環境変数は無視されます)。
+You can also set the seed with an environment variable. It applies only when `Settings(seed=None)` (the default) is used. A value explicitly set in code takes precedence over the environment variable. For example, the environment variable is ignored by an example that sets `Settings(seed=UInt64(1))`, such as `basic.mojo`.
 
 ```sh
-# Settings(seed=None) で書かれた自作テストでのみ有効:
+# Applies only to your tests that use Settings(seed=None):
 PROPTEST_SEED=3 pixi run mojo run -I src path/to/my_property_test.mojo < /dev/null
 ```
 
-## 生成数を変える
+## Changing the number of examples
 
-既定の `max_examples` (100) は `PROPTEST_MAX_EXAMPLES` で上書きできます。
-CI で回数を増やす用途です。既定値 (100) と異なる値をコードで明示したときは、
-その値が環境変数より優先されます。
+Override the default `max_examples` value (100) with `PROPTEST_MAX_EXAMPLES`. This is useful for increasing the number of runs in CI. If code explicitly sets a value different from the default, that value takes precedence over the environment variable.
 
 ```sh
 PROPTEST_MAX_EXAMPLES=1000 pixi run test
 ```
 
-## 計画中のもの
+## Planned features
 
-- `Settings(replay=...)`: 報告された選択列を直接再生する (M4)。
-  現時点ではシード固定で再現してください。
-- example database (`.proptest-mojo/`): 一度見つけた反例を次回最初に
-  再試行する (M4)。現時点では見つけた反例を回帰テストとして別途保存し、
-  `just` や固定シードの `for_all` で回してください。
+- `Settings(replay=...)`: directly replay a reported choice sequence (M4). For now, reproduce failures by fixing the seed.
+- Example database (`.proptest-mojo/`): retry previously found counterexamples first on the next run (M4). For now, save found counterexamples separately as regression tests and run them with `just` or `for_all` using a fixed seed.
 
-最新状況は [Specs: ランナー](../specs/runner.md) を参照してください。
+See [Specs: Runner](../specs/runner.md) for the latest status.
