@@ -1,4 +1,7 @@
-"""Small example of a passing property and a minimized counterexample."""
+"""Minimal proptest-mojo usage: one passing and one shrinking property.
+
+Run with: pixi run mojo run -I src examples/basic.mojo
+"""
 
 from proptest import Settings, TestCase, for_all, integers
 
