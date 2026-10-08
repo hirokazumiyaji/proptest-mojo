@@ -91,12 +91,9 @@ struct Floats(Strategy):
             raise Error("floats: min_value and max_value must not be NaN")
         if self.max_value < self.min_value:
             raise Error("floats: max_value must be >= min_value")
-        if (
-            self.allow_nan
-            and (
-                self.min_value != -inf[DType.float64]()
-                or self.max_value != inf[DType.float64]()
-            )
+        if self.allow_nan and (
+            self.min_value != -inf[DType.float64]()
+            or self.max_value != inf[DType.float64]()
         ):
             raise Error(
                 "floats: allow_nan=True is incompatible with explicit"
