@@ -8,19 +8,21 @@ from proptest import (
 from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence
 from proptest.prng import derive
 from proptest.strategies.floats import float_to_lex
-from proptest.strategies.primitives import Integers, integers
+from proptest.strategies.primitives import integers
 from std.math import isnan
 from std.testing import TestSuite, assert_equal, assert_true
 
 
 @fieldwise_init
 struct SmallId(Arbitrary):
-    comptime StrategyType = Integers
     var value: Int
 
     @staticmethod
-    def arbitrary() raises -> Integers:
-        return integers(1, 100)
+    def arbitrary(mut tc: TestCase) raises -> Self:
+        return Self(tc.draw(integers(1, 100)))
+
+    def write_to(self, mut writer: Some[Writer]):
+        writer.write(self.value)
 
 
 @fieldwise_init
@@ -149,11 +151,11 @@ def test_arbitrary_list_int_shrinks_to_three_zeros() raises:
 
 def test_arbitrary_trait_custom_type() raises:
     var tc = _empty()
-    assert_equal(tc.draw(SmallId.arbitrary()), 1)
+    assert_equal(tc.draw(arbitrary[SmallId]()).value, 1)
     for seed in range(16):
         var gen = _generating(UInt64(seed))
-        var value = gen.draw(SmallId.arbitrary())
-        assert_true(1 <= value and value <= 100)
+        var value = gen.draw(arbitrary[SmallId]())
+        assert_true(1 <= value.value and value.value <= 100)
 
 
 def test_arbitrary_unsupported_type_raises() raises:

@@ -56,7 +56,7 @@ The standard library `Tuple` and `Optional` satisfy `Copyable & Writable & Deini
 
 ### Type-Based Defaults
 
-`arbitrary[T]()` selects a default strategy for `Int`, `Bool`, `Float64`, `String`, and supported list types. For a user-defined type, conform to `Arbitrary` and implement its associated `StrategyType` and static `arbitrary()` method. The generic list defaults cover the supported concrete element types and one level of `List[List[Int]]`.
+`arbitrary[T]()` selects a default strategy for `Int`, `Bool`, `Float64`, `String`, and supported list types. For a user-defined type, conform to `Arbitrary` and implement a static `arbitrary(tc)` method that returns the type itself. The generic list defaults cover the supported concrete element types and one level of `List[List[Int]]`.
 
 ### Integer Encoding
 

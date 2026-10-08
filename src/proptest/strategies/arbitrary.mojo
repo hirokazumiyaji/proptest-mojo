@@ -1,6 +1,6 @@
 """Per-type default strategies (`Arbitrary`).
 
-Implements the `Arbitrary` row of the Planned section of
+Implements the `Arbitrary` section of
 `docs/specs/strategies.md`: `arbitrary[T]()` returns the default strategy
 for the value type `T`, so properties can draw values without naming a
 strategy explicitly.
@@ -22,11 +22,12 @@ so the list default enumerates concrete element types (`Int`, `Bool`,
 Lifting this to arbitrary nesting is follow-up work alongside the
 recursive-strategy investigation in the spec.
 
-User-defined types opt in by conforming to `Arbitrary` and calling the
-static method directly, e.g. `tc.draw(UserIds.arbitrary())`.
+User-defined types opt in by conforming to `Arbitrary` and implementing
+its static `arbitrary(tc)` method. Use `tc.draw(arbitrary[UserId]())` to
+obtain a strategy whose value type is `UserId`.
 """
 
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 from proptest.strategies.collections import lists
 from proptest.strategies.floats import floats
 from proptest.strategies.primitives import booleans, integers
@@ -34,17 +35,15 @@ from proptest.strategies.text import text
 from proptest.testcase import TestCase
 
 
-trait Arbitrary(Copyable, Deinitable):
+trait Arbitrary(Copyable, Deinitable, Writable):
     """Value type with a default strategy.
 
-    Conform to this trait to give a user-defined type a canonical
-    strategy, then draw it with `tc.draw(Self.arbitrary())`.
+    Conform to this trait to generate values of the conforming type.
+    `arbitrary[T]()` wraps this method in a strategy.
     """
 
-    comptime StrategyType: Strategy
-
     @staticmethod
-    def arbitrary() raises -> Self.StrategyType:
+    def arbitrary(mut tc: TestCase) raises -> Self:
         ...
 
 
@@ -59,6 +58,9 @@ struct ArbitraryStrategy[T: Copyable & Writable & Deinitable](Strategy):
 
     def __init__(out self):
         pass
+
+    def span_label(self) -> UInt64:
+        return kind_label("arbitrary")
 
     def draw(self, mut tc: TestCase) raises -> Self.T:
         comptime if Self.T == Int:
@@ -88,6 +90,8 @@ struct ArbitraryStrategy[T: Copyable & Writable & Deinitable](Strategy):
         elif Self.T == List[List[Int]]:
             var v = tc.draw(lists(arbitrary[List[Int]]()))
             return rebind[Self.T](v^).copy()
+        elif conforms_to(Self.T, Arbitrary):
+            return Self.T.arbitrary(tc)
         else:
             raise Error("arbitrary: unsupported type")
 
