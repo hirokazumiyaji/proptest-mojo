@@ -49,16 +49,17 @@ def float_to_lex(value: Float64) -> UInt64:
 def lex_to_float(code: UInt64) -> Float64:
     """Non-negative float (or canonical NaN) for a magnitude `code`.
 
-    Total: every `UInt64` maps somewhere. The sign bit is cleared,
-    `INF_BITS` maps to `+inf`, larger exponent-saturated patterns map to
-    the canonical NaN, and code 0 maps to `0.0`.
+    Total: every `UInt64` maps somewhere monotonically. Code 0 maps to
+    `0.0`, larger codes map to larger non-negative finite floats up to
+    `INF_BITS - 1`, `INF_BITS` maps to `+inf`, and all codes greater than
+    `INF_BITS` (including the upper half of `UInt64`) map to canonical
+    NaN.
     """
-    var bits = code & MAG_MASK
-    if bits == INF_BITS:
+    if code == INF_BITS:
         return inf[DType.float64]()
-    if bits > INF_BITS:
+    if code > INF_BITS:
         return _bits_to_float(CANON_NAN_BITS)
-    return _bits_to_float(bits)
+    return _bits_to_float(code)
 
 
 def max_finite() -> Float64:

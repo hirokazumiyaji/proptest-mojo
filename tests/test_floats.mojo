@@ -122,5 +122,20 @@ def test_roundtrip_property() raises:
     for_all(_lex_roundtrip_prop, Settings(max_examples=20, seed=UInt64(16)))
 
 
+def test_monotonic_above_inf_and_sign_boundary() raises:
+    # Codes above INF_BITS must remain NaN, never wrapping to 0 or subnormal
+    var codes = List[UInt64]()
+    codes.append(UInt64(0x7FF0000000000001))
+    codes.append(UInt64(0x7FFFFFFFFFFFFFFF))
+    codes.append(UInt64(0x8000000000000000))
+    codes.append(UInt64(0x8000000000000001))
+    codes.append(UInt64(0xFFFFFFFFFFFFFFFF))
+    for i in range(len(codes)):
+        assert_true(
+            isnan(lex_to_float(codes[i])),
+            msg="codes above inf must be NaN, not wrapped",
+        )
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
