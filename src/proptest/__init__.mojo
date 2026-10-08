@@ -77,6 +77,7 @@ from proptest.strategies.primitives import (
     integers_of,
     just,
 )
+from proptest.strategies.recursive import JsonTree, JsonValue, json_tree
 from proptest.strategies.text import (
     Bytes,
     Text,
