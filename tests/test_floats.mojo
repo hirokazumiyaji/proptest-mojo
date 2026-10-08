@@ -137,5 +137,29 @@ def test_monotonic_above_inf_and_sign_boundary() raises:
         )
 
 
+def test_negative_ranges_honored() raises:
+    var s = floats(min_value=-5.0, max_value=-1.0)
+    var tc_zero = TestCase.replaying(ChoiceSequence())
+    assert_equal(tc_zero.draw(s), -1.0)
+    for i in range(16):
+        var tc = TestCase.generating(derive(UInt64(42), UInt64(i)))
+        var value = tc.draw(s)
+        assert_true(
+            value >= -5.0 and value <= -1.0,
+            msg="negative ranged floats must stay in range",
+        )
+
+
+def test_generation_biased_finite() raises:
+    # Most generated floats should be finite (not NaN or Inf)
+    var finite_count = 0
+    for i in range(50):
+        var tc = TestCase.generating(derive(UInt64(99), UInt64(i)))
+        var value = tc.draw(floats())
+        if not isnan(value) and not isinf(value):
+            finite_count += 1
+    assert_true(finite_count >= 40, msg="most generated floats must be finite")
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

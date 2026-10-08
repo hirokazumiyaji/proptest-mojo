@@ -87,7 +87,16 @@ struct Floats(Strategy):
         return kind_label("floats")
 
     def draw(self, mut tc: TestCase) raises -> Float64:
-        var negative = tc.draw_boolean()
+        var p_negative = 0.5
+        if self.min_value >= 0.0:
+            p_negative = 0.0
+        elif self.max_value <= 0.0:
+            p_negative = 1.0
+        var negative = tc.draw_boolean(p_negative)
+        if self.min_value >= 0.0:
+            negative = False
+        elif self.max_value <= 0.0:
+            negative = True
         var magnitude = lex_to_float(tc.draw_float_bits())
         if isnan(magnitude):
             if self.allow_nan:
