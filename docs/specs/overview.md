@@ -50,7 +50,7 @@ The goals are defined in three areas:
 | Health checks | Yes | Partial | Yes | Implemented |
 | State-machine testing | `RuleBasedStateMachine` | `proptest-state-machine` | `StateMachine` trait | Implemented |
 | Recursive data | `recursive` | `prop_recursive` | `json_tree` | Implemented |
-| Derivation from types | `from_type` | `Arbitrary` | `Arbitrary` trait | Planned |
+| Derivation from types | `from_type` | `Arbitrary` | `Arbitrary` trait | Implemented |
 | Targeted PBT | `target` | None | `tc.target` | Implemented |
 
 ## Terminology

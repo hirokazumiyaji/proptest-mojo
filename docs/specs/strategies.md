@@ -54,6 +54,10 @@ Every strategy implementation must follow these rules.
 
 The standard library `Tuple` and `Optional` satisfy `Copyable & Writable & Deinitable`, so they can be used directly as `Strategy.Value`. Counterexamples use their respective `Writable` representations (for example, `(0, 1)` and `None`). `dicts` returns `DictList` (a `List` of pairs with unique keys) rather than `std.Dict` because the current Mojo compiler cannot return `std.Dict` as a value from the associated type of `draw`. This also allows keys that only satisfy `Equatable`.
 
+### Type-Based Defaults
+
+`arbitrary[T]()` selects a default strategy for `Int`, `Bool`, `Float64`, `String`, and supported list types. For a user-defined type, conform to `Arbitrary` and implement its associated `StrategyType` and static `arbitrary()` method. The generic list defaults cover the supported concrete element types and one level of `List[List[Int]]`.
+
 ### Integer Encoding
 
 `integers(min, max)` maps distances from the shrink target `t` (the value in range closest to 0) to non-negative integers `k` in the following order.
@@ -225,6 +229,5 @@ The buggy stack above shrinks to three operations: `push(0), push(1), pop`. A sh
 
 ## Planned
 
-- `Arbitrary` trait (M5): a default strategy for each type, such as `arbitrary[Int]()` returning `integers_of[DType.int64]()`.
 - Heterogeneous strategy composition (implemented in M2): strategies of different types with the same `Value` can be combined with `one_of2(a, b)` (see [ADR-0010](../adr/0010-heterogeneous-one-of.md)). Equality is enforced by the trailing `where A.Value == B.Value`; a mismatch is a compile error. For three or more branches, nest `one_of2` or convert the branches to one strategy type and use `one_of`.
 - Recursive strategies (implemented in M2): use value-level recursion with a runtime depth limit (see [ADR-0012](../adr/0012-recursive-strategy-with-runtime-depth.md)). `json_tree` generates JSON-like trees and shrinks to `null` when all choices are 0.

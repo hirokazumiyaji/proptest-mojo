@@ -33,4 +33,13 @@ var constant = just(42)
 var small_lists = lists(integers(0, 10), max_size=5)
 ```
 
-See [Specs: Strategy](../specs/strategies.md) for complete signatures and shrinking behavior. `Arbitrary`-based derivation is planned.
+Use `arbitrary[T]()` when a supported type's default strategy is sufficient:
+
+```mojo
+from proptest import arbitrary
+
+var any_ints = arbitrary[Int]()
+var any_int_lists = arbitrary[List[Int]]()
+```
+
+User-defined types can provide their own default by conforming to `Arbitrary`. See [Specs: Strategy](../specs/strategies.md) for supported types, complete signatures, and shrinking behavior.
