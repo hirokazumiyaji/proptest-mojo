@@ -10,6 +10,7 @@ from proptest import (
 )
 from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence
 from proptest.prng import derive
+from proptest.strategies.text import Bytes, Text
 from proptest.strategy import Strategy
 from std.testing import TestSuite, assert_equal, assert_true
 
@@ -246,6 +247,15 @@ def test_text_invalid_bounds_raise() raises:
     assert_true(raised, msg="Text.draw with max below min must raise")
 
 
+def test_text_draw_rejects_direct_invalid_bounds() raises:
+    var raised = False
+    try:
+        _ = _draw_empty(Text(List[String](), 3, 1, 1.0))
+    except:
+        raised = True
+    assert_true(raised, msg="direct text construction must validate bounds")
+
+
 def test_text_shrinks_no_a_to_a() raises:
     var report = String("")
     try:
@@ -317,6 +327,15 @@ def test_bytes_shrinks_nonempty_to_single_zero() raises:
     assert_true(
         ("bs = [0]\n" in report), msg="expected bs = [0], got: " + report
     )
+
+
+def test_bytes_draw_rejects_direct_invalid_bounds() raises:
+    var raised = False
+    try:
+        _ = _draw_empty(Bytes(3, 1, 1.0))
+    except:
+        raised = True
+    assert_true(raised, msg="direct bytes construction must validate bounds")
 
 
 def main() raises:

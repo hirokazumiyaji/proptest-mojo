@@ -25,4 +25,4 @@ def stack_property(mut tc: TestCase) raises:
 
 See [`tests/test_stateful.mojo`](../../tests/test_stateful.mojo) for a complete implementation. Keep `max_ops` modest while developing a property; shorter sequences are easier to inspect and shrink.
 
-The `Arbitrary` trait and `tc.target` remain planned. See the feature matrix in [Specs: Overview](../specs/overview.md) for their status.
+`tc.target` remains planned. See the feature matrix in [Specs: Overview](../specs/overview.md) for its status.

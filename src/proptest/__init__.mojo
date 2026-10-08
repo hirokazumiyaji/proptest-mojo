@@ -43,6 +43,11 @@ from proptest.shrink.shrinker import (
 )
 from proptest.stateful import StateMachine, run_state_machine
 from proptest.strategy import Strategy
+from proptest.strategies.arbitrary import (
+    Arbitrary,
+    ArbitraryStrategy,
+    arbitrary,
+)
 from proptest.strategies.collections import ListOf, lists
 from proptest.strategies.floats import (
     Floats,

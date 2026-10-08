@@ -87,6 +87,27 @@ struct Floats(Strategy):
         return kind_label("floats")
 
     def draw(self, mut tc: TestCase) raises -> Float64:
+        if isnan(self.min_value) or isnan(self.max_value):
+            raise Error("floats: min_value and max_value must not be NaN")
+        if self.max_value < self.min_value:
+            raise Error("floats: max_value must be >= min_value")
+        if self.allow_nan and (
+            self.min_value != -inf[DType.float64]()
+            or self.max_value != inf[DType.float64]()
+        ):
+            raise Error(
+                "floats: allow_nan=True is incompatible with explicit"
+                " min_value/max_value"
+            )
+        if not self.allow_infinity:
+            if isinf(self.min_value) and self.min_value > 0.0:
+                raise Error(
+                    "floats: min_value=+inf requires allow_infinity=True"
+                )
+            if isinf(self.max_value) and self.max_value < 0.0:
+                raise Error(
+                    "floats: max_value=-inf requires allow_infinity=True"
+                )
         var p_negative = 0.5
         if self.min_value >= 0.0:
             p_negative = 0.0
@@ -149,24 +170,24 @@ def floats(
         raise Error("floats: min_value and max_value must not be NaN")
     if hi < lo:
         raise Error("floats: max_value must be >= min_value")
+    var bounded = (min_value is not None) or (max_value is not None)
     var inf_ok = True
     if allow_infinity is not None:
         inf_ok = allow_infinity.value()
     if not inf_ok:
         var finite_max = _bits_to_float(MAX_FINITE_BITS)
-        if isinf(lo):
+        if bounded and isinf(lo):
             if lo > 0.0:
                 raise Error(
                     "floats: min_value=+inf requires allow_infinity=True"
                 )
             lo = -finite_max
-        if isinf(hi):
+        if bounded and isinf(hi):
             if hi < 0.0:
                 raise Error(
                     "floats: max_value=-inf requires allow_infinity=True"
                 )
             hi = finite_max
-    var bounded = (min_value is not None) or (max_value is not None)
     var nan_ok = False
     if allow_nan is not None:
         nan_ok = allow_nan.value()
