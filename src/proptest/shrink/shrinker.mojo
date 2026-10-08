@@ -47,6 +47,7 @@ struct ShrinkResult(Copyable, Movable, Writable):
 
 @fieldwise_init
 struct _CacheEntry(Copyable, Movable):
+    var sequence: ChoiceSequence
     var fingerprint: UInt64
     var secondary_fingerprint: UInt64
     var length: Int
@@ -115,6 +116,7 @@ def _lookup(
             entries[i].fingerprint == fingerprint
             and entries[i].secondary_fingerprint == secondary_fingerprint
             and entries[i].length == len(sequence)
+            and entries[i].sequence == sequence
         ):
             return i
         slot += 1
@@ -136,6 +138,7 @@ def _append_cache_entry(
         cached_consumed = consumed.copy()
     entries.append(
         _CacheEntry(
+            sequence.copy(),
             fingerprint,
             secondary_fingerprint,
             len(sequence),
