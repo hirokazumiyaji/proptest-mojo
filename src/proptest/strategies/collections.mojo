@@ -36,9 +36,7 @@ struct ListOf[E: Strategy](Strategy):
     var average_size: Float64
 
     def span_label(self) -> UInt64:
-        # Propagated: this wrapper draws what its inner
-        # strategy draws, so the blocks are interchangeable.
-        return self.elements.span_label()
+        return kind_label("lists")
 
     def draw(self, mut tc: TestCase) raises -> List[Self.E.Value]:
         # Validated here too: `ListOf` is re-exported, so `@fieldwise_init`
