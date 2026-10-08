@@ -355,6 +355,8 @@ def _edge_value(max_value: UInt64, selector: UInt64) -> UInt64:
     if slot == UInt64(2):
         return max_value
     return max_value - one
+
+
 def _remove_at(mut items: List[String], index: Int):
     """Drop `items[index]`, shifting the tail left.
 

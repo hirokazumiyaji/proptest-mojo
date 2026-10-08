@@ -92,13 +92,23 @@ struct Floats(Strategy):
             if self.allow_nan:
                 return _bits_to_float(CANON_NAN_BITS)
             magnitude = 0.0
+        if not self.allow_infinity and isinf(magnitude):
+            magnitude = max_finite()
         var value = magnitude
         if negative:
             value = -magnitude
-        if value < self.min_value:
-            value = self.min_value
-        if value > self.max_value:
-            value = self.max_value
+        var lo = self.min_value
+        var hi = self.max_value
+        if not self.allow_infinity:
+            var fin_max = max_finite()
+            if isinf(lo) and lo < 0.0:
+                lo = -fin_max
+            if isinf(hi) and hi > 0.0:
+                hi = fin_max
+        if value < lo:
+            value = lo
+        if value > hi:
+            value = hi
         return value
 
 

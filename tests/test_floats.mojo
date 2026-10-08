@@ -63,6 +63,22 @@ def test_allow_nan_false_never_nan() raises:
         assert_true(not isnan(tc.draw(floats(allow_nan=False))))
 
 
+def test_allow_infinity_false_never_inf() raises:
+    var inf_code = UInt64(0x7FF0000000000000)
+    for sign in range(2):
+        var tc = TestCase.replaying(_float_prefix(UInt64(sign), inf_code))
+        var val = tc.draw(floats(allow_infinity=False))
+        assert_true(not isinf(val), msg="must not be infinity")
+        assert_true(val <= max_finite() and val >= -max_finite())
+
+    # With finite positive lower bound
+    for sign in range(2):
+        var tc = TestCase.replaying(_float_prefix(UInt64(sign), inf_code))
+        var val = tc.draw(floats(min_value=1.0, allow_infinity=False))
+        assert_true(not isinf(val), msg="must not be infinity with lower bound")
+        assert_true(val >= 1.0)
+
+
 def test_ranges_honored() raises:
     var s = floats(min_value=1.5, max_value=2.5)
     var codes = List[UInt64]()
