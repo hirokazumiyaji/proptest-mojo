@@ -23,6 +23,8 @@ struct SampledFrom[T: Copyable & Writable & Deinitable](Strategy):
         return kind_label("sampled_from")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
+        if len(self.values) == 0:
+            raise Error("sampled_from: need at least one value")
         var index = tc.draw_integer(UInt64(len(self.values) - 1))
         return self.values[Int(index)].copy()
 
@@ -50,6 +52,8 @@ struct OneOf[S: Strategy](Strategy):
         return kind_label("one_of")
 
     def draw(self, mut tc: TestCase) raises -> Self.Value:
+        if len(self.strategies) == 0:
+            raise Error("one_of: need at least one strategy")
         var index = tc.draw_integer(UInt64(len(self.strategies) - 1))
         return self.strategies[Int(index)].draw(tc)
 

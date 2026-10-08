@@ -1,4 +1,4 @@
-# ADR-0011: 再帰的 Strategy を実行時深さ制限の単一 struct で実現する
+# ADR-0012: 再帰的 Strategy を実行時深さ制限の単一 struct で実現する
 
 - 状態: Accepted
 - 日付: 2026-09-30
