@@ -1,4 +1,4 @@
-"""map / filter / flat_map: derive new strategies from old ones.
+"""Map / filter / flat_map: derive new strategies from old ones.
 
 Run with: pixi run mojo run -I src examples/combinators.mojo
 """

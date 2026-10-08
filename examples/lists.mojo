@@ -9,7 +9,7 @@ Run with: pixi run mojo run -I src examples/lists.mojo
 """
 
 from proptest import Settings, TestCase, for_all, integers
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 
 
 @fieldwise_init
@@ -20,6 +20,9 @@ struct IntLists(Strategy):
     var minimum: Int
     var maximum: Int
     var max_size: Int
+
+    def span_label(self) -> UInt64:
+        return kind_label("int_lists")
 
     def draw(self, mut tc: TestCase) raises -> List[Int]:
         var size = tc.draw(integers(0, self.max_size), "size")

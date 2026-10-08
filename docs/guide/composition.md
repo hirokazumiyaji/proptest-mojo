@@ -56,13 +56,16 @@ var w = tc.draw(flat_map[capped](integers(0, 10)), "w")
 
 ```mojo
 from proptest import TestCase, booleans, integers
-from proptest.strategy import Strategy
+from proptest.strategy import Strategy, kind_label
 
 # `User` は例示用の自作型。実装側で定義済みと仮定します。
 @fieldwise_init
 struct Users(Strategy):
     comptime Value = User
     var max_age: Int
+
+    def span_label(self) -> UInt64:
+        return kind_label("users")
 
     def draw(self, mut tc: TestCase) raises -> User:
         var age = tc.draw(integers(0, self.max_age), "age")
