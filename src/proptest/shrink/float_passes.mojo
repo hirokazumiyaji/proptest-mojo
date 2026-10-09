@@ -69,7 +69,7 @@ def _refine_lex[
     var hi = best.nodes[index].value
     var lo = UInt64(0)
     while hi - lo > UInt64(1):
-        var mid = (lo + hi) // UInt64(2)
+        var mid = lo + (hi - lo) // UInt64(2)
         var cand = best.with_value_at(index, mid)
         if is_interesting(cand.copy()):
             hi = mid

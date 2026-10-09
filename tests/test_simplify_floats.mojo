@@ -8,7 +8,13 @@ from proptest.choice import (
 from proptest.database import name_dir
 from proptest.shrink.float_passes import float_fraction_probes, simplify_floats
 from proptest.shrink.shrinker import Evaluation, shrink, shrink_with
-from proptest.strategies.floats import float_to_lex, floats, lex_to_float
+from proptest.strategies.floats import (
+    float_to_lex,
+    floats,
+    lex_to_float,
+    max_finite,
+)
+from std.math import isinf, isnan
 from std.os import listdir, remove
 from std.pathlib import Path
 from std.testing import TestSuite, assert_equal, assert_true
@@ -153,6 +159,56 @@ def test_shrink_loop_float_threshold_within_budget() raises:
     assert_true(not result.hit_budget, msg="must finish within default budget")
     var runtime = shrink_with(_eval_float_at_least_1_5, start.copy(), 5000)
     assert_equal(lex_to_float(runtime.best[0].value), 1.5)
+    assert_true(not runtime.hit_budget, msg="shrink_with must finish in budget")
+
+
+def _eval_is_nan(seq: ChoiceSequence) -> Evaluation:
+    if len(seq) == 0:
+        return Evaluation(False, seq.copy())
+    for i in range(len(seq)):
+        if seq.nodes[i].kind == ChoiceKind.FLOAT:
+            return Evaluation(
+                isnan(lex_to_float(seq.nodes[i].value)), seq.copy()
+            )
+    return Evaluation(False, seq.copy())
+
+
+def test_shrink_nan_code_terminates_without_hang() raises:
+    # High-bit NaN magnitude codes used to overflow (lo+hi) and cycle on
+    # cache hits forever. Safe midpoints must terminate within budget.
+    var start = _float_seq(UInt64(0xC000000000000000))
+    var result = shrink[_eval_is_nan](start.copy(), 5000)
+    assert_true(isnan(lex_to_float(result.best[0].value)))
+    assert_true(
+        result.evaluations < 5000 or not result.hit_budget,
+        msg="must not burn the full budget cycling cached mids",
+    )
+    assert_true(
+        result.evaluations < 200,
+        msg="safe search should finish quickly, got "
+        + String(result.evaluations),
+    )
+
+
+def _eval_unsafe_square(seq: ChoiceSequence) -> Evaluation:
+    if len(seq) == 0:
+        return Evaluation(False, seq.copy())
+    for i in range(len(seq)):
+        if seq.nodes[i].kind == ChoiceKind.FLOAT:
+            var x = lex_to_float(seq.nodes[i].value)
+            var square = x * x
+            var interesting = (x != 0.0) and (square == 0.0 or isinf(square))
+            return Evaluation(interesting, seq.copy())
+    return Evaluation(False, seq.copy())
+
+
+def test_shrink_prefers_least_positive_underflow() raises:
+    var start = _float_seq(float_to_lex(max_finite()))
+    var result = shrink[_eval_unsafe_square](start.copy(), 5000)
+    assert_equal(result.best[0].value, UInt64(1))
+    assert_true(not result.hit_budget, msg="must finish within budget")
+    var runtime = shrink_with(_eval_unsafe_square, start.copy(), 5000)
+    assert_equal(runtime.best[0].value, UInt64(1))
     assert_true(not runtime.hit_budget, msg="shrink_with must finish in budget")
 
 

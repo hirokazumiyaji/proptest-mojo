@@ -441,13 +441,55 @@ def shrink[
                         best_spans = p_spans^
                 if hit_budget:
                     break
+                # Probe the least positive code before binary search so
+                # non-monotone failures that also fail on subnormals are
+                # not discarded when an early midpoint is interesting.
+                if current > UInt64(1):
+                    var unit = best.with_value_at(i, UInt64(1))
+                    var uidx = _lookup(entries, slots, unit)
+                    var u_interesting = False
+                    var u_consumed = unit.copy()
+                    var u_spans = best_spans.copy()
+                    if uidx >= 0:
+                        u_interesting = entries[uidx].is_interesting
+                        u_consumed = entries[uidx].consumed.copy()
+                        u_spans = entries[uidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                        else:
+                            evaluations += 1
+                            var uresult = evaluate(unit^)
+                            u_interesting = uresult.is_interesting
+                            u_consumed = uresult.consumed.copy()
+                            u_spans = uresult.spans.copy()
+                            _append_cache_entry(
+                                entries,
+                                slots,
+                                unit,
+                                u_interesting,
+                                u_consumed,
+                                u_spans,
+                            )
+                    if not hit_budget:
+                        if u_interesting and is_shortlex_smaller(
+                            u_consumed, best
+                        ):
+                            best = u_consumed^
+                            best_spans = u_spans^
+                            current = best.nodes[i].value
+                            changed = True
+                        elif u_interesting and u_consumed == best:
+                            best_spans = u_spans^
+                if hit_budget:
+                    break
                 var hi = current
                 var lo = UInt64(0)
                 while hi - lo > UInt64(1):
                     if evaluations >= max_evaluations:
                         hit_budget = True
                         break
-                    var mid = (lo + hi) // UInt64(2)
+                    var mid = lo + (hi - lo) // UInt64(2)
                     var probe = best.with_value_at(i, mid)
                     var pidx = _lookup(entries, slots, probe)
                     var p_interesting = False
@@ -1182,13 +1224,55 @@ def shrink_with[
                         best_spans = p_spans^
                 if hit_budget:
                     break
+                # Probe the least positive code before binary search so
+                # non-monotone failures that also fail on subnormals are
+                # not discarded when an early midpoint is interesting.
+                if current > UInt64(1):
+                    var unit = best.with_value_at(i, UInt64(1))
+                    var uidx = _lookup(entries, slots, unit)
+                    var u_interesting = False
+                    var u_consumed = unit.copy()
+                    var u_spans = best_spans.copy()
+                    if uidx >= 0:
+                        u_interesting = entries[uidx].is_interesting
+                        u_consumed = entries[uidx].consumed.copy()
+                        u_spans = entries[uidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                        else:
+                            evaluations += 1
+                            var uresult = eval_fn(unit^)
+                            u_interesting = uresult.is_interesting
+                            u_consumed = uresult.consumed.copy()
+                            u_spans = uresult.spans.copy()
+                            _append_cache_entry(
+                                entries,
+                                slots,
+                                unit,
+                                u_interesting,
+                                u_consumed,
+                                u_spans,
+                            )
+                    if not hit_budget:
+                        if u_interesting and is_shortlex_smaller(
+                            u_consumed, best
+                        ):
+                            best = u_consumed^
+                            best_spans = u_spans^
+                            current = best.nodes[i].value
+                            changed = True
+                        elif u_interesting and u_consumed == best:
+                            best_spans = u_spans^
+                if hit_budget:
+                    break
                 var hi = current
                 var lo = UInt64(0)
                 while hi - lo > UInt64(1):
                     if evaluations >= max_evaluations:
                         hit_budget = True
                         break
-                    var mid = (lo + hi) // UInt64(2)
+                    var mid = lo + (hi - lo) // UInt64(2)
                     var probe = best.with_value_at(i, mid)
                     var pidx = _lookup(entries, slots, probe)
                     var p_interesting = False
