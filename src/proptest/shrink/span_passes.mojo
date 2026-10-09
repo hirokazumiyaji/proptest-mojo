@@ -147,14 +147,39 @@ def _valid_spans_sorted(spans: List[Span], n: Int) -> List[Span]:
     return out^
 
 
+def _immediate_parent_idx(sorted: List[Span], idx: Int) -> Int:
+    """Index of the deepest proper container of `sorted[idx]`, or `-1`.
+
+    A proper container strictly encloses the span. Matching parents keeps
+    choice-adjacent same-label blocks from different composites apart.
+    """
+    var best = -1
+    var best_depth = -1
+    var child_start = sorted[idx].start
+    var child_end = sorted[idx].end
+    for i in range(len(sorted)):
+        if i == idx:
+            continue
+        var start = sorted[i].start
+        var end = sorted[i].end
+        if start > child_start or end < child_end:
+            continue
+        if start == child_start and end == child_end:
+            continue
+        if sorted[i].depth > best_depth:
+            best_depth = sorted[i].depth
+            best = i
+    return best
+
+
 def _collect_sibling_runs(sorted: List[Span]) -> List[_SiblingRun]:
-    """Maximal adjacent runs sharing one label and depth.
+    """Maximal adjacent runs sharing one label, depth, and parent.
 
     Siblings are choice-adjacent (`prev.end == next.start`) with the same
-    label and depth. Enclosing and nested spans that interleave them in
-    `(start, end)` order are skipped. A gap, or another span that starts
-    exactly at `prev.end` with a different label/depth, ends the run so
-    distinct parents are not reordered across.
+    label, depth, and immediate parent. Enclosing and nested spans that
+    interleave them in `(start, end)` order are skipped. A gap, a used
+    boundary span, a different label/depth, or a different parent ends
+    the run.
     """
     var runs = List[_SiblingRun]()
     if len(sorted) == 0:
@@ -169,6 +194,7 @@ def _collect_sibling_runs(sorted: List[Span]) -> List[_SiblingRun]:
         indices.append(i)
         var run_label = sorted[i].label
         var run_depth = sorted[i].depth
+        var run_parent = _immediate_parent_idx(sorted, i)
         var prev_end = sorted[i].end
         for j in range(i + 1, len(sorted)):
             var start = sorted[j].start
@@ -181,7 +207,11 @@ def _collect_sibling_runs(sorted: List[Span]) -> List[_SiblingRun]:
             # sibling run at this boundary still separates parents.
             if used[j]:
                 break
-            if sorted[j].label == run_label and sorted[j].depth == run_depth:
+            if (
+                sorted[j].label == run_label
+                and sorted[j].depth == run_depth
+                and _immediate_parent_idx(sorted, j) == run_parent
+            ):
                 indices.append(j)
                 prev_end = sorted[j].end
                 continue

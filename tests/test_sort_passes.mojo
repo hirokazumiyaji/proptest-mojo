@@ -9,7 +9,7 @@ from proptest.encoding import decode_sequence
 from proptest.shrink.span_passes import sort_spans, swap_adjacent_spans
 from proptest.strategies.collections import lists
 from proptest.strategies.primitives import booleans, integers
-from proptest.strategies.tuples import tuples
+from proptest.strategies.tuples import optionals, tuples
 from proptest.testcase import TestCase
 from std.testing import TestSuite, assert_equal, assert_true
 
@@ -353,6 +353,40 @@ def test_swap_adjacent_spans_uses_recorded_nested_collection_spans() raises:
     assert_true(
         found_outer,
         msg="outer list siblings must swap despite nested field spans",
+    )
+
+
+def test_sibling_runs_require_shared_immediate_parent() raises:
+    # Choice-adjacent optionals under different tuple parents must not form
+    # one sibling run even when they share label and depth.
+    var prefix = ChoiceSequence()
+    prefix.append(
+        ChoiceNode(ChoiceKind.BOOLEAN, UInt64(0), UInt64(1), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.BOOLEAN, UInt64(1), UInt64(1), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(9), UInt64(9), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.BOOLEAN, UInt64(1), UInt64(1), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(0), UInt64(9), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.BOOLEAN, UInt64(0), UInt64(1), Bool(False))
+    )
+    var strategy = tuples(
+        tuples(booleans(), optionals(integers(0, 9))),
+        tuples(optionals(integers(0, 9)), booleans()),
+    )
+    var tc = TestCase.replaying(prefix^)
+    _ = tc.draw(strategy)
+    assert_equal(len(sort_spans(tc.choices.copy(), tc.spans.copy())), 0)
+    assert_equal(
+        len(swap_adjacent_spans(tc.choices.copy(), tc.spans.copy())), 0
     )
 
 
