@@ -23,6 +23,10 @@ from proptest.shrink.span_passes import (
     zero_spans,
 )
 
+# Ascending fill after geometric probes catches non-monotone failure
+# islands that sit between powers of two (e.g. code 5 below 27).
+comptime FLOAT_GAP_FILL_BOUND = UInt64(256)
+
 
 def _clip_spans(spans: List[Span], max_len: Int) -> List[Span]:
     """Clip span bounds so all returned spans lie strictly within 0..max_len."""
@@ -401,13 +405,9 @@ def shrink[
                 break
             var changed = False
             if best.nodes[i].kind == ChoiceKind.FLOAT:
-                # Float-aware path: geometric low-code probes (with a local
-                # binary search once one hits), fraction probes, then binary
-                # search on the lex code. Raw ascending over the full range
-                # cannot reach ordinary thresholds such as 1.5 from 2.0
-                # within the default budget; geometric probes keep
-                # non-monotone underflow failures and tight budgets shortlex
-                # minimal without a fixed code cap.
+                # Float-aware path: geometric probes, gap fill, fractions,
+                # then binary search. Restart when a shorter consumed prefix
+                # removes index `i` (flaky failures before this draw).
                 var geo_lo = UInt64(0)
                 var step = UInt64(1)
                 while step < current:
@@ -440,8 +440,10 @@ def shrink[
                     if g_interesting and is_shortlex_smaller(g_consumed, best):
                         best = g_consumed^
                         best_spans = g_spans^
-                        current = best.nodes[i].value
                         changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
                         var g_hi = current
                         var g_lo = geo_lo
                         while g_hi - g_lo > UInt64(1):
@@ -477,9 +479,11 @@ def shrink[
                             ):
                                 best = m_consumed^
                                 best_spans = m_spans^
+                                changed = True
+                                if i >= len(best):
+                                    break
                                 g_hi = g_mid
                                 current = g_mid
-                                changed = True
                             elif m_interesting and m_consumed == best:
                                 best_spans = m_spans^
                                 g_hi = g_mid
@@ -495,10 +499,59 @@ def shrink[
                     if nxt <= step:
                         break
                     step = nxt
-                if hit_budget:
+                if hit_budget or (changed and i >= len(best)):
+                    break
+                # Ascending fill between geometric gaps for non-monotone islands.
+                var fill = UInt64(1)
+                while (
+                    fill < current
+                    and fill <= FLOAT_GAP_FILL_BOUND
+                    and i < len(best)
+                ):
+                    var fprobe = best.with_value_at(i, fill)
+                    var fidx = _lookup(entries, slots, fprobe)
+                    var f_interesting = False
+                    var f_consumed = fprobe.copy()
+                    var f_spans = best_spans.copy()
+                    if fidx >= 0:
+                        f_interesting = entries[fidx].is_interesting
+                        f_consumed = entries[fidx].consumed.copy()
+                        f_spans = entries[fidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var fresult = evaluate(fprobe^)
+                        f_interesting = fresult.is_interesting
+                        f_consumed = fresult.consumed.copy()
+                        f_spans = fresult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            fprobe,
+                            f_interesting,
+                            f_consumed,
+                            f_spans,
+                        )
+                    if f_interesting and is_shortlex_smaller(f_consumed, best):
+                        best = f_consumed^
+                        best_spans = f_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
+                        break
+                    elif f_interesting and f_consumed == best:
+                        best_spans = f_spans^
+                        break
+                    fill += UInt64(1)
+                if hit_budget or (changed and i >= len(best)):
                     break
                 var probes = float_fraction_probes(current)
                 for pi in range(len(probes)):
+                    if i >= len(best):
+                        break
                     var probe = best.with_value_at(i, probes[pi])
                     var pidx = _lookup(entries, slots, probe)
                     var p_interesting = False
@@ -528,15 +581,17 @@ def shrink[
                     if p_interesting and is_shortlex_smaller(p_consumed, best):
                         best = p_consumed^
                         best_spans = p_spans^
-                        current = best.nodes[i].value
                         changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
                     elif p_interesting and p_consumed == best:
                         best_spans = p_spans^
-                if hit_budget:
+                if hit_budget or (changed and i >= len(best)):
                     break
                 var hi = current
                 var lo = UInt64(0)
-                while hi - lo > UInt64(1):
+                while hi - lo > UInt64(1) and i < len(best):
                     if evaluations >= max_evaluations:
                         hit_budget = True
                         break
@@ -567,9 +622,11 @@ def shrink[
                     if p_interesting and is_shortlex_smaller(p_consumed, best):
                         best = p_consumed^
                         best_spans = p_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
                         hi = mid
                         current = mid
-                        changed = True
                     elif p_interesting and p_consumed == best:
                         best_spans = p_spans^
                         hi = mid
@@ -1238,10 +1295,8 @@ def shrink_with[
                 break
             var changed = False
             if best.nodes[i].kind == ChoiceKind.FLOAT:
-                # Float-aware path: geometric low-code probes (with a local
-                # binary search once one hits), fraction probes, then
-                # binary search. Same order as `shrink` so tight budgets
-                # and non-monotone underflow failures stay shortlex-minimal.
+                # Float-aware path: same geometric / gap-fill / fraction /
+                # binary search order as `shrink`. Restart on shorter prefixes.
                 var geo_lo = UInt64(0)
                 var step = UInt64(1)
                 while step < current:
@@ -1274,8 +1329,10 @@ def shrink_with[
                     if g_interesting and is_shortlex_smaller(g_consumed, best):
                         best = g_consumed^
                         best_spans = g_spans^
-                        current = best.nodes[i].value
                         changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
                         var g_hi = current
                         var g_lo = geo_lo
                         while g_hi - g_lo > UInt64(1):
@@ -1311,9 +1368,11 @@ def shrink_with[
                             ):
                                 best = m_consumed^
                                 best_spans = m_spans^
+                                changed = True
+                                if i >= len(best):
+                                    break
                                 g_hi = g_mid
                                 current = g_mid
-                                changed = True
                             elif m_interesting and m_consumed == best:
                                 best_spans = m_spans^
                                 g_hi = g_mid
@@ -1329,10 +1388,59 @@ def shrink_with[
                     if nxt <= step:
                         break
                     step = nxt
-                if hit_budget:
+                if hit_budget or (changed and i >= len(best)):
+                    break
+                # Ascending fill between geometric gaps for non-monotone islands.
+                var fill = UInt64(1)
+                while (
+                    fill < current
+                    and fill <= FLOAT_GAP_FILL_BOUND
+                    and i < len(best)
+                ):
+                    var fprobe = best.with_value_at(i, fill)
+                    var fidx = _lookup(entries, slots, fprobe)
+                    var f_interesting = False
+                    var f_consumed = fprobe.copy()
+                    var f_spans = best_spans.copy()
+                    if fidx >= 0:
+                        f_interesting = entries[fidx].is_interesting
+                        f_consumed = entries[fidx].consumed.copy()
+                        f_spans = entries[fidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var fresult = eval_fn(fprobe^)
+                        f_interesting = fresult.is_interesting
+                        f_consumed = fresult.consumed.copy()
+                        f_spans = fresult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            fprobe,
+                            f_interesting,
+                            f_consumed,
+                            f_spans,
+                        )
+                    if f_interesting and is_shortlex_smaller(f_consumed, best):
+                        best = f_consumed^
+                        best_spans = f_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
+                        break
+                    elif f_interesting and f_consumed == best:
+                        best_spans = f_spans^
+                        break
+                    fill += UInt64(1)
+                if hit_budget or (changed and i >= len(best)):
                     break
                 var probes = float_fraction_probes(current)
                 for pi in range(len(probes)):
+                    if i >= len(best):
+                        break
                     var probe = best.with_value_at(i, probes[pi])
                     var pidx = _lookup(entries, slots, probe)
                     var p_interesting = False
@@ -1362,15 +1470,17 @@ def shrink_with[
                     if p_interesting and is_shortlex_smaller(p_consumed, best):
                         best = p_consumed^
                         best_spans = p_spans^
-                        current = best.nodes[i].value
                         changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
                     elif p_interesting and p_consumed == best:
                         best_spans = p_spans^
-                if hit_budget:
+                if hit_budget or (changed and i >= len(best)):
                     break
                 var hi = current
                 var lo = UInt64(0)
-                while hi - lo > UInt64(1):
+                while hi - lo > UInt64(1) and i < len(best):
                     if evaluations >= max_evaluations:
                         hit_budget = True
                         break
@@ -1401,9 +1511,11 @@ def shrink_with[
                     if p_interesting and is_shortlex_smaller(p_consumed, best):
                         best = p_consumed^
                         best_spans = p_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
                         hi = mid
                         current = mid
-                        changed = True
                     elif p_interesting and p_consumed == best:
                         best_spans = p_spans^
                         hi = mid

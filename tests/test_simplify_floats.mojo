@@ -179,13 +179,10 @@ def test_shrink_nan_code_terminates_without_hang() raises:
     var start = _float_seq(UInt64(0xC000000000000000))
     var result = shrink[_eval_is_nan](start.copy(), 5000)
     assert_true(isnan(lex_to_float(result.best[0].value)))
+    assert_true(not result.hit_budget, msg="must finish within budget")
     assert_true(
-        result.evaluations < 5000 or not result.hit_budget,
-        msg="must not burn the full budget cycling cached mids",
-    )
-    assert_true(
-        result.evaluations < 200,
-        msg="safe search should finish quickly, got "
+        result.evaluations < 1000,
+        msg="safe search should finish well under budget, got "
         + String(result.evaluations),
     )
 
@@ -276,6 +273,41 @@ def test_shrink_prefers_unit_before_fractions_on_tight_budget() raises:
     assert_equal(result.best[0].value, UInt64(1))
     var runtime = shrink_with(_eval_nonzero, start.copy(), 2)
     assert_equal(runtime.best[0].value, UInt64(1))
+
+
+def _eval_interesting_empty_prefix(seq: ChoiceSequence) -> Evaluation:
+    _ = seq
+    return Evaluation(True, ChoiceSequence())
+
+
+def test_shrink_float_shorter_prefix_does_not_crash() raises:
+    var start = _float_seq(float_to_lex(2.0))
+    var result = shrink[_eval_interesting_empty_prefix](start.copy(), 5000)
+    assert_equal(len(result.best), 0)
+    var runtime = shrink_with(
+        _eval_interesting_empty_prefix, start.copy(), 5000
+    )
+    assert_equal(len(runtime.best), 0)
+
+
+def _eval_div_assoc(seq: ChoiceSequence) -> Evaluation:
+    if len(seq) == 0:
+        return Evaluation(False, seq.copy())
+    for i in range(len(seq)):
+        if seq.nodes[i].kind == ChoiceKind.FLOAT:
+            var x = lex_to_float(seq.nodes[i].value)
+            return Evaluation((x / 2.0) / 4.0 != x / 8.0, seq.copy())
+    return Evaluation(False, seq.copy())
+
+
+def test_shrink_preserves_gap_between_geometric_probes() raises:
+    var start = _float_seq(UInt64(27))
+    var result = shrink[_eval_div_assoc](start.copy(), 5000)
+    assert_equal(result.best[0].value, UInt64(5))
+    assert_true(not result.hit_budget, msg="must finish within budget")
+    var runtime = shrink_with(_eval_div_assoc, start.copy(), 5000)
+    assert_equal(runtime.best[0].value, UInt64(5))
+    assert_true(not runtime.hit_budget, msg="shrink_with must finish in budget")
 
 
 def _fails_at_1_5(mut tc: TestCase) raises:
