@@ -357,6 +357,53 @@ def _is_identity(order: List[Int]) -> Bool:
     return True
 
 
+def _run_perm_is_downhill(
+    values: List[UInt64],
+    sorted: List[_ReorderSpan],
+    run: _SiblingRun,
+    perm: List[Int],
+) -> Bool:
+    """Whether applying `perm` to `run` is strictly shortlex-smaller."""
+    var new_vals = List[UInt64]()
+    for k in range(len(perm)):
+        var block = sorted[run.indices[perm[k]]].span.copy()
+        for i in range(block.start, block.end):
+            new_vals.append(values[i])
+    var orig = sorted[run.indices[0]].span.start
+    for i in range(len(new_vals)):
+        var old_v = values[orig + i]
+        if new_vals[i] != old_v:
+            return new_vals[i] < old_v
+    return False
+
+
+def _swap_is_downhill(values: List[UInt64], left: Span, right: Span) -> Bool:
+    """Whether exchanging `left` and `right` is strictly shortlex-smaller.
+
+    Compares `right ++ left` against `left ++ right` so unequal-width blocks
+    (including proper prefixes) are handled correctly.
+    """
+    var left_len = left.end - left.start
+    var right_len = right.end - right.start
+    var total = left_len + right_len
+    var i = 0
+    while i < total:
+        var new_v: UInt64
+        var old_v: UInt64
+        if i < right_len:
+            new_v = values[right.start + i]
+        else:
+            new_v = values[left.start + (i - right_len)]
+        if i < left_len:
+            old_v = values[left.start + i]
+        else:
+            old_v = values[right.start + (i - left_len)]
+        if new_v != old_v:
+            return new_v < old_v
+        i += 1
+    return False
+
+
 def _splice_run(
     seq: ChoiceSequence,
     sorted: List[_ReorderSpan],
@@ -485,8 +532,10 @@ def sort_spans(
         var perm = _run_sort_order(values, sorted, run)
         if _is_identity(perm):
             continue
-        # Count and skip before splicing so paged fetches do not recreate
-        # every earlier full-sequence candidate.
+        if not _run_perm_is_downhill(values, sorted, run, perm):
+            continue
+        # Count only eligible candidates before splicing so paged fetches
+        # neither recreate earlier copies nor overlap pages.
         if skipped < offset:
             skipped += 1
             continue
@@ -529,11 +578,7 @@ def swap_adjacent_spans(
                 return out^
             var left = sorted[run.indices[j]].span.copy()
             var right = sorted[run.indices[j + 1]].span.copy()
-            # Downhill iff the right block is lexicographically smaller;
-            # decide before copying the whole sequence for pagination.
-            if not _block_less(
-                values, right.start, right.end, left.start, left.end
-            ):
+            if not _swap_is_downhill(values, left, right):
                 continue
             if skipped < offset:
                 skipped += 1

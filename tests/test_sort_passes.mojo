@@ -239,6 +239,41 @@ def test_swap_adjacent_spans_skips_discarded() raises:
     assert_equal(len(swap_adjacent_spans(seq.copy(), spans^)), 0)
 
 
+def test_swap_adjacent_spans_unequal_width_prefix_blocks() raises:
+    # Proper-prefix siblings: compare concatenations, not the blocks alone.
+    var seq = _seq(UInt64(1), UInt64(1), UInt64(0))
+    var spans = List[Span]()
+    spans.append(_span(0, 1, 1))
+    spans.append(_span(1, 3, 1))
+    var cands = swap_adjacent_spans(seq.copy(), spans^)
+    assert_equal(len(cands), 1)
+    _assert_values(cands[0].copy(), UInt64(1), UInt64(0), UInt64(1))
+
+
+def test_sort_spans_offset_skips_only_eligible_candidates() raises:
+    # First gap-separated run is already sorted (no candidate); the second
+    # is unsorted. offset=1 must be exhausted, not replay the only candidate.
+    var seq = _seq(
+        UInt64(1),
+        UInt64(2),
+        UInt64(0),
+        UInt64(2),
+        UInt64(1),
+    )
+    var spans = List[Span]()
+    spans.append(_span(0, 1, 1))
+    spans.append(_span(1, 2, 1))
+    spans.append(_span(3, 4, 1))
+    spans.append(_span(4, 5, 1))
+    var all = sort_spans(seq.copy(), spans.copy())
+    assert_equal(len(all), 1)
+    _assert_values(
+        all[0].copy(), UInt64(1), UInt64(2), UInt64(0), UInt64(1), UInt64(2)
+    )
+    var page = sort_spans(seq.copy(), spans.copy(), 1, 1)
+    assert_equal(len(page), 0)
+
+
 def test_swap_adjacent_spans_pages_large_sibling_runs() raises:
     # A descending run of n siblings yields n-1 downhill swaps; without a
     # limit that eagerly copies every full sequence.
