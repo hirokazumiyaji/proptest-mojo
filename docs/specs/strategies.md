@@ -39,7 +39,7 @@ Every strategy implementation must follow these rules.
 | Function | Value type | Shrinking target | M |
 |------|--------|-----------|---|
 | `integers(min, max)` | `Int` | Value in range closest to 0 | M1 |
-| `integers_of[dtype](min, max)` | `Scalar[dtype]`(`Int8` through `UInt64`) | Same; if the range is omitted, use the full range of the type | M2 |
+| `integers_of[dtype](min, max)` | `Scalar[dtype]`(`Int8` through `UInt64`) | Same; if the range is omitted, use the full range of the type. Direct `IntegersOf` construction must reject inverted bounds in `draw`, matching `Integers` | M2 |
 | `booleans()` | `Bool` | `False` | M1 |
 | `just(value)` | `T` | (consumes no choices) | M1 |
 | `sampled_from(values: List[T])` | `T` | First element | M2 |

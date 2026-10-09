@@ -2,12 +2,21 @@ from proptest import decode_integers_of_choice as root_decoder
 from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence
 from proptest.prng import derive
 from proptest.strategy import Strategy
+from proptest.strategies.combinators import flat_map
 from proptest.strategies.primitives import (
+    IntegersOf,
     decode_integers_of_choice,
+    integers,
     integers_of,
 )
 from proptest.testcase import TestCase
-from std.testing import TestSuite, assert_equal, assert_true
+from std.testing import TestSuite, assert_equal, assert_raises, assert_true
+
+
+def _inverted_int8(_n: Int) -> IntegersOf[DType.int8]:
+    # Non-raising thin factory: fieldwise construction can return inverted
+    # bounds that only become invalid at draw time.
+    return IntegersOf[DType.int8](Int8(10), Int8(5))
 
 
 def test_decoder_is_exported_from_package_root() raises:
@@ -608,6 +617,24 @@ def test_draw_is_deterministic_for_same_prefix() raises:
         )
     )
     assert_equal(a.choices, b.choices)
+
+
+def test_integers_of_draw_rejects_inverted_range() raises:
+    # Direct construction permits an invalid range, so `draw` must reject it
+    # before the unsigned width calculation wraps.
+    with assert_raises(contains="maximum must be >= minimum"):
+        _ = _draw_empty(IntegersOf[DType.int8](Int8(10), Int8(5)))
+
+
+def test_integers_of_draw_rejects_inverted_from_thin_factory() raises:
+    with assert_raises(contains="maximum must be >= minimum"):
+        _ = _draw_empty(flat_map[_inverted_int8](integers(0, 0)))
+
+
+def test_integers_of_full_range_survives_draw_validation() raises:
+    # Full signed/unsigned ranges remain valid after the inverted-range guard.
+    assert_equal(_draw_empty(integers_of[DType.int8]()), Int8(0))
+    assert_equal(_draw_empty(integers_of[DType.uint64]()), UInt64(0))
 
 
 def main() raises:
