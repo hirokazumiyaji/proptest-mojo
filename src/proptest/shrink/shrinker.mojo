@@ -23,6 +23,22 @@ from proptest.shrink.span_passes import (
 )
 
 
+def _clip_spans(spans: List[Span], max_len: Int) -> List[Span]:
+    """Clip span bounds so all returned spans lie strictly within 0..max_len."""
+    var out = List[Span]()
+    for i in range(len(spans)):
+        var s = spans[i].copy()
+        if s.start < 0 or s.start >= max_len:
+            continue
+        var end = s.end
+        if end > max_len:
+            end = max_len
+        if end <= s.start:
+            continue
+        out.append(Span(s.start, end, s.label, s.depth, s.discarded))
+    return out^
+
+
 struct Evaluation(Copyable, Movable, Writable):
     """Outcome of running one candidate sequence."""
 
@@ -46,8 +62,8 @@ struct Evaluation(Copyable, Movable, Writable):
         var spans: List[Span],
     ):
         self.is_interesting = is_interesting
+        self.spans = _clip_spans(spans, len(consumed))
         self.consumed = consumed^
-        self.spans = spans^
 
     def write_to(self, mut writer: Some[Writer]):
         writer.write("Evaluation(interesting=", self.is_interesting, ", ")
@@ -192,7 +208,7 @@ def _append_cache_entry(
     var cached_spans = List[Span]()
     if is_interesting:
         cached_consumed = consumed.copy()
-        cached_spans = spans.copy()
+        cached_spans = _clip_spans(spans, len(consumed))
     entries.append(
         _CacheEntry(
             sequence.copy(),
@@ -245,9 +261,11 @@ def shrink[
     """
     var best = initial.copy()
     if max_evaluations <= 0:
-        return ShrinkResult(best^, initial_spans.copy(), 0, False)
+        return ShrinkResult(
+            best^, _clip_spans(initial_spans, len(best)), 0, False
+        )
 
-    var best_spans = initial_spans.copy()
+    var best_spans = _clip_spans(initial_spans, len(best))
     var entries = List[_CacheEntry]()
     var slots = _empty_cache_slots(max_evaluations)
     var evaluations = 0
@@ -890,9 +908,11 @@ def shrink_with[
     """
     var best = initial.copy()
     if max_evaluations <= 0:
-        return ShrinkResult(best^, initial_spans.copy(), 0, False)
+        return ShrinkResult(
+            best^, _clip_spans(initial_spans, len(best)), 0, False
+        )
 
-    var best_spans = initial_spans.copy()
+    var best_spans = _clip_spans(initial_spans, len(best))
     var entries = List[_CacheEntry]()
     var slots = _empty_cache_slots(max_evaluations)
     var evaluations = 0
