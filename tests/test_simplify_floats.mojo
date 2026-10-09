@@ -212,6 +212,48 @@ def test_shrink_prefers_least_positive_underflow() raises:
     assert_true(not runtime.hit_budget, msg="shrink_with must finish in budget")
 
 
+def _eval_half_unsafe_square(seq: ChoiceSequence) -> Evaluation:
+    if len(seq) == 0:
+        return Evaluation(False, seq.copy())
+    for i in range(len(seq)):
+        if seq.nodes[i].kind == ChoiceKind.FLOAT:
+            var y = lex_to_float(seq.nodes[i].value) / 2.0
+            var square = y * y
+            var interesting = (y > 0.0) and (square == 0.0 or isinf(square))
+            return Evaluation(interesting, seq.copy())
+    return Evaluation(False, seq.copy())
+
+
+def test_shrink_preserves_low_code_half_underflow() raises:
+    # Code 1 halves to 0 so it passes; code 2 is the least interesting.
+    var start = _float_seq(float_to_lex(max_finite()))
+    var result = shrink[_eval_half_unsafe_square](start.copy(), 5000)
+    assert_equal(result.best[0].value, UInt64(2))
+    assert_true(not result.hit_budget, msg="must finish within budget")
+    var runtime = shrink_with(_eval_half_unsafe_square, start.copy(), 5000)
+    assert_equal(runtime.best[0].value, UInt64(2))
+    assert_true(not runtime.hit_budget, msg="shrink_with must finish in budget")
+
+
+def _eval_nonzero(seq: ChoiceSequence) -> Evaluation:
+    if len(seq) == 0:
+        return Evaluation(False, seq.copy())
+    for i in range(len(seq)):
+        if seq.nodes[i].kind == ChoiceKind.FLOAT:
+            return Evaluation(
+                lex_to_float(seq.nodes[i].value) != 0.0, seq.copy()
+            )
+    return Evaluation(False, seq.copy())
+
+
+def test_shrink_prefers_unit_before_fractions_on_tight_budget() raises:
+    var start = _float_seq(float_to_lex(1.75))
+    var result = shrink[_eval_nonzero](start.copy(), 2)
+    assert_equal(result.best[0].value, UInt64(1))
+    var runtime = shrink_with(_eval_nonzero, start.copy(), 2)
+    assert_equal(runtime.best[0].value, UInt64(1))
+
+
 def _fails_at_1_5(mut tc: TestCase) raises:
     if tc.draw(floats(allow_nan=False), "x") >= 1.5:
         raise Error("threshold")

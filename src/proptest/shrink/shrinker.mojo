@@ -23,6 +23,11 @@ from proptest.shrink.span_passes import (
     zero_spans,
 )
 
+# Bounded ascending probes before float binary search. Covers the least
+# positive code and nearby subnormals so non-monotone underflow failures
+# are not discarded when an early midpoint is interesting.
+comptime FLOAT_LOW_CODE_BOUND = UInt64(64)
+
 
 def _clip_spans(spans: List[Span], max_len: Int) -> List[Span]:
     """Clip span bounds so all returned spans lie strictly within 0..max_len."""
@@ -401,9 +406,52 @@ def shrink[
                 break
             var changed = False
             if best.nodes[i].kind == ChoiceKind.FLOAT:
-                # Float-aware path: fraction probes then binary search on the
-                # lex code. Raw ascending enumeration cannot reach ordinary
-                # thresholds such as 1.5 from 2.0 within the default budget.
+                # Float-aware path: bounded low codes, fraction probes, then
+                # binary search. Raw ascending over the full magnitude range
+                # cannot reach ordinary thresholds such as 1.5 from 2.0
+                # within the default budget; low codes come first so
+                # non-monotone underflow failures and tight budgets still
+                # find the least positive interesting code.
+                var low = UInt64(1)
+                while low < current and low <= FLOAT_LOW_CODE_BOUND:
+                    var lprobe = best.with_value_at(i, low)
+                    var lidx = _lookup(entries, slots, lprobe)
+                    var l_interesting = False
+                    var l_consumed = lprobe.copy()
+                    var l_spans = best_spans.copy()
+                    if lidx >= 0:
+                        l_interesting = entries[lidx].is_interesting
+                        l_consumed = entries[lidx].consumed.copy()
+                        l_spans = entries[lidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var lresult = evaluate(lprobe^)
+                        l_interesting = lresult.is_interesting
+                        l_consumed = lresult.consumed.copy()
+                        l_spans = lresult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            lprobe,
+                            l_interesting,
+                            l_consumed,
+                            l_spans,
+                        )
+                    if l_interesting and is_shortlex_smaller(l_consumed, best):
+                        best = l_consumed^
+                        best_spans = l_spans^
+                        current = best.nodes[i].value
+                        changed = True
+                        break
+                    elif l_interesting and l_consumed == best:
+                        best_spans = l_spans^
+                        break
+                    low += UInt64(1)
+                if hit_budget:
+                    break
                 var probes = float_fraction_probes(current)
                 for pi in range(len(probes)):
                     var probe = best.with_value_at(i, probes[pi])
@@ -439,48 +487,6 @@ def shrink[
                         changed = True
                     elif p_interesting and p_consumed == best:
                         best_spans = p_spans^
-                if hit_budget:
-                    break
-                # Probe the least positive code before binary search so
-                # non-monotone failures that also fail on subnormals are
-                # not discarded when an early midpoint is interesting.
-                if current > UInt64(1):
-                    var unit = best.with_value_at(i, UInt64(1))
-                    var uidx = _lookup(entries, slots, unit)
-                    var u_interesting = False
-                    var u_consumed = unit.copy()
-                    var u_spans = best_spans.copy()
-                    if uidx >= 0:
-                        u_interesting = entries[uidx].is_interesting
-                        u_consumed = entries[uidx].consumed.copy()
-                        u_spans = entries[uidx].spans.copy()
-                    else:
-                        if evaluations >= max_evaluations:
-                            hit_budget = True
-                        else:
-                            evaluations += 1
-                            var uresult = evaluate(unit^)
-                            u_interesting = uresult.is_interesting
-                            u_consumed = uresult.consumed.copy()
-                            u_spans = uresult.spans.copy()
-                            _append_cache_entry(
-                                entries,
-                                slots,
-                                unit,
-                                u_interesting,
-                                u_consumed,
-                                u_spans,
-                            )
-                    if not hit_budget:
-                        if u_interesting and is_shortlex_smaller(
-                            u_consumed, best
-                        ):
-                            best = u_consumed^
-                            best_spans = u_spans^
-                            current = best.nodes[i].value
-                            changed = True
-                        elif u_interesting and u_consumed == best:
-                            best_spans = u_spans^
                 if hit_budget:
                     break
                 var hi = current
@@ -1187,6 +1193,49 @@ def shrink_with[
                 break
             var changed = False
             if best.nodes[i].kind == ChoiceKind.FLOAT:
+                # Float-aware path: bounded low codes, fraction probes, then
+                # binary search. Same order as `shrink` so tight budgets and
+                # non-monotone underflow failures stay shortlex-minimal.
+                var low = UInt64(1)
+                while low < current and low <= FLOAT_LOW_CODE_BOUND:
+                    var lprobe = best.with_value_at(i, low)
+                    var lidx = _lookup(entries, slots, lprobe)
+                    var l_interesting = False
+                    var l_consumed = lprobe.copy()
+                    var l_spans = best_spans.copy()
+                    if lidx >= 0:
+                        l_interesting = entries[lidx].is_interesting
+                        l_consumed = entries[lidx].consumed.copy()
+                        l_spans = entries[lidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var lresult = eval_fn(lprobe^)
+                        l_interesting = lresult.is_interesting
+                        l_consumed = lresult.consumed.copy()
+                        l_spans = lresult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            lprobe,
+                            l_interesting,
+                            l_consumed,
+                            l_spans,
+                        )
+                    if l_interesting and is_shortlex_smaller(l_consumed, best):
+                        best = l_consumed^
+                        best_spans = l_spans^
+                        current = best.nodes[i].value
+                        changed = True
+                        break
+                    elif l_interesting and l_consumed == best:
+                        best_spans = l_spans^
+                        break
+                    low += UInt64(1)
+                if hit_budget:
+                    break
                 var probes = float_fraction_probes(current)
                 for pi in range(len(probes)):
                     var probe = best.with_value_at(i, probes[pi])
@@ -1222,48 +1271,6 @@ def shrink_with[
                         changed = True
                     elif p_interesting and p_consumed == best:
                         best_spans = p_spans^
-                if hit_budget:
-                    break
-                # Probe the least positive code before binary search so
-                # non-monotone failures that also fail on subnormals are
-                # not discarded when an early midpoint is interesting.
-                if current > UInt64(1):
-                    var unit = best.with_value_at(i, UInt64(1))
-                    var uidx = _lookup(entries, slots, unit)
-                    var u_interesting = False
-                    var u_consumed = unit.copy()
-                    var u_spans = best_spans.copy()
-                    if uidx >= 0:
-                        u_interesting = entries[uidx].is_interesting
-                        u_consumed = entries[uidx].consumed.copy()
-                        u_spans = entries[uidx].spans.copy()
-                    else:
-                        if evaluations >= max_evaluations:
-                            hit_budget = True
-                        else:
-                            evaluations += 1
-                            var uresult = eval_fn(unit^)
-                            u_interesting = uresult.is_interesting
-                            u_consumed = uresult.consumed.copy()
-                            u_spans = uresult.spans.copy()
-                            _append_cache_entry(
-                                entries,
-                                slots,
-                                unit,
-                                u_interesting,
-                                u_consumed,
-                                u_spans,
-                            )
-                    if not hit_budget:
-                        if u_interesting and is_shortlex_smaller(
-                            u_consumed, best
-                        ):
-                            best = u_consumed^
-                            best_spans = u_spans^
-                            current = best.nodes[i].value
-                            changed = True
-                        elif u_interesting and u_consumed == best:
-                            best_spans = u_spans^
                 if hit_budget:
                     break
                 var hi = current
