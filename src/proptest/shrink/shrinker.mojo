@@ -55,13 +55,36 @@ struct Evaluation(Copyable, Movable, Writable):
         writer.write(")")
 
 
-@fieldwise_init
 struct ShrinkResult(Copyable, Movable, Writable):
     """Best sequence found plus loop accounting."""
 
     var best: ChoiceSequence
+    var spans: List[Span]
     var evaluations: Int
     var hit_budget: Bool
+
+    def __init__(
+        out self,
+        var best: ChoiceSequence,
+        evaluations: Int,
+        hit_budget: Bool,
+    ):
+        self.best = best^
+        self.spans = List[Span]()
+        self.evaluations = evaluations
+        self.hit_budget = hit_budget
+
+    def __init__(
+        out self,
+        var best: ChoiceSequence,
+        var spans: List[Span],
+        evaluations: Int,
+        hit_budget: Bool,
+    ):
+        self.best = best^
+        self.spans = spans^
+        self.evaluations = evaluations
+        self.hit_budget = hit_budget
 
     def write_to(self, mut writer: Some[Writer]):
         writer.write(
@@ -222,7 +245,7 @@ def shrink[
     """
     var best = initial.copy()
     if max_evaluations <= 0:
-        return ShrinkResult(best^, 0, False)
+        return ShrinkResult(best^, initial_spans.copy(), 0, False)
 
     var best_spans = initial_spans.copy()
     var entries = List[_CacheEntry]()
@@ -837,7 +860,7 @@ def shrink[
         if not improved:
             break
 
-    return ShrinkResult(best^, evaluations, hit_budget)
+    return ShrinkResult(best^, best_spans^, evaluations, hit_budget)
 
 
 def shrink_with[
@@ -867,7 +890,7 @@ def shrink_with[
     """
     var best = initial.copy()
     if max_evaluations <= 0:
-        return ShrinkResult(best^, 0, False)
+        return ShrinkResult(best^, initial_spans.copy(), 0, False)
 
     var best_spans = initial_spans.copy()
     var entries = List[_CacheEntry]()
@@ -1482,4 +1505,4 @@ def shrink_with[
         if not improved:
             break
 
-    return ShrinkResult(best^, evaluations, hit_budget)
+    return ShrinkResult(best^, best_spans^, evaluations, hit_budget)

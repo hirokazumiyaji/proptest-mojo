@@ -440,6 +440,11 @@ def _shrink_and_raise[
             report_raised = True
             replay_message = String(e)
         report_failed = report_raised and report_tc.status == Status.RUNNING
+        if len(report_tc.spans) == 0:
+            report_tc.spans = failing_spans.copy()
+    else:
+        if len(report_tc.spans) == 0:
+            report_tc.spans = shrink_result.spans.copy()
 
     if not report_failed:
         if entry_file.byte_length() > 0:
