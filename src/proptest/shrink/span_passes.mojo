@@ -3,11 +3,13 @@
 Per `docs/specs/shrinking.md` (M3), `delete_spans` removes one structural
 unit (e.g. a list element), `zero_spans` simplifies one to all zeros,
 `sort_spans` reorders each sibling run into ascending order, and
-`swap_adjacent_spans` exchanges one adjacent sibling pair. All are
-enumeration passes: pure functions returning candidates, with the span
-passes taking recorded spans alongside the sequence. Deletion and
-zeroing emit deepest-span-first; the reorder passes emit runs
-deepest-first so nested collections normalize before their parents.
+`swap_adjacent_spans` exchanges one adjacent sibling pair. Sibling runs
+share label, depth, and choice adjacency, and ignore enclosing or nested
+spans that interleave them in global order. All are enumeration passes:
+pure functions returning candidates, with the span passes taking recorded
+spans alongside the sequence. Deletion and zeroing emit deepest-span-first;
+the reorder passes emit runs deepest-first so nested collections normalize
+before their parents.
 Every candidate is strictly shortlex-smaller than the input. `forced`
 values are preserved (`ChoiceSequence.zeroed` for zeroing, whole-node
 moves for reordering); `discarded` and empty spans yield no candidates.
@@ -23,8 +25,16 @@ from proptest.choice import (
 
 @fieldwise_init
 struct _SiblingRun(Copyable, Movable):
-    var start_idx: Int
-    var count: Int
+    """Indices into the sorted span list for one sibling run.
+
+    Indices need not be contiguous in that list: enclosing and nested
+    spans may sit between siblings in `(start, end)` order.
+    """
+
+    var indices: List[Int]
+
+    def count(self) -> Int:
+        return len(self.indices)
 
 
 def _ordered_indices(spans: List[Span]) -> List[Int]:
@@ -91,44 +101,121 @@ def _valid_span_ranges(n: Int, spans: List[Span]) -> _SpanRanges:
     return _SpanRanges(starts^, ends^)
 
 
-def _valid_spans_sorted(spans: List[Span], n: Int) -> List[Span]:
-    """Reorderable spans de-duplicated and sorted by `(start, end)`.
+@fieldwise_init
+struct _ParentKey(Copyable, Movable):
+    """Identity of an immediate parent span, or root when `present` is false."""
 
-    Start-ties break shorter-end-first so a parent span sorts before its
-    children; `_collect_sibling_runs` then walks past the parent before
-    reaching the sibling blocks. Reordering splices whole `[start, end)`
-    blocks, so `end > n` spans are rejected outright rather than
-    clipped: a clipped block would no longer align with any recorded
-    sibling boundary.
+    var present: Bool
+    var start: Int
+    var end: Int
+    var depth: Int
+    var label: UInt64
+
+    def matches(self, other: Self) -> Bool:
+        if self.present != other.present:
+            return False
+        if not self.present:
+            return True
+        return (
+            self.start == other.start
+            and self.end == other.end
+            and self.depth == other.depth
+            and self.label == other.label
+        )
+
+
+@fieldwise_init
+struct _ReorderSpan(Copyable, Movable):
+    """A reorderable block plus its pre-dedup immediate parent identity."""
+
+    var span: Span
+    var parent: _ParentKey
+
+
+def _parent_key_of(span: Span) -> _ParentKey:
+    return _ParentKey(Bool(True), span.start, span.end, span.depth, span.label)
+
+
+def _root_parent_key() -> _ParentKey:
+    return _ParentKey(Bool(False), 0, 0, 0, UInt64(0))
+
+
+def _contains_as_parent(parent: Span, child: Span) -> Bool:
+    """Whether `parent` is an ancestor container of `child`.
+
+    Strict enclosure counts, and so does an equal-range shallower span:
+    zero-choice wrappers such as `just` leave nested composites with the
+    same `[start, end)` as their only child.
     """
-    var out = List[Span]()
+    if parent.start > child.start or parent.end < child.end:
+        return False
+    if parent.start == child.start and parent.end == child.end:
+        return parent.depth < child.depth
+    return True
+
+
+def _immediate_parent_key(raw: List[Span], idx: Int) -> _ParentKey:
+    """Deepest ancestor of `raw[idx]` in the undeduped recording."""
+    var best = -1
+    var best_depth = -1
+    var child = raw[idx].copy()
+    for i in range(len(raw)):
+        if i == idx:
+            continue
+        if not _contains_as_parent(raw[i], child):
+            continue
+        if raw[i].depth > best_depth:
+            best_depth = raw[i].depth
+            best = i
+    if best < 0:
+        return _root_parent_key()
+    return _parent_key_of(raw[best])
+
+
+def _in_bounds_span(span: Span, n: Int) -> Bool:
+    if span.start < 0 or span.start >= n:
+        return False
+    if span.end <= span.start or span.end > n:
+        return False
+    return True
+
+
+def _valid_spans_sorted(spans: List[Span], n: Int) -> List[_ReorderSpan]:
+    """Reorderable spans sorted by `(start, end)`, with recording parents.
+
+    Ancestry uses every in-bounds recorded span, including `discarded`
+    parents from rejected filter attempts. Only non-discarded spans become
+    reorderable blocks, and equal-range ancestors stay distinct until
+    sibling grouping so wrappers such as `tuples(just(_), …)` remain
+    reorderable. Start-ties break shorter-end-first, then shallower-first.
+    """
+    var ancestry = List[Span]()
     for i in range(len(spans)):
         var span = spans[i].copy()
-        if span.discarded:
+        if not _in_bounds_span(span, n):
             continue
-        if span.start < 0 or span.start >= n:
+        ancestry.append(span^)
+    var out = List[_ReorderSpan]()
+    for i in range(len(ancestry)):
+        if ancestry[i].discarded:
             continue
-        if span.end <= span.start or span.end > n:
-            continue
-        var duplicate = False
-        for s in range(len(out)):
-            if out[s].start == span.start and out[s].end == span.end:
-                duplicate = True
-                break
-        if duplicate:
-            continue
-        out.append(span^)
+        out.append(
+            _ReorderSpan(ancestry[i].copy(), _immediate_parent_key(ancestry, i))
+        )
     for i in range(1, len(out)):
         var key = out[i].copy()
         var j = i - 1
         while j >= 0:
-            var cur_start = out[j].start
-            var cur_end = out[j].end
+            var cur_start = out[j].span.start
+            var cur_end = out[j].span.end
+            var cur_depth = out[j].span.depth
             var before: Bool
-            if key.start != cur_start:
-                before = key.start < cur_start
+            if key.span.start != cur_start:
+                before = key.span.start < cur_start
+            elif key.span.end != cur_end:
+                before = key.span.end < cur_end
             else:
-                before = key.end < cur_end
+                before = key.span.depth < cur_depth
             if not before:
                 break
             out[j + 1] = out[j].copy()
@@ -137,43 +224,62 @@ def _valid_spans_sorted(spans: List[Span], n: Int) -> List[Span]:
     return out^
 
 
-def _collect_sibling_runs(sorted: List[Span]) -> List[_SiblingRun]:
-    """Maximal adjacent runs sharing one label and depth.
+def _collect_sibling_runs(sorted: List[_ReorderSpan]) -> List[_SiblingRun]:
+    """Maximal adjacent runs sharing one label, depth, and parent.
 
-    Siblings of one collection are laid out consecutively, so only
-    blocks with `prev.end == next.start` belong to one run. Gaps mean
-    different parents and must not be reordered across.
+    Siblings are choice-adjacent (`prev.end == next.start`) with the same
+    label, depth, and immediate parent. Enclosing and nested spans that
+    interleave them in `(start, end)` order are skipped. A gap, a used
+    boundary span, a different label/depth, or a different parent ends
+    the run.
     """
     var runs = List[_SiblingRun]()
     if len(sorted) == 0:
         return runs^
-    var run_start = 0
-    var run_label = sorted[0].label
-    var run_depth = sorted[0].depth
-    var prev_end = sorted[0].end
-    for i in range(1, len(sorted)):
-        if (
-            sorted[i].start == prev_end
-            and sorted[i].label == run_label
-            and sorted[i].depth == run_depth
-        ):
-            prev_end = sorted[i].end
+    var used = List[Bool]()
+    for _ in range(len(sorted)):
+        used.append(False)
+    for i in range(len(sorted)):
+        if used[i]:
             continue
-        var count = i - run_start
-        if count >= 2:
-            runs.append(_SiblingRun(run_start, count))
-        run_start = i
-        run_label = sorted[i].label
-        run_depth = sorted[i].depth
-        prev_end = sorted[i].end
-    var tail = len(sorted) - run_start
-    if tail >= 2:
-        runs.append(_SiblingRun(run_start, tail))
+        var indices = List[Int]()
+        indices.append(i)
+        var run_label = sorted[i].span.label
+        var run_depth = sorted[i].span.depth
+        var run_parent = sorted[i].parent.copy()
+        var prev_end = sorted[i].span.end
+        for j in range(i + 1, len(sorted)):
+            var start = sorted[j].span.start
+            if start > prev_end:
+                break
+            if start < prev_end:
+                # Nested or overlapping span inside the current block.
+                continue
+            # `start == prev_end`: keep used spans visible so an earlier
+            # sibling run at this boundary still separates parents.
+            if used[j]:
+                break
+            if (
+                sorted[j].span.label == run_label
+                and sorted[j].span.depth == run_depth
+                and sorted[j].parent.matches(run_parent)
+            ):
+                indices.append(j)
+                prev_end = sorted[j].span.end
+                continue
+            # Another span claims this boundary: parent/peer separator.
+            break
+        if len(indices) >= 2:
+            for k in range(len(indices)):
+                used[indices[k]] = True
+            runs.append(_SiblingRun(indices^))
+        else:
+            used[i] = True
     return runs^
 
 
 def _order_run_indices(
-    runs: List[_SiblingRun], sorted: List[Span]
+    runs: List[_SiblingRun], sorted: List[_ReorderSpan]
 ) -> List[Int]:
     """Run indices deepest-first, ties broken leftmost-first."""
     var order = List[Int]()
@@ -181,13 +287,15 @@ def _order_run_indices(
         order.append(i)
     for i in range(1, len(order)):
         var key = order[i]
-        var key_depth = sorted[runs[key].start_idx].depth
-        var key_start = sorted[runs[key].start_idx].start
+        var key_first = runs[key].indices[0]
+        var key_depth = sorted[key_first].span.depth
+        var key_start = sorted[key_first].span.start
         var j = i - 1
         while j >= 0:
             var cur = order[j]
-            var cur_depth = sorted[runs[cur].start_idx].depth
-            var cur_start = sorted[runs[cur].start_idx].start
+            var cur_first = runs[cur].indices[0]
+            var cur_depth = sorted[cur_first].span.depth
+            var cur_start = sorted[cur_first].span.start
             var before: Bool
             if key_depth != cur_depth:
                 before = key_depth > cur_depth
@@ -216,23 +324,23 @@ def _block_less(
 
 
 def _run_sort_order(
-    values: List[UInt64], sorted: List[Span], run: _SiblingRun
+    values: List[UInt64], sorted: List[_ReorderSpan], run: _SiblingRun
 ) -> List[Int]:
     """Permutation sorting one run's blocks ascending, keeping ties stable."""
     var order = List[Int]()
-    for i in range(run.count):
+    for i in range(run.count()):
         order.append(i)
     for i in range(1, len(order)):
         var key = order[i]
-        var key_idx = run.start_idx + key
-        var key_start = sorted[key_idx].start
-        var key_end = sorted[key_idx].end
+        var key_idx = run.indices[key]
+        var key_start = sorted[key_idx].span.start
+        var key_end = sorted[key_idx].span.end
         var j = i - 1
         while j >= 0:
             var cur = order[j]
-            var cur_idx = run.start_idx + cur
-            var cur_start = sorted[cur_idx].start
-            var cur_end = sorted[cur_idx].end
+            var cur_idx = run.indices[cur]
+            var cur_start = sorted[cur_idx].span.start
+            var cur_end = sorted[cur_idx].span.end
             if not _block_less(values, key_start, key_end, cur_start, cur_end):
                 break
             order[j + 1] = cur
@@ -250,15 +358,21 @@ def _is_identity(order: List[Int]) -> Bool:
 
 
 def _splice_run(
-    seq: ChoiceSequence, sorted: List[Span], run: _SiblingRun, order: List[Int]
+    seq: ChoiceSequence,
+    sorted: List[_ReorderSpan],
+    run: _SiblingRun,
+    order: List[Int],
 ) -> ChoiceSequence:
     """One candidate with a run's blocks permuted by `order`."""
-    var run_start = sorted[run.start_idx].start
-    var run_end = sorted[run.start_idx + run.count - 1].end
+    var first = run.indices[0]
+    var last = run.indices[run.count() - 1]
+    var run_start = sorted[first].span.start
+    var run_end = sorted[last].span.end
     var replacement = List[ChoiceNode]()
     for k in range(len(order)):
-        var block_start = sorted[run.start_idx + order[k]].start
-        var block_end = sorted[run.start_idx + order[k]].end
+        var block = run.indices[order[k]]
+        var block_start = sorted[block].span.start
+        var block_end = sorted[block].span.end
         for i in range(block_start, block_end):
             replacement.append(seq.nodes[i].copy())
     return seq.replaced_range(run_start, run_end, replacement^)
@@ -342,10 +456,10 @@ def zero_spans(
 def sort_spans(seq: ChoiceSequence, spans: List[Span]) -> List[ChoiceSequence]:
     """Fully-sorted candidates, one per sibling run, deepest-first.
 
-    Each maximal run of adjacent spans sharing one label and depth
-    contributes the candidate with its blocks in ascending
-    lexicographic order. Reordering preserves the length, so only
-    strictly shortlex-smaller candidates are returned; already-sorted
+    Each maximal run of adjacent spans sharing one label, depth, and
+    immediate parent contributes the candidate with its blocks in
+    ascending lexicographic order. Reordering preserves the length, so
+    only strictly shortlex-smaller candidates are returned; already-sorted
     runs contribute nothing. Whole `ChoiceNode`s move, hence `forced`
     values survive at their new positions.
     """
@@ -389,11 +503,11 @@ def swap_adjacent_spans(
     var order = _order_run_indices(runs, sorted)
     for k in range(len(order)):
         var run = runs[order[k]].copy()
-        for j in range(run.count - 1):
+        for j in range(run.count() - 1):
             var cand = _splice_swap(
                 seq,
-                sorted[run.start_idx + j],
-                sorted[run.start_idx + j + 1],
+                sorted[run.indices[j]].span,
+                sorted[run.indices[j + 1]].span,
             )
             if not is_shortlex_smaller(cand, seq):
                 continue
