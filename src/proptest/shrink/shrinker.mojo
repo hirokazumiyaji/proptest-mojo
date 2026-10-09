@@ -500,15 +500,15 @@ def shrink[
         if improved:
             continue
 
-        # sort_spans
+        # sort_spans: fixed-size pages amortize sibling ancestry rebuilds.
+        # Evaluation still stops at the remaining budget; cache hits do not.
         var sort_fetched = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _page_size(max_evaluations - evaluations)
             var span_sorts = sort_spans(
-                best.copy(), best_spans.copy(), page, sort_fetched
+                best.copy(), best_spans.copy(), CANDIDATE_BATCH, sort_fetched
             )
             var index = 0
             while index < len(span_sorts):
@@ -517,6 +517,9 @@ def shrink[
                 sort_fetched += 1
                 if _lookup(entries, slots, cand) >= 0:
                     continue
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
                 evaluations += 1
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
@@ -532,22 +535,21 @@ def shrink[
                     break
             if improved or hit_budget:
                 break
-            if len(span_sorts) < page:
+            if len(span_sorts) < CANDIDATE_BATCH:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        # swap_adjacent_spans
+        # swap_adjacent_spans: same fixed-page amortization as sort_spans.
         var swap_fetched = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _page_size(max_evaluations - evaluations)
             var span_swaps = swap_adjacent_spans(
-                best.copy(), best_spans.copy(), page, swap_fetched
+                best.copy(), best_spans.copy(), CANDIDATE_BATCH, swap_fetched
             )
             var index = 0
             while index < len(span_swaps):
@@ -556,6 +558,9 @@ def shrink[
                 swap_fetched += 1
                 if _lookup(entries, slots, cand) >= 0:
                     continue
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
                 evaluations += 1
                 var result = evaluate(cand^)
                 var interesting = result.is_interesting
@@ -571,7 +576,7 @@ def shrink[
                     break
             if improved or hit_budget:
                 break
-            if len(span_swaps) < page:
+            if len(span_swaps) < CANDIDATE_BATCH:
                 break
         if hit_budget:
             break
@@ -1180,15 +1185,14 @@ def shrink_with[
         if improved:
             continue
 
-        # sort_spans
+        # sort_spans: fixed-size pages amortize sibling ancestry rebuilds.
         var sort_fetched = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _page_size(max_evaluations - evaluations)
             var span_sorts = sort_spans(
-                best.copy(), best_spans.copy(), page, sort_fetched
+                best.copy(), best_spans.copy(), CANDIDATE_BATCH, sort_fetched
             )
             var index = 0
             while index < len(span_sorts):
@@ -1197,6 +1201,9 @@ def shrink_with[
                 sort_fetched += 1
                 if _lookup(entries, slots, cand) >= 0:
                     continue
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
                 evaluations += 1
                 var result = eval_fn(cand^)
                 var interesting = result.is_interesting
@@ -1212,22 +1219,21 @@ def shrink_with[
                     break
             if improved or hit_budget:
                 break
-            if len(span_sorts) < page:
+            if len(span_sorts) < CANDIDATE_BATCH:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        # swap_adjacent_spans
+        # swap_adjacent_spans: same fixed-page amortization as sort_spans.
         var swap_fetched = 0
         while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var page = _page_size(max_evaluations - evaluations)
             var span_swaps = swap_adjacent_spans(
-                best.copy(), best_spans.copy(), page, swap_fetched
+                best.copy(), best_spans.copy(), CANDIDATE_BATCH, swap_fetched
             )
             var index = 0
             while index < len(span_swaps):
@@ -1236,6 +1242,9 @@ def shrink_with[
                 swap_fetched += 1
                 if _lookup(entries, slots, cand) >= 0:
                     continue
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
                 evaluations += 1
                 var result = eval_fn(cand^)
                 var interesting = result.is_interesting
@@ -1251,7 +1260,7 @@ def shrink_with[
                     break
             if improved or hit_budget:
                 break
-            if len(span_swaps) < page:
+            if len(span_swaps) < CANDIDATE_BATCH:
                 break
         if hit_budget:
             break
