@@ -36,14 +36,22 @@ When used inside `std.testing.TestSuite`, `for_all(prop)` raises an `Error` cont
 
 ## Use from another repository
 
-The v0.1.0 distribution uses a tagged source checkout. Clone the release and add its `src` directory to Mojo's import path:
+### conda package
+
+Published releases install a precompiled `proptest.mojoc` into the environment's `lib/mojo` directory. Packages target Mojo `1.1.0` on the Modular `max` channel and are uploaded to the project's prefix.dev channel by `.github/workflows/publish.yml`.
+
+Set repository variable `PREFIX_CHANNEL` and secret `PREFIX_API_KEY` before tagging a release. After install, import with `from proptest import ...` without adding a source checkout to `-I`.
+
+### Tagged source checkout
+
+You can still clone a release tag and add its `src` directory to Mojo's import path:
 
 ```sh
 git clone --branch v0.1.0 https://github.com/hirokazumiyaji/proptest-mojo.git vendor/proptest-mojo
 pixi run mojo run -I vendor/proptest-mojo/src path/to/my_property_test.mojo < /dev/null
 ```
 
-Install exactly Mojo `1.2.0.dev2026092605`, matching the version recorded in the release's `pixi.lock`. Compiled `.mojoc` and `.mojopkg` artifacts are not distributed.
+For source checkouts, install the Mojo version recorded in that release's `pixi.lock`. Published conda packages require Mojo `1.1.0`.
 
 ## Running in CI
 

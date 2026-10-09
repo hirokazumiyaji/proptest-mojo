@@ -41,6 +41,9 @@ jobs:
       - name: Test
         run: pixi run test
 
+      - name: Package smoke
+        run: pixi run test-consumer
+
       - name: Examples
         run: |
           for f in $(find examples -type f -name '*.mojo' | sort); do

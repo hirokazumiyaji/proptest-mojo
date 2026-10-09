@@ -1,6 +1,6 @@
 # ADR-0014: Source distribution and release process for v0.1.0
 
-- Status: Accepted
+- Status: Superseded by [ADR-0016](0016-conda-and-github-release-distribution.md)
 - Date: 2026-09-30
 - Related: Issue #33, [ADR-0007](0007-toolchain-pixi-and-mojo-nightly.md), [v0.1.0 release notes](../releases/v0.1.0.md)
 

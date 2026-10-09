@@ -1,0 +1,90 @@
+name: Publish package
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-64
+          - os: macos-14
+            platform: osx-arm64
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check release tag version
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          recipe_version="$(sed -n 's/^  version: "\([^"]*\)"/\1/p' conda.recipe/recipe.yaml | head -n 1)"
+          test -n "$recipe_version"
+          test "${RELEASE_TAG#v}" = "$recipe_version"
+
+      - name: Build conda package
+        uses: prefix-dev/rattler-build-action@1ca5f45832f419a46d1326ccc5861d7e14d67c44 # v0.2.39
+        with:
+          artifact-name: proptest-${{ matrix.platform }}
+          build-args: >-
+            --recipe conda.recipe/recipe.yaml
+            -c conda-forge
+            -c https://conda.modular.com/max
+
+      - name: Upload package to prefix.dev
+        env:
+          PREFIX_CHANNEL: ${{ vars.PREFIX_CHANNEL }}
+          PREFIX_API_KEY: ${{ secrets.PREFIX_API_KEY }}
+        run: |
+          test -n "$PREFIX_CHANNEL"
+          test -n "$PREFIX_API_KEY"
+          packages="$(find output -type f -name '*.conda' -print)"
+          test -n "$packages"
+          find output -type f -name '*.conda' -exec rattler-build upload prefix --channel "$PREFIX_CHANNEL" {} +
+
+  github-release:
+    name: GitHub Release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve release notes
+        id: notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          notes_file="docs/releases/${RELEASE_TAG}.md"
+          if [ -f "$notes_file" ]; then
+            echo "path=$notes_file" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        if: steps.notes.outputs.path != ''
+        uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836 # v2.3.3
+        with:
+          body_path: ${{ steps.notes.outputs.path }}
+
+      - name: Create GitHub Release (generated notes)
+        if: steps.notes.outputs.path == ''
+        uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836 # v2.3.3
+        with:
+          generate_release_notes: true

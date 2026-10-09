@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [tasks]
 test = '''
-bash -c '
+    bash -c '
 n=0
 status=0
 while IFS= read -r f; do
@@ -19,22 +19,33 @@ done < <(find tests -type f -name "test_*.mojo" | sort)
 exit $status
 '
 '''
-format = "mojo format src tests"
+format = "mojo format src tests conda.recipe/test.mojo"
 format-check = '''
 bash -c '
 set -euo pipefail
 [ -d src ] && [ -d tests ] || { echo "src/ and tests/ must exist" >&2; exit 1; }
 tmpdir=$(mktemp -d)
 trap "rm -rf \"$tmpdir\"" EXIT
-cp -a src tests "$tmpdir/"
-mojo format "$tmpdir/src" "$tmpdir/tests"
+cp -a src tests conda.recipe "$tmpdir/"
+mojo format "$tmpdir/src" "$tmpdir/tests" "$tmpdir/conda.recipe/test.mojo"
 status=0
 diff -ruN src "$tmpdir/src" || status=1
 diff -ruN tests "$tmpdir/tests" || status=1
+diff -ruN conda.recipe/test.mojo "$tmpdir/conda.recipe/test.mojo" || status=1
 exit $status
 '
 '''
 build = "mojo precompile src/proptest -o proptest.mojoc"
+precompile = '''
+bash -c '
+set -euo pipefail
+mkdir -p /tmp/proptest-mojo/lib/mojo
+mojo precompile src/proptest -o /tmp/proptest-mojo/lib/mojo/proptest.mojoc
+'
+'''
+test-consumer = { cmd = "mojo run -I /tmp/proptest-mojo/lib/mojo conda.recipe/test.mojo", depends-on = [
+  "precompile",
+] }
 
 [dependencies]
 mojo = ">=1.2.0.dev2026092605,<2"

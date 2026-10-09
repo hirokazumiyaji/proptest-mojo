@@ -23,8 +23,10 @@ Pure Mojo property-based testing library.
 ## Commands
 
 - `pixi run test`: run all `tests/**/test_*.mojo` files with `mojo run -I src`.
-- `pixi run format`: format `src` and `tests` with `mojo format`.
+- `pixi run format`: format `src`, `tests`, and `conda.recipe/test.mojo` with `mojo format`.
 - `pixi run format-check`: check formatting; exits non-zero when files need formatting.
 - `pixi run build`: generate `proptest.mojoc` with `mojo precompile`.
+- `pixi run test-consumer`: precompile into a temporary `lib/mojo` path and run the conda recipe smoke test.
 
 CI is configured in `.github/workflows/ci.yml` and runs `format-check` and `test` on Linux and macOS.
+Publish is configured in `.github/workflows/publish.yml` and builds Mojo `1.1.0` conda packages plus a GitHub Release on `v*.*.*` tags.
