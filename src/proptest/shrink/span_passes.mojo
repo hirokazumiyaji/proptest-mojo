@@ -172,53 +172,50 @@ def _immediate_parent_key(raw: List[Span], idx: Int) -> _ParentKey:
     return _parent_key_of(raw[best])
 
 
-def _valid_spans_sorted(spans: List[Span], n: Int) -> List[_ReorderSpan]:
-    """Reorderable spans de-duplicated and sorted by `(start, end)`.
+def _in_bounds_span(span: Span, n: Int) -> Bool:
+    if span.start < 0 or span.start >= n:
+        return False
+    if span.end <= span.start or span.end > n:
+        return False
+    return True
 
-    Parent identities are resolved on the undeduped recording first so
-    equal-range ancestors (for example a tuple around `just` + child)
-    still separate siblings after range deduplication. Start-ties break
-    shorter-end-first. Reordering splices whole `[start, end)` blocks, so
-    `end > n` spans are rejected outright rather than clipped.
+
+def _valid_spans_sorted(spans: List[Span], n: Int) -> List[_ReorderSpan]:
+    """Reorderable spans sorted by `(start, end)`, with recording parents.
+
+    Ancestry uses every in-bounds recorded span, including `discarded`
+    parents from rejected filter attempts. Only non-discarded spans become
+    reorderable blocks, and equal-range ancestors stay distinct until
+    sibling grouping so wrappers such as `tuples(just(_), …)` remain
+    reorderable. Start-ties break shorter-end-first, then shallower-first.
     """
-    var raw = List[Span]()
+    var ancestry = List[Span]()
     for i in range(len(spans)):
         var span = spans[i].copy()
-        if span.discarded:
+        if not _in_bounds_span(span, n):
             continue
-        if span.start < 0 or span.start >= n:
-            continue
-        if span.end <= span.start or span.end > n:
-            continue
-        raw.append(span^)
-    var parents = List[_ParentKey]()
-    for i in range(len(raw)):
-        parents.append(_immediate_parent_key(raw, i))
+        ancestry.append(span^)
     var out = List[_ReorderSpan]()
-    for i in range(len(raw)):
-        var span = raw[i].copy()
-        var dup = -1
-        for s in range(len(out)):
-            if out[s].span.start == span.start and out[s].span.end == span.end:
-                dup = s
-                break
-        if dup >= 0:
-            # Keep the deepest equal-range span; retain its own parent key.
-            if span.depth > out[dup].span.depth:
-                out[dup] = _ReorderSpan(span^, parents[i].copy())
+    for i in range(len(ancestry)):
+        if ancestry[i].discarded:
             continue
-        out.append(_ReorderSpan(span^, parents[i].copy()))
+        out.append(
+            _ReorderSpan(ancestry[i].copy(), _immediate_parent_key(ancestry, i))
+        )
     for i in range(1, len(out)):
         var key = out[i].copy()
         var j = i - 1
         while j >= 0:
             var cur_start = out[j].span.start
             var cur_end = out[j].span.end
+            var cur_depth = out[j].span.depth
             var before: Bool
             if key.span.start != cur_start:
                 before = key.span.start < cur_start
-            else:
+            elif key.span.end != cur_end:
                 before = key.span.end < cur_end
+            else:
+                before = key.span.depth < cur_depth
             if not before:
                 break
             out[j + 1] = out[j].copy()

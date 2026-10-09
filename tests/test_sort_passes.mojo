@@ -8,6 +8,7 @@ from proptest.choice import (
 from proptest.encoding import decode_sequence
 from proptest.shrink.span_passes import sort_spans, swap_adjacent_spans
 from proptest.strategies.collections import lists
+from proptest.strategies.combinators import filter
 from proptest.strategies.primitives import booleans, integers, just
 from proptest.strategies.tuples import optionals, tuples
 from proptest.testcase import TestCase
@@ -357,9 +358,7 @@ def test_swap_adjacent_spans_uses_recorded_nested_collection_spans() raises:
 
 
 def test_sibling_runs_keep_equal_range_ancestors() raises:
-    # `just` consumes no choices, so nested tuple spans share their child's
-    # range and disappear under range dedupe; parent identity must still
-    # come from the original hierarchy.
+    # Nested equal-range wrappers under different parents must not join.
     var prefix = ChoiceSequence()
     prefix.append(
         ChoiceNode(ChoiceKind.INTEGER, UInt64(3), UInt64(9), Bool(False))
@@ -377,6 +376,66 @@ def test_sibling_runs_keep_equal_range_ancestors() raises:
     assert_equal(
         len(swap_adjacent_spans(tc.choices.copy(), tc.spans.copy())), 0
     )
+
+
+def test_equal_range_top_level_wrappers_remain_reorderable() raises:
+    # Two top-level `tuples(just, int)` draws share each wrapper's range with
+    # its child; the wrappers must still form a sibling run.
+    var prefix = ChoiceSequence()
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(3), UInt64(9), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(1), UInt64(9), Bool(False))
+    )
+    var strategy = tuples(just(0), integers(0, 9))
+    var tc = TestCase.replaying(prefix^)
+    _ = tc.draw(strategy)
+    _ = tc.draw(strategy)
+    var sorts = sort_spans(tc.choices.copy(), tc.spans.copy())
+    assert_equal(len(sorts), 1)
+    _assert_values(sorts[0].copy(), UInt64(1), UInt64(3))
+    var swaps = swap_adjacent_spans(tc.choices.copy(), tc.spans.copy())
+    assert_equal(len(swaps), 1)
+    _assert_values(swaps[0].copy(), UInt64(1), UInt64(3))
+
+
+def _pair_at_least_four(value: Tuple[Int, Int]) -> Bool:
+    return value[0] >= 4 and value[1] >= 4
+
+
+def test_discarded_filter_parents_separate_sibling_runs() raises:
+    # Rejected filter attempts keep discarded parent spans; their children
+    # must not reorder across those attempt boundaries.
+    var prefix = ChoiceSequence()
+    for v in [
+        UInt64(9),
+        UInt64(1),
+        UInt64(2),
+        UInt64(3),
+        UInt64(4),
+        UInt64(5),
+    ]:
+        prefix.append(ChoiceNode(ChoiceKind.INTEGER, v, UInt64(9), Bool(False)))
+    var tc = TestCase.replaying(prefix^)
+    var drawn = tc.draw(
+        filter[_pair_at_least_four](tuples(integers(0, 9), integers(0, 9)))
+    )
+    assert_equal(drawn[0], 4)
+    assert_equal(drawn[1], 5)
+    var bad = List[UInt64]()
+    bad.append(UInt64(1))
+    bad.append(UInt64(2))
+    bad.append(UInt64(3))
+    bad.append(UInt64(9))
+    bad.append(UInt64(4))
+    bad.append(UInt64(5))
+    var sorts = sort_spans(tc.choices.copy(), tc.spans.copy())
+    for i in range(len(sorts)):
+        assert_true(
+            sorts[i].values() != bad,
+            msg="must not reorder across discarded filter attempts",
+        )
 
 
 def test_sibling_runs_require_shared_immediate_parent() raises:
