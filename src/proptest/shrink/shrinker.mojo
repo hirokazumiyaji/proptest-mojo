@@ -14,6 +14,7 @@ from proptest.choice import (
     Span,
     is_shortlex_smaller,
 )
+from proptest.shrink.float_passes import float_fraction_probes
 from proptest.shrink.passes import delete_chunks, zero_chunks
 from proptest.shrink.span_passes import (
     delete_spans,
@@ -398,8 +399,96 @@ def shrink[
                 best_spans = zero_spans^
             if hit_budget:
                 break
-            var candidate = UInt64(1)
             var changed = False
+            if best.nodes[i].kind == ChoiceKind.FLOAT:
+                # Float-aware path: fraction probes then binary search on the
+                # lex code. Raw ascending enumeration cannot reach ordinary
+                # thresholds such as 1.5 from 2.0 within the default budget.
+                var probes = float_fraction_probes(current)
+                for pi in range(len(probes)):
+                    var probe = best.with_value_at(i, probes[pi])
+                    var pidx = _lookup(entries, slots, probe)
+                    var p_interesting = False
+                    var p_consumed = probe.copy()
+                    var p_spans = best_spans.copy()
+                    if pidx >= 0:
+                        p_interesting = entries[pidx].is_interesting
+                        p_consumed = entries[pidx].consumed.copy()
+                        p_spans = entries[pidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var presult = evaluate(probe^)
+                        p_interesting = presult.is_interesting
+                        p_consumed = presult.consumed.copy()
+                        p_spans = presult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            probe,
+                            p_interesting,
+                            p_consumed,
+                            p_spans,
+                        )
+                    if p_interesting and is_shortlex_smaller(p_consumed, best):
+                        best = p_consumed^
+                        best_spans = p_spans^
+                        current = best.nodes[i].value
+                        changed = True
+                    elif p_interesting and p_consumed == best:
+                        best_spans = p_spans^
+                if hit_budget:
+                    break
+                var hi = current
+                var lo = UInt64(0)
+                while hi - lo > UInt64(1):
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
+                    var mid = (lo + hi) // UInt64(2)
+                    var probe = best.with_value_at(i, mid)
+                    var pidx = _lookup(entries, slots, probe)
+                    var p_interesting = False
+                    var p_consumed = probe.copy()
+                    var p_spans = best_spans.copy()
+                    if pidx >= 0:
+                        p_interesting = entries[pidx].is_interesting
+                        p_consumed = entries[pidx].consumed.copy()
+                        p_spans = entries[pidx].spans.copy()
+                    else:
+                        evaluations += 1
+                        var presult = evaluate(probe^)
+                        p_interesting = presult.is_interesting
+                        p_consumed = presult.consumed.copy()
+                        p_spans = presult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            probe,
+                            p_interesting,
+                            p_consumed,
+                            p_spans,
+                        )
+                    if p_interesting and is_shortlex_smaller(p_consumed, best):
+                        best = p_consumed^
+                        best_spans = p_spans^
+                        hi = mid
+                        current = mid
+                        changed = True
+                    elif p_interesting and p_consumed == best:
+                        best_spans = p_spans^
+                        hi = mid
+                    else:
+                        lo = mid
+                if hit_budget:
+                    break
+                if changed:
+                    improved = True
+                    break
+                continue
+            var candidate = UInt64(1)
             while candidate < current:
                 var probe = best.with_value_at(i, candidate)
                 var pidx = _lookup(entries, slots, probe)
@@ -1054,8 +1143,93 @@ def shrink_with[
                 best_spans = zero_spans^
             if hit_budget:
                 break
-            var candidate = UInt64(1)
             var changed = False
+            if best.nodes[i].kind == ChoiceKind.FLOAT:
+                var probes = float_fraction_probes(current)
+                for pi in range(len(probes)):
+                    var probe = best.with_value_at(i, probes[pi])
+                    var pidx = _lookup(entries, slots, probe)
+                    var p_interesting = False
+                    var p_consumed = probe.copy()
+                    var p_spans = best_spans.copy()
+                    if pidx >= 0:
+                        p_interesting = entries[pidx].is_interesting
+                        p_consumed = entries[pidx].consumed.copy()
+                        p_spans = entries[pidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var presult = eval_fn(probe^)
+                        p_interesting = presult.is_interesting
+                        p_consumed = presult.consumed.copy()
+                        p_spans = presult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            probe,
+                            p_interesting,
+                            p_consumed,
+                            p_spans,
+                        )
+                    if p_interesting and is_shortlex_smaller(p_consumed, best):
+                        best = p_consumed^
+                        best_spans = p_spans^
+                        current = best.nodes[i].value
+                        changed = True
+                    elif p_interesting and p_consumed == best:
+                        best_spans = p_spans^
+                if hit_budget:
+                    break
+                var hi = current
+                var lo = UInt64(0)
+                while hi - lo > UInt64(1):
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
+                    var mid = (lo + hi) // UInt64(2)
+                    var probe = best.with_value_at(i, mid)
+                    var pidx = _lookup(entries, slots, probe)
+                    var p_interesting = False
+                    var p_consumed = probe.copy()
+                    var p_spans = best_spans.copy()
+                    if pidx >= 0:
+                        p_interesting = entries[pidx].is_interesting
+                        p_consumed = entries[pidx].consumed.copy()
+                        p_spans = entries[pidx].spans.copy()
+                    else:
+                        evaluations += 1
+                        var presult = eval_fn(probe^)
+                        p_interesting = presult.is_interesting
+                        p_consumed = presult.consumed.copy()
+                        p_spans = presult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            probe,
+                            p_interesting,
+                            p_consumed,
+                            p_spans,
+                        )
+                    if p_interesting and is_shortlex_smaller(p_consumed, best):
+                        best = p_consumed^
+                        best_spans = p_spans^
+                        hi = mid
+                        current = mid
+                        changed = True
+                    elif p_interesting and p_consumed == best:
+                        best_spans = p_spans^
+                        hi = mid
+                    else:
+                        lo = mid
+                if hit_budget:
+                    break
+                if changed:
+                    improved = True
+                    break
+                continue
+            var candidate = UInt64(1)
             while candidate < current:
                 var probe = best.with_value_at(i, candidate)
                 var pidx = _lookup(entries, slots, probe)

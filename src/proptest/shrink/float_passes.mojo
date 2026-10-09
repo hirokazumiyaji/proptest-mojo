@@ -23,6 +23,40 @@ def _denominators() -> List[Int]:
     return ds^
 
 
+def float_fraction_probes(current: UInt64) -> List[UInt64]:
+    """Strictly smaller positive magnitude codes from truncation/fractions.
+
+    Used by the shrink loop so `FLOAT` choices are not walked by raw
+    ascending code enumeration (which cannot reach ordinary thresholds
+    within the default budget). Does not include `0` (tried separately)
+    or binary-search midpoints (those depend on evaluation feedback).
+    """
+    var out = List[UInt64]()
+    if current == UInt64(0):
+        return out^
+    var value = lex_to_float(current)
+    if isnan(value) or isinf(value) or value >= SAFE_INT_FLOAT:
+        return out^
+    for d in _denominators():
+        var scaled = value * Float64(d)
+        if scaled >= SAFE_INT_FLOAT:
+            continue
+        var floored = Float64(Int(scaled)) / Float64(d)
+        if not (floored < value) or floored < 0.0:
+            continue
+        var fcode = float_to_lex(floored)
+        if fcode >= current or fcode == UInt64(0):
+            continue
+        var dup = False
+        for i in range(len(out)):
+            if out[i] == fcode:
+                dup = True
+                break
+        if not dup:
+            out.append(fcode)
+    return out^
+
+
 def _refine_lex[
     is_interesting: def(ChoiceSequence) thin -> Bool
 ](seq: ChoiceSequence, index: Int) -> ChoiceSequence:
