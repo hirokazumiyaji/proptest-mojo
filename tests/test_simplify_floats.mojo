@@ -235,6 +235,30 @@ def test_shrink_preserves_low_code_half_underflow() raises:
     assert_true(not runtime.hit_budget, msg="shrink_with must finish in budget")
 
 
+def _eval_div128_unsafe_square(seq: ChoiceSequence) -> Evaluation:
+    if len(seq) == 0:
+        return Evaluation(False, seq.copy())
+    for i in range(len(seq)):
+        if seq.nodes[i].kind == ChoiceKind.FLOAT:
+            var y = lex_to_float(seq.nodes[i].value) / 128.0
+            var square = y * y
+            var interesting = (y > 0.0) and (square == 0.0 or isinf(square))
+            return Evaluation(interesting, seq.copy())
+    return Evaluation(False, seq.copy())
+
+
+def test_shrink_preserves_underflow_past_power_of_two() raises:
+    # Codes 1..64 pass for /128; geometric probes plus local binary search
+    # must still reach the least interesting code 65.
+    var start = _float_seq(float_to_lex(max_finite()))
+    var result = shrink[_eval_div128_unsafe_square](start.copy(), 5000)
+    assert_equal(result.best[0].value, UInt64(65))
+    assert_true(not result.hit_budget, msg="must finish within budget")
+    var runtime = shrink_with(_eval_div128_unsafe_square, start.copy(), 5000)
+    assert_equal(runtime.best[0].value, UInt64(65))
+    assert_true(not runtime.hit_budget, msg="shrink_with must finish in budget")
+
+
 def _eval_nonzero(seq: ChoiceSequence) -> Evaluation:
     if len(seq) == 0:
         return Evaluation(False, seq.copy())

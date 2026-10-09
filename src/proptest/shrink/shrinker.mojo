@@ -23,11 +23,6 @@ from proptest.shrink.span_passes import (
     zero_spans,
 )
 
-# Bounded ascending probes before float binary search. Covers the least
-# positive code and nearby subnormals so non-monotone underflow failures
-# are not discarded when an early midpoint is interesting.
-comptime FLOAT_LOW_CODE_BOUND = UInt64(64)
-
 
 def _clip_spans(spans: List[Span], max_len: Int) -> List[Span]:
     """Clip span bounds so all returned spans lie strictly within 0..max_len."""
@@ -406,50 +401,100 @@ def shrink[
                 break
             var changed = False
             if best.nodes[i].kind == ChoiceKind.FLOAT:
-                # Float-aware path: bounded low codes, fraction probes, then
-                # binary search. Raw ascending over the full magnitude range
+                # Float-aware path: geometric low-code probes (with a local
+                # binary search once one hits), fraction probes, then binary
+                # search on the lex code. Raw ascending over the full range
                 # cannot reach ordinary thresholds such as 1.5 from 2.0
-                # within the default budget; low codes come first so
-                # non-monotone underflow failures and tight budgets still
-                # find the least positive interesting code.
-                var low = UInt64(1)
-                while low < current and low <= FLOAT_LOW_CODE_BOUND:
-                    var lprobe = best.with_value_at(i, low)
-                    var lidx = _lookup(entries, slots, lprobe)
-                    var l_interesting = False
-                    var l_consumed = lprobe.copy()
-                    var l_spans = best_spans.copy()
-                    if lidx >= 0:
-                        l_interesting = entries[lidx].is_interesting
-                        l_consumed = entries[lidx].consumed.copy()
-                        l_spans = entries[lidx].spans.copy()
+                # within the default budget; geometric probes keep
+                # non-monotone underflow failures and tight budgets shortlex
+                # minimal without a fixed code cap.
+                var geo_lo = UInt64(0)
+                var step = UInt64(1)
+                while step < current:
+                    var gprobe = best.with_value_at(i, step)
+                    var gidx = _lookup(entries, slots, gprobe)
+                    var g_interesting = False
+                    var g_consumed = gprobe.copy()
+                    var g_spans = best_spans.copy()
+                    if gidx >= 0:
+                        g_interesting = entries[gidx].is_interesting
+                        g_consumed = entries[gidx].consumed.copy()
+                        g_spans = entries[gidx].spans.copy()
                     else:
                         if evaluations >= max_evaluations:
                             hit_budget = True
                             break
                         evaluations += 1
-                        var lresult = evaluate(lprobe^)
-                        l_interesting = lresult.is_interesting
-                        l_consumed = lresult.consumed.copy()
-                        l_spans = lresult.spans.copy()
+                        var gresult = evaluate(gprobe^)
+                        g_interesting = gresult.is_interesting
+                        g_consumed = gresult.consumed.copy()
+                        g_spans = gresult.spans.copy()
                         _append_cache_entry(
                             entries,
                             slots,
-                            lprobe,
-                            l_interesting,
-                            l_consumed,
-                            l_spans,
+                            gprobe,
+                            g_interesting,
+                            g_consumed,
+                            g_spans,
                         )
-                    if l_interesting and is_shortlex_smaller(l_consumed, best):
-                        best = l_consumed^
-                        best_spans = l_spans^
+                    if g_interesting and is_shortlex_smaller(g_consumed, best):
+                        best = g_consumed^
+                        best_spans = g_spans^
                         current = best.nodes[i].value
                         changed = True
+                        var g_hi = current
+                        var g_lo = geo_lo
+                        while g_hi - g_lo > UInt64(1):
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            var g_mid = g_lo + (g_hi - g_lo) // UInt64(2)
+                            var mprobe = best.with_value_at(i, g_mid)
+                            var midx = _lookup(entries, slots, mprobe)
+                            var m_interesting = False
+                            var m_consumed = mprobe.copy()
+                            var m_spans = best_spans.copy()
+                            if midx >= 0:
+                                m_interesting = entries[midx].is_interesting
+                                m_consumed = entries[midx].consumed.copy()
+                                m_spans = entries[midx].spans.copy()
+                            else:
+                                evaluations += 1
+                                var mresult = evaluate(mprobe^)
+                                m_interesting = mresult.is_interesting
+                                m_consumed = mresult.consumed.copy()
+                                m_spans = mresult.spans.copy()
+                                _append_cache_entry(
+                                    entries,
+                                    slots,
+                                    mprobe,
+                                    m_interesting,
+                                    m_consumed,
+                                    m_spans,
+                                )
+                            if m_interesting and is_shortlex_smaller(
+                                m_consumed, best
+                            ):
+                                best = m_consumed^
+                                best_spans = m_spans^
+                                g_hi = g_mid
+                                current = g_mid
+                                changed = True
+                            elif m_interesting and m_consumed == best:
+                                best_spans = m_spans^
+                                g_hi = g_mid
+                            else:
+                                g_lo = g_mid
                         break
-                    elif l_interesting and l_consumed == best:
-                        best_spans = l_spans^
+                    elif g_interesting and g_consumed == best:
+                        best_spans = g_spans^
                         break
-                    low += UInt64(1)
+                    else:
+                        geo_lo = step
+                    var nxt = step * UInt64(2)
+                    if nxt <= step:
+                        break
+                    step = nxt
                 if hit_budget:
                     break
                 var probes = float_fraction_probes(current)
@@ -1193,47 +1238,97 @@ def shrink_with[
                 break
             var changed = False
             if best.nodes[i].kind == ChoiceKind.FLOAT:
-                # Float-aware path: bounded low codes, fraction probes, then
-                # binary search. Same order as `shrink` so tight budgets and
-                # non-monotone underflow failures stay shortlex-minimal.
-                var low = UInt64(1)
-                while low < current and low <= FLOAT_LOW_CODE_BOUND:
-                    var lprobe = best.with_value_at(i, low)
-                    var lidx = _lookup(entries, slots, lprobe)
-                    var l_interesting = False
-                    var l_consumed = lprobe.copy()
-                    var l_spans = best_spans.copy()
-                    if lidx >= 0:
-                        l_interesting = entries[lidx].is_interesting
-                        l_consumed = entries[lidx].consumed.copy()
-                        l_spans = entries[lidx].spans.copy()
+                # Float-aware path: geometric low-code probes (with a local
+                # binary search once one hits), fraction probes, then
+                # binary search. Same order as `shrink` so tight budgets
+                # and non-monotone underflow failures stay shortlex-minimal.
+                var geo_lo = UInt64(0)
+                var step = UInt64(1)
+                while step < current:
+                    var gprobe = best.with_value_at(i, step)
+                    var gidx = _lookup(entries, slots, gprobe)
+                    var g_interesting = False
+                    var g_consumed = gprobe.copy()
+                    var g_spans = best_spans.copy()
+                    if gidx >= 0:
+                        g_interesting = entries[gidx].is_interesting
+                        g_consumed = entries[gidx].consumed.copy()
+                        g_spans = entries[gidx].spans.copy()
                     else:
                         if evaluations >= max_evaluations:
                             hit_budget = True
                             break
                         evaluations += 1
-                        var lresult = eval_fn(lprobe^)
-                        l_interesting = lresult.is_interesting
-                        l_consumed = lresult.consumed.copy()
-                        l_spans = lresult.spans.copy()
+                        var gresult = eval_fn(gprobe^)
+                        g_interesting = gresult.is_interesting
+                        g_consumed = gresult.consumed.copy()
+                        g_spans = gresult.spans.copy()
                         _append_cache_entry(
                             entries,
                             slots,
-                            lprobe,
-                            l_interesting,
-                            l_consumed,
-                            l_spans,
+                            gprobe,
+                            g_interesting,
+                            g_consumed,
+                            g_spans,
                         )
-                    if l_interesting and is_shortlex_smaller(l_consumed, best):
-                        best = l_consumed^
-                        best_spans = l_spans^
+                    if g_interesting and is_shortlex_smaller(g_consumed, best):
+                        best = g_consumed^
+                        best_spans = g_spans^
                         current = best.nodes[i].value
                         changed = True
+                        var g_hi = current
+                        var g_lo = geo_lo
+                        while g_hi - g_lo > UInt64(1):
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            var g_mid = g_lo + (g_hi - g_lo) // UInt64(2)
+                            var mprobe = best.with_value_at(i, g_mid)
+                            var midx = _lookup(entries, slots, mprobe)
+                            var m_interesting = False
+                            var m_consumed = mprobe.copy()
+                            var m_spans = best_spans.copy()
+                            if midx >= 0:
+                                m_interesting = entries[midx].is_interesting
+                                m_consumed = entries[midx].consumed.copy()
+                                m_spans = entries[midx].spans.copy()
+                            else:
+                                evaluations += 1
+                                var mresult = eval_fn(mprobe^)
+                                m_interesting = mresult.is_interesting
+                                m_consumed = mresult.consumed.copy()
+                                m_spans = mresult.spans.copy()
+                                _append_cache_entry(
+                                    entries,
+                                    slots,
+                                    mprobe,
+                                    m_interesting,
+                                    m_consumed,
+                                    m_spans,
+                                )
+                            if m_interesting and is_shortlex_smaller(
+                                m_consumed, best
+                            ):
+                                best = m_consumed^
+                                best_spans = m_spans^
+                                g_hi = g_mid
+                                current = g_mid
+                                changed = True
+                            elif m_interesting and m_consumed == best:
+                                best_spans = m_spans^
+                                g_hi = g_mid
+                            else:
+                                g_lo = g_mid
                         break
-                    elif l_interesting and l_consumed == best:
-                        best_spans = l_spans^
+                    elif g_interesting and g_consumed == best:
+                        best_spans = g_spans^
                         break
-                    low += UInt64(1)
+                    else:
+                        geo_lo = step
+                    var nxt = step * UInt64(2)
+                    if nxt <= step:
+                        break
+                    step = nxt
                 if hit_budget:
                     break
                 var probes = float_fraction_probes(current)
