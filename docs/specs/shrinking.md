@@ -52,7 +52,7 @@ Apply passes in order and restart from the first pass whenever one improves the 
 |------|------|-----------|----------------|---|
 | `delete_chunks` | Enumeration | Delete contiguous ranges of lengths 8, 4, 2, and 1; order results by shortlex | Remove extra choices | M1 |
 | `zero_chunks` | Enumeration | Set contiguous ranges of lengths 8, 4, 2, and 1 to 0; order results by shortlex | Simplify several values at once | M1 |
-| `minimize_individual` | Adaptive | Replace each choice with 0, then enumerate smaller values in increasing order. `FLOAT` choices use geometric probes, a bounded ascending gap fill, fraction probes, and binary search on magnitude codes instead of raw ascending enumeration | `x = 1000` → `x = 101`; `2.0` → `1.5` | M1 |
+| `minimize_individual` | Adaptive | Replace each choice with 0, then enumerate smaller values in increasing order. `FLOAT` choices use geometric probes, ascending fill (full range when the current code is small), fraction probes, and binary search on magnitude codes instead of raw ascending enumeration over huge codes | `x = 1000` → `x = 101`; `2.0` → `1.5` | M1 |
 | `delete_spans` | Enumeration | Delete whole spans, starting with deeper spans | Remove a list element | M3 |
 | `zero_spans` | Enumeration | Set every choice in a span to 0 | Simplify an element to its simplest value | M3 |
 | `sort_spans` | Enumeration | Sort sibling spans with the same label and depth by their choice sequences | `[3, 1, 2]` → `[1, 2, 3]` | M3 |
