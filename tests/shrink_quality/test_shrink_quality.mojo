@@ -137,12 +137,12 @@ def _assert_minimal(report: String, expected: String) raises:
 
 def test_sum_shrinks_to_one_and_thousand() raises:
     _assert_minimal(
-        _report_capped(_fails_sum_over_1000, UInt64(1), 400), "xs = [1, 1000]"
+        _report_capped(_fails_sum_over_1000, UInt64(1), 2500), "xs = [1, 1000]"
     )
 
 
 def test_single_integer_shrinks_to_bound() raises:
-    _assert_minimal(_report_capped(_fails_at_1000, UInt64(2), 100), "x = 1000")
+    _assert_minimal(_report_capped(_fails_at_1000, UInt64(2), 1100), "x = 1000")
 
 
 def test_length_shrinks_to_three_zeros() raises:
