@@ -1,43 +1,43 @@
-# 実装規約
+# Coding Guidelines
 
-原則は [ADR-0008](../adr/0008-functional-core-imperative-shell.md)（関数型コア・命令型シェル）。ここでは具体的な書き方を定める。
+The guiding principle is [ADR-0008](../adr/0008-functional-core-imperative-shell.md) (functional core, imperative shell). This document specifies concrete coding practices.
 
-## 関数型の規約
+## Functional conventions
 
-| 規約 | 具体的な書き方 |
+| Convention | Practice |
 |------|----------------|
-| 値は不変として扱う | Strategy・`ChoiceSequence`・`Settings`・`Report` は生成後に変更しない。「変更」は新しい値を返す関数で表す |
-| 副作用の置き場所を限定する | 可変な状態は `TestCase` とランナー（縮小ループを含む）だけが持つ。コア側の関数は `mut` 引数を取らない（`draw(self, mut tc)` を除く） |
-| 純粋関数を合成する | コンビネータに渡す関数は thin 関数（捕捉なし）。モジュールレベルの `def` として書く |
-| 高階関数で副作用を注入する | 評価や I/O が必要なコアの関数は、その操作を関数引数で受け取る（例: 適応型の縮小パスが `is_interesting` を受け取る） |
-| グローバル状態を持たない | モジュールレベルの `var` を使わない。`std.random` を使わない |
-| 局所的な可変性は許容する | 関数内の `var` とループは、関数の外から観測できない限り使ってよい |
-| 所有権を明示する | 値の受け渡しは `var` 引数と `^` で移動し、不要な `.copy()` をしない |
-| 失敗は状態として表す | コアの分類は `Status` などの値で返す。`raise` は property の中断と、ランナーからユーザーへの報告に限る |
+| Treat values as immutable | Do not mutate `Strategy`, `ChoiceSequence`, `Settings`, or `Report` after construction. Represent changes with functions that return new values |
+| Restrict where side effects occur | Only `TestCase` and the runner (including the shrinking loop) hold mutable state. Core functions do not take `mut` arguments, except `draw(self, mut tc)` |
+| Compose pure functions | Functions passed to combinators are thin (non-capturing). Define them at module scope |
+| Inject side effects through higher-order functions | Core functions that need evaluation or I/O accept the operation as a function argument (for example, an adaptive shrinking pass accepts `is_interesting`) |
+| Avoid global state | Do not use module-level `var` or `std.random` |
+| Allow local mutability | Local `var` and loops are allowed when their effects cannot be observed outside the function |
+| Make ownership explicit | Move values with `var` arguments and `^`; avoid unnecessary `.copy()` |
+| Represent failures as state | Core classifications are returned as values such as `Status`. Use `raise` only to interrupt a property or report a result from the runner to the user |
 
-## Mojo の言語制約と回避策
+## Mojo language constraints and workarounds
 
-`mojo 1.2.0.dev2026092605` での検証結果。コンパイラの更新で解消したら、ADR を起こして方針を見直す。
+Validation results for `mojo 1.2.0.dev2026092605`. If a compiler update removes a constraint, create an ADR to revisit the approach.
 
-| 制約 | 回避策 |
+| Constraint | Workaround |
 |------|--------|
-| `def(...) -> T` 型はトレイト扱いで、struct のフィールドにできない | 関数は thin 関数を comptime パラメータにする（[ADR-0005](../adr/0005-thin-functions-as-comptime-parameters.md)） |
-| 捕捉クロージャは `Copyable` でなく、struct に保持できない | 捕捉が必要な変換は合成 Strategy（フィールドに値を持つ struct）で書く |
-| 捕捉クロージャの型パラメータに関連型（`S.Value`）を含めると推論に失敗する | property は `def(mut TestCase) raises -> None` を受け取る（[ADR-0004](../adr/0004-property-as-testcase-closure.md)） |
-| トレイトのデフォルトメソッドで依存型付きの関数パラメータを使えない | コンビネータは自由関数（`map[f](s)`）にする |
-| トレイトの関連型をフィールドや一時値に使うには `Deinitable` が必要 | `Strategy` と `Strategy.Value` に `Deinitable` を要求する |
+| `def(...) -> T` types are treated as traits and cannot be struct fields | Pass functions as thin-function comptime parameters ([ADR-0005](../adr/0005-thin-functions-as-comptime-parameters.md)) |
+| Capturing closures are not `Copyable` and cannot be stored in a struct | Represent transformations that need captures as composite strategies (structs with value fields) |
+| Type inference fails when a capturing closure’s type parameters include an associated type (`S.Value`) | Have properties accept `def(mut TestCase) raises -> None` ([ADR-0004](../adr/0004-property-as-testcase-closure.md)) |
+| Trait default methods cannot use function parameters with dependent types | Implement combinators as free functions (`map[f](s)`) |
+| `Deinitable` is required to use a trait associated type in fields or temporary values | Require `Deinitable` for `Strategy` and `Strategy.Value` |
 
-## Mojo の書き方
+## Mojo style
 
-- 最新の構文を使う: `def` のみ、`comptime`、`std.` 付きの import、`out self` / `mut` / `var` の引数規約、`@fieldwise_init`、`Writable`。
-- struct のパラメータは本体内で `Self.T` のように修飾する。
-- コメントは「なぜ」だけを書く。処理の説明コメントは書かない。
-- 公開 API には docstring を書く。
+- Use current syntax: `def` only, `comptime`, imports prefixed with `std.`, the `out self` / `mut` / `var` argument conventions, `@fieldwise_init`, and `Writable`.
+- Qualify struct parameters in the body, for example as `Self.T`.
+- Comments should explain why; do not add comments that narrate what the code does.
+- Write docstrings for public APIs.
 
-## テストの規約
+## Testing conventions
 
-- `tests/test_<module>.mojo` にモジュールごとのテストを置き、`TestSuite.discover_tests` で実行する。
-- 関数型コア（PRNG、選択列、縮小パス）は property なしの単体テストで、入力と出力を直接比較する。
-- 縮小パスの単体テストでは、評価関数に純粋な述語を渡す。
-- ライブラリ自身の性質（例: shortlex が全順序である、Strategy が値を範囲内で生成する）は、ライブラリ自身の `for_all` で検証する（ドッグフーディング）。内部の関数型コアは、引き続き具体的な入力と出力を直接比較する。
-- 縮小品質は `tests/shrink_quality/` の回帰テストで守る（[shrinking.md](shrinking.md)）。
+- Put module tests in `tests/test_<module>.mojo` and run them with `TestSuite.discover_tests`.
+- For the functional core (PRNG, choice sequences, shrinking passes), use unit tests without properties to compare inputs and outputs directly.
+- For shrinking-pass unit tests, pass a pure predicate as the evaluation function.
+- Verify library properties (for example, that shortlex is a total order and strategies generate in-range values) with the library’s own `for_all` (dogfooding). Continue to test the internal functional core by comparing concrete inputs and outputs directly.
+- Protect shrinking quality with regression tests in `tests/shrink_quality/` ([shrinking.md](shrinking.md)).

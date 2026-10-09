@@ -1,51 +1,69 @@
 # proptest-mojo
 
-Pure Mojo で書かれた Property-based testing ライブラリです。
-Python の [Hypothesis](https://hypothesis.readthedocs.io/) と Rust の [proptest](https://proptest-rs.github.io/proptest/) に匹敵する表現力と縮小（shrinking）品質を目標にしています。
+`proptest-mojo` is a property-based testing library for Pure Mojo. It generates inputs for properties, searches for counterexamples, and shrinks failures to simpler examples that are easier to understand and reproduce.
 
-> Status: 設計フェーズ。全体計画は [Roadmap (#34)](https://github.com/hirokazumiyaji/proptest-mojo/issues/34)、実装は [Milestones](https://github.com/hirokazumiyaji/proptest-mojo/milestones) と [Issues](https://github.com/hirokazumiyaji/proptest-mojo/issues) で管理しています。
+The project is under active development. See the [roadmap](https://github.com/hirokazumiyaji/proptest-mojo/issues/34), [milestones](https://github.com/hirokazumiyaji/proptest-mojo/milestones), and [open issues](https://github.com/hirokazumiyaji/proptest-mojo/issues) for current work.
 
-## はじめに（数分で動かす）
+## Quick start
 
-前提: [pixi](https://pixi.sh/) が入っていること。
+Install [pixi](https://pixi.sh/), then clone the repository and install its Mojo toolchain:
 
 ```sh
 git clone https://github.com/hirokazumiyaji/proptest-mojo.git
 cd proptest-mojo
 pixi install
+```
+
+Create a property by drawing values from strategies. A property raises an error when it finds a counterexample; `for_all` runs it over generated examples and reports a shrunk failure.
+
+```mojo
+from proptest import Settings, TestCase, for_all, integers
+
+def addition_commutes(mut tc: TestCase) raises:
+    var a = tc.draw(integers(-1000, 1000), "a")
+    var b = tc.draw(integers(-1000, 1000), "b")
+    if a + b != b + a:
+        raise Error("addition must commute")
+
+def main() raises:
+    for_all(addition_commutes, Settings(seed=UInt64(1)))
+```
+
+Run the example program, which includes both a passing property and a deliberately failing property that demonstrates shrinking:
+
+```sh
 pixi run mojo run -I src examples/basic.mojo < /dev/null
 ```
 
-通る性質と、最小の反例まで縮小される性質の両方が動きます。
-次は [ユーザーガイド](docs/guide/README.md) と [examples](examples/README.md) をどうぞ。
+## How it works
 
-## 目指す使い心地
+- **Strategies describe generated values.** Draw values with `tc.draw(strategy, label)`; labels are included in failure reports. Use `tc.assume(condition)` to reject an example or `tc.note(message)` to add context to a report.
+- **Composition builds richer inputs.** Built-in strategies cover integers, booleans, floats, bytes, text, lists, unique lists, dictionaries, tuples, optional values, choices, and JSON-like recursive trees. `map`, `filter`, and `flat_map` derive strategies; custom `Strategy` structs can carry parameters and draw multiple related values.
+- **Shrinking simplifies counterexamples.** The runner shrinks the recorded choice sequence, so generated structures and composed strategies can be reduced without requiring each property to define a separate shrinker. Strategy authors should make the all-zero choice produce the simplest value.
+- **Failures can be replayed.** Reports include a replay string. Pass it through `Settings(replay=...)` to run that example directly. Set a `name` in `Settings` to persist and replay minimized examples in the example database.
+- **Runs are configurable and reproducible.** `Settings` controls example count, seed, choice limits, shrink budget, replay, verbosity, and database configuration. `PROPTEST_SEED` and `PROPTEST_MAX_EXAMPLES` can configure runs through the environment.
+- **Stateful behavior can be checked against a model.** Implement `StateMachine` and call `run_state_machine` to generate and shrink operation sequences while checking invariants after each operation.
 
-```mojo
-from proptest import for_all, TestCase, integers, lists
-from std.testing import assert_true
+## Run tests and examples
 
-# 誤った性質: 任意のリストは昇順に並んでいる
-def test_every_list_is_sorted() raises:
-    def prop(mut tc: TestCase) raises:
-        var xs = tc.draw(lists(integers(-100, 100), max_size=50), "xs")
-        assert_true(is_sorted(xs))
-
-    for_all(prop)
+```sh
+pixi run test
+pixi run format-check
 ```
 
-失敗すると、選択列（choice sequence）ベースの縮小で最小の反例を探し、再現用の情報とともに報告します。
+To run an individual example:
 
-```text
-Falsifying example (after 37 examples, 112 shrink evaluations):
-  xs = [1, 0]
-Reproduce with: Settings(replay="AAECAQ==")
+```sh
+pixi run mojo run -I src examples/combinators.mojo < /dev/null
 ```
 
-## ドキュメント
+The `< /dev/null` redirection keeps execution consistent with CI. Example programs are under [`examples/`](examples/README.md).
 
-- [docs/guide](docs/guide/README.md): ユーザーガイド（セットアップから縮小・再現まで）
-- [examples](examples/README.md): 動く使用例（CI で全実行）
-- [docs/specs](docs/specs/README.md): 現在の設計（living document）
-- [docs/adr](docs/adr/README.md): 設計判断の履歴（Architecture Decision Records）
-- [docs/README.md](docs/README.md): ドキュメント運用ルール
+## Documentation
+
+- [User guide](docs/guide/README.md): setup, properties, strategies, composition, shrinking, and replay
+- [Examples](examples/README.md): runnable programs
+- [Specifications](docs/specs/README.md): current design and behavior
+- [Architecture decision records](docs/adr/README.md): recorded design decisions
+- [v0.1.0 release notes](docs/releases/v0.1.0.md)
+- [Documentation guide](docs/README.md): documentation conventions

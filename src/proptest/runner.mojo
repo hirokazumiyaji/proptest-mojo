@@ -294,6 +294,7 @@ def for_all[
         # the loop, silently passing a run that mostly overran.
         if (
             examples_run >= 10
+            and not raised
             and overrun_count > 0
             and overrun_count * 5 > examples_run
         ):

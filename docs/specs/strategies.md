@@ -1,8 +1,8 @@
-# Strategy
+# Strategies
 
-背景は [ADR-0003](../adr/0003-strategy-trait-with-static-dispatch.md) と [ADR-0005](../adr/0005-thin-functions-as-comptime-parameters.md) と [ADR-0011](../adr/0011-recursive-strategy-with-runtime-depth.md)。
+See [ADR-0003](../adr/0003-strategy-trait-with-static-dispatch.md), [ADR-0005](../adr/0005-thin-functions-as-comptime-parameters.md), and [ADR-0012](../adr/0012-recursive-strategy-with-runtime-depth.md).
 
-## Strategy トレイト
+## The `Strategy` Trait
 
 ```mojo
 trait Strategy(Copyable, Deinitable):
@@ -15,75 +15,82 @@ trait Strategy(Copyable, Deinitable):
         ...
 ```
 
-`span_label` は Strategy の種類を表すラベルの `UInt64`。`tc.draw` が自動で張る span の `label` に使われる。報告用のラベル（`tc.draw(strategy, label)` の `label`）とは独立で、Strategy の種類だけに依存する。実装は `kind_label("<kind>")` を返す。
 
-`span_label` は必須メソッドで既定値を持たない。共通の既定値では実装を省いた Strategy がすべて同じラベルになり、兄弟 draw として現れたときに再び互換性とみなされてしまうため。
 
-すべての Strategy 実装は次の規約を守る。
 
-| 規約 | 理由 |
+`span_label` is required and has no default. A common default would give every strategy that omitted an implementation the same label, causing sibling draws to be treated as compatible again.
+
+span_label returns a UInt64 identifying the strategy kind. It labels the spans created by tc.draw and is independent of the reporting label. Implementations typically return kind_label("<kind>").
+
+Every strategy implementation must follow these rules.
+
+| Rule | Reason |
 |------|------|
-| **決定性**: 同じ選択列からは同じ値を作る。`TestCase` 以外の状態（グローバル変数、時刻、`std.random`）を読まない | 縮小と再現が選択列だけで成り立つため |
-| **単純さの単調性**: 選択の値が小さいほど、生成される値が「単純」になる。全選択 0 のとき最も単純な値を返す | shortlex で小さい選択列が、人間にとって単純な反例に対応するため |
-| **不変性**: `draw` は `self` を変更しない | Strategy は値として自由にコピー・共有されるため |
-| **局所性**: 構造上の単位（コレクションの 1 要素など）ごとに span を張る | 構造的な縮小パスが働くため |
-| **構造ラベル**: `span_label` は Strategy の種類だけで決まり、報告ラベルに依存しない | 縮小パスが同種とみなす span を入れ替えるため |
+| **Determinism**: Produce the same value from the same choice sequence. Do not read state outside TestCase, such as globals, time, or std.random. | Shrinking and replay depend only on the choice sequence. |
+| **Monotonic simplicity**: Smaller choices produce simpler values; all-zero choices produce the simplest value. | Smaller shortlex sequences should correspond to simpler counterexamples. |
+| **Immutability**: draw does not mutate self. | Strategies can be freely copied and shared as values. |
+| **Locality**: Create a span for each structural unit, such as one collection element. | Structural shrinking passes depend on spans. |
+| **Structural labels**: span_label depends only on the strategy kind, not the reporting label. | Shrinking passes swap spans they consider to be of the same kind. |
 
-## 組み込み Strategy
+## Built-in Strategies
 
-表の「M」は実装予定のマイルストーン。
+“M” in the table identifies the implementation milestone.
 
-| 関数 | 値の型 | 縮小の目標 | M |
+| Function | Value type | Shrinking target | M |
 |------|--------|-----------|---|
-| `integers(min, max)` | `Int` | 範囲内で 0 に最も近い値 | M1 |
-| `integers_of[dtype](min, max)` | `Scalar[dtype]`（`Int8`〜`UInt64`） | 同上。範囲省略時はその型の全域 | M2 |
+| `integers(min, max)` | `Int` | Value in range closest to 0 | M1 |
+| `integers_of[dtype](min, max)` | `Scalar[dtype]`(`Int8` through `UInt64`) | Same; if the range is omitted, use the full range of the type | M2 |
 | `booleans()` | `Bool` | `False` | M1 |
-| `just(value)` | `T` | （選択を消費しない） | M1 |
-| `sampled_from(values: List[T])` | `T` | 先頭の要素 | M2 |
-| `floats(min, max, allow_nan, allow_infinity)` | `Float64` | 0.0、次いで小さい整数値、単純な分数 | M2 |
-| `text(alphabet, min_size, max_size)` | `String` | 空文字列、次いで先頭の文字 `"0"` 方向 | M2 |
-| `bytes(min_size, max_size)` | `List[UInt8]` | 空列 | M2 |
-| `lists(elements, min_size, max_size)` | `List[T]` | 短いリスト、各要素が単純 | M2 |
-| `unique_lists(elements, min_size, max_size)` | `List[T]`（`T: Equatable`） | 同上 | M2 |
-| `dicts(keys, values, min_size, max_size)` | `DictList[K, V]`（`K: Equatable`） | 空の辞書 | M2 |
-| `tuples(a, b)` / `tuples(a, b, c)` | 2〜3 要素の値 | 各要素が単純 | M2 |
+| `just(value)` | `T` | (consumes no choices) | M1 |
+| `sampled_from(values: List[T])` | `T` | First element | M2 |
+| `floats(min, max, allow_nan, allow_infinity)` | `Float64` | 0.0, then small integers, then simple fractions | M2 |
+| `text(alphabet, min_size, max_size)` | `String` | Empty string, then toward the first character, `"0"` | M2 |
+| `bytes(min_size, max_size)` | `List[UInt8]` | Empty sequence | M2 |
+| `lists(elements, min_size, max_size)` | `List[T]` | Short lists with simple elements | M2 |
+| `unique_lists(elements, min_size, max_size)` | `List[T]`(`T: Equatable`) | Same | M2 |
+| `dicts(keys, values, min_size, max_size)` | `DictList[K, V]`(`K: Equatable`) | Empty dictionary | M2 |
+| `tuples(a, b)` / `tuples(a, b, c)` | Values with 2–3 elements | Each element is simple | M2 |
 | `optionals(s)` | `Optional[T]` | `None` | M2 |
-| `one_of(strategies: List[S])` | `S.Value` | 先頭の Strategy | M2 |
-| `one_of2(a: A, b: B) where A.Value == B.Value` | `A.Value` | 先頭の Strategy（`a`） | M2 |
+| `one_of(strategies: List[S])` | `S.Value` | First strategy | M2 |
+| `one_of2(a: A, b: B) where A.Value == B.Value` | `A.Value` | First strategy (`a`) | M2 |
 | `json_tree(max_depth, max_width, minimum, maximum)` | `JsonValue` | `null` | M2 |
 
-標準ライブラリの `Tuple` と `Optional` は `Copyable & Writable & Deinitable` を満たすため、そのまま `Strategy.Value` として使う。反例表示はそれぞれの `Writable` 実装（例: `(0, 1)`、`None`）に従う。`dicts` が `std.Dict` ではなく `DictList`（キーの一意性を保ったペアの `List`）を返すのは、`std.Dict` が現状の Mojo コンパイラでは `draw` の associated type から値返却できないためで、キーが `Equatable` だけで扱える利点もある。
+The standard library `Tuple` and `Optional` satisfy `Copyable & Writable & Deinitable`, so they can be used directly as `Strategy.Value`. Counterexamples use their respective `Writable` representations (for example, `(0, 1)` and `None`). `dicts` returns `DictList` (a `List` of pairs with unique keys) rather than `std.Dict` because the current Mojo compiler cannot return `std.Dict` as a value from the associated type of `draw`. This also allows keys that only satisfy `Equatable`.
 
-### 整数の符号化
+### Type-Based Defaults
 
-`integers(min, max)` は、縮小の目標値 `t`（範囲内で 0 に最も近い値）からの距離を次の順で非負整数 `k` に写す。
+`arbitrary[T]()` selects a default strategy for `Int`, `Bool`, `Float64`, `String`, and supported list types. For a user-defined type, conform to `Arbitrary` and implement a static `arbitrary(tc)` method that returns the type itself. The generic list defaults cover the supported concrete element types and one level of `List[List[Int]]`.
+
+### Integer Encoding
+
+`integers(min, max)` maps distances from the shrink target `t` (the value in range closest to 0) to non-negative integers `k` in the following order.
 
 ```text
 k:     0   1    2    3    4   ...
-値:    t  t+1  t-1  t+2  t-2  ...   （範囲外になる側はスキップ）
+Values: t, t+1, t-1, t+2, t-2, ... (skip values that fall outside the range)
 ```
 
-これにより「選択値 0 → 目標値」「小さい選択値 → 目標に近い値」という単調性が成り立ち、縮小パスは符号を意識せずに選択値を小さくするだけでよい。
+This gives the monotonic mapping “choice 0 → target value” and “smaller choice → value closer to target,” so shrinking passes can simply lower choices without considering signs.
 
-### コレクションの符号化
+### Collection Encoding
 
-Hypothesis の `many` と同じく、要素ごとに「続けるか」の真偽値を引く。
+As with Hypothesis `many`, draw a boolean for whether to continue for each element.
 
 ```text
-[span: element] continue=1, <要素の選択...> [/span] [span] continue=1, <...> [/span] continue=0
+[span: element] continue=1, <element choices...> [/span] [span] continue=1, <...> [/span] continue=0
 ```
 
-- 続ける確率は平均長 `average_size`（既定は `min(max(min_size * 2, min_size + 5), (min_size + max_size) / 2)`）から決める。
-- `min_size` までは `forced_integer` で 1 を強制し、`max_size` に達したら 0 を強制する。強制された選択は縮小対象外。
-- 要素の span は continue フラグを含むため、span 削除パスが「要素を 1 つ取り除く」操作になる。
+- The probability of continuing is determined by the average length `average_size` (default: `min(max(min_size * 2, min_size + 5), (min_size + max_size) / 2)`).
+- Use `forced_integer` to force 1 until `min_size` is reached and force 0 at `max_size`. Forced choices are not shrunk.
+- Each element span includes its continue flag, so a span-deletion pass removes one whole element.
 
-### 浮動小数点数の符号化（M2）
+### Floating-Point Encoding (M2)
 
-Hypothesis と同じ辞書順エンコーディングを使う。64bit の選択値のうち、小さい値ほど「単純な」浮動小数点数（0.0、小さな非負整数、分母の小さい値、…、無限大、NaN の順）に対応させる。符号は別の真偽値の選択とする。
+Use the same lexicographic encoding as Hypothesis. Smaller 64-bit choices correspond to simpler floating-point values in this order: 0.0, small non-negative integers, values with small denominators, …, infinity, and NaN. The sign is a separate boolean choice.
 
-## コンビネータ
+## Combinators
 
-いずれも thin 関数（捕捉を持たない関数）を comptime パラメータで受け取る自由関数である。
+These are free functions that accept thin (non-capturing) functions as comptime parameters.
 
 ```mojo
 def map[S: Strategy, U: Copyable & Writable & Deinitable, //,
@@ -95,7 +102,7 @@ def flat_map[S: Strategy, T: Strategy, //,
              f: def(S.Value) thin -> T](s: S) -> FlatMap[S, T, f]
 ```
 
-使用例:
+Example:
 
 ```mojo
 def double(x: Int) -> Int:
@@ -112,12 +119,12 @@ var evens2 = filter[is_even](integers(0, 100))
 var sized = flat_map[lists_up_to](integers(0, 10))
 ```
 
-- `filter` は述語を満たさない値を引いた試行の span を `discarded` として記録し、最大 3 回まで引き直す。それでも満たさなければ `tc.assume(False)` 相当で `INVALID` にする。
-- `flat_map` は外側の値に応じて内側の Strategy を作る。内側の Strategy の **型** はコンパイル時に 1 つに決まっている必要がある（値のパラメータだけが変わる）。
+- `filter` marks the span of an attempt that draws a value failing the predicate as `discarded`, and retries up to three times. If no attempt succeeds, it behaves like `tc.assume(False)` and marks the example `INVALID`.
+- `flat_map` creates an inner strategy based on the outer value. The inner strategy’s **type** must be fixed at compile time; only its value parameters may vary.
 
-## 再帰的な Strategy（`json_tree`）
+## Recursive Strategy (`json_tree`)
 
-静的ディスパッチでは `Tree = OneOf[Leaf, Node[Tree]]` のように型が無限に入れ子になるため、再帰は型レベルでなく値レベルで行う（[ADR-0011](../adr/0011-recursive-strategy-with-runtime-depth.md)）。
+With static dispatch, types such as `Tree = OneOf[Leaf, Node[Tree]]` nest infinitely. Recursion therefore happens at the value level, not the type level (see [ADR-0012](../adr/0012-recursive-strategy-with-runtime-depth.md)).
 
 ```mojo
 from proptest.strategies.recursive import JsonValue, json_tree
@@ -126,25 +133,25 @@ var tree = json_tree(max_depth=3, max_width=3, minimum=-5, maximum=5)
 var value: JsonValue = tc.draw(tree.copy(), "tree")
 ```
 
-- 値 `JsonValue` は `null`・整数・配列の具体的な再帰値である。子は `ArcPointer` の間接参照で持ち、`draw` 後は不変として扱う。
-- Strategy `JsonTree` は 1 つの具体型で、実行時の `max_depth` 予算で再帰を打ち切る。汎用の `prop_recursive(leaf, branch)` コンビネータは提供しない。形状ごとに `JsonTree` と同じ形の Strategy を書く。
-- 符号化は次の通りで、小さい選択ほど単純になる。全選択 0 は `null` を引く。深さ 0 では分岐旗を消費せず葉だけを引く。
+- The `JsonValue` value is a concrete recursive value representing `null`, an integer, or an array. Children are held indirectly through `ArcPointer` and treated as immutable after `draw`.
+- The `JsonTree` strategy has one concrete type and stops recursion using a runtime `max_depth` budget. There is no generic `prop_recursive(leaf, branch)` combinator. Write a strategy with the same structure as `JsonTree` for each desired shape.
+- The encoding below makes smaller choices simpler. All-zero choices draw `null`. At depth 0, draw only a leaf without consuming a branch flag.
 
 ```text
 node(depth):
   depth == 0 -> leaf
   depth > 0  -> branch_flag in 0..1 (0 = leaf, 1 = array)
-leaf  -> kind in 0..1 (0 = null, 1 = minimum..maximum の整数)
+leaf  -> kind in 0..1 (0 = null, 1 = integer in minimum..maximum)
 array -> width in 0..max_width, then one child per element
 ```
 
-- 子の描画は `JSON_CHILD_SPAN` の span で囲む。現行の縮小パス（M1）は span を見ないが、M3 の span 系パスで要素単位の操作ができる。
-- `max_depth < 0`、`max_width < 1`、空の整数範囲は `json_tree` が `raise` する。
+- Draw each child inside a `JSON_CHILD_SPAN` span. Current shrinking passes (M1) do not inspect spans, but M3 span-based passes can operate on individual elements.
+- `json_tree` raises for `max_depth < 0`, `max_width < 1`, or an empty integer range.
 
-## 合成 Strategy（`@composite` / `prop_compose!` 相当）
+## Composite Strategies (equivalent to `@composite` / `prop_compose!`)
 
-捕捉が必要な変換や、複数の値を組み合わせる生成は、`Strategy` を実装する struct として書く。
-これが公式の推奨パターンである。
+Write transformations that need captures, or generators that combine multiple values, as structs implementing `Strategy`.
+This is the recommended pattern.
 
 ```mojo
 @fieldwise_init
@@ -166,13 +173,13 @@ struct Users(Strategy):
         return User(name^, age)
 ```
 
-`span_label` は必須なので合成 Strategy でも実装する。構造を保つ `map` は内側の Strategy のラベルを引き継いでよい。`filter` は複数回の試行を含むため、内側の Strategy とは異なる構造ラベルを返す。
+Composite strategies must also implement the required `span_label`. A structure-preserving `map` may reuse the inner strategy’s label. `filter` includes multiple attempts and must return a structural label distinct from the inner strategy.
 
-property の中で直接 `tc.draw` を重ねてもよい。再利用したい組み合わせだけを合成 Strategy にする。
+It is also fine to make several direct `tc.draw` calls in a property. Use a composite strategy only for combinations that should be reused.
 
-## 状態機械テスト（Stateful testing）
+## State-Machine Testing
 
-Hypothesis の `RuleBasedStateMachine` / `proptest-state-machine` に相当する、操作列を生成してモデルとの一致を検証する仕組みである。
+This corresponds to Hypothesis `RuleBasedStateMachine` / `proptest-state-machine`: generate sequences of operations and check that behavior matches a model.
 
 ```mojo
 trait StateMachine(Movable, Deinitable):
@@ -184,12 +191,12 @@ trait StateMachine(Movable, Deinitable):
         ...
 ```
 
-- `StateMachine` を実装する struct が、テスト対象（SUT）とモデル（正しい振る舞いの記録）の両方をフィールドに持つ。
-- `run_state_machine(machine, tc, max_ops=32)` が操作回数を `integers(0, max_ops)` で引き、ルール番号を選択列から 1 つずつ引いて `run_rule` → `check_invariants` の順に実行する。実行後のマシンを返す。
-- `run_rule` は引数を `tc.draw` で引き、前提条件を `tc.assume` で表す（`assume` で棄却された操作列は `INVALID` として捨てられる）。操作の内容は `tc.note` で記録し、反例の報告に残す。
-- 操作回数の選択が全 0 のとき 0 操作になる。各操作は 1 つの span に包まれるため、操作列はコレクションと同様に縮小される。回数の最小化で末尾の操作が削られ、チャンク削除で間の操作が取り除かれる。
+- A struct implementing `StateMachine` stores both the system under test (SUT) and a model (a record of correct behavior) in its fields.
+- `run_state_machine(machine, tc, max_ops=32)` draws the number of operations with `integers(0, max_ops)`, draws each rule number from the choice sequence, and calls `run_rule` followed by `check_invariants`. It returns the machine after execution.
+- `run_rule` draws arguments with `tc.draw` and expresses preconditions with `tc.assume` (a sequence rejected by `assume` is discarded as `INVALID`). Record each operation with `tc.note` so it appears in counterexample reports.
+- All-zero choices produce zero operations. Each operation is wrapped in a span, so operation sequences shrink like collections: minimizing the count removes trailing operations, and chunk deletion removes operations from the middle.
 
-使用例（先頭要素を返すバグを持つスタック）:
+Example: a stack with a bug that returns the first element:
 
 ```mojo
 struct StackMachine(StateMachine):
@@ -221,10 +228,9 @@ def stack_prop(mut tc: TestCase) raises:
     _ = run_state_machine(StackMachine(), tc)
 ```
 
-上のバグ入りスタックは `push(0), push(1), pop` の 3 操作に縮小される。これより短い操作列では 2 要素以上の状態を作れないため、この反例は最短である。
+The buggy stack above shrinks to three operations: `push(0), push(1), pop`. A shorter sequence cannot create a state with at least two elements, so this counterexample is minimal.
 
-## 計画中（Planned）
+## Planned
 
-- `Arbitrary` トレイト（M5）: 型ごとの既定 Strategy。`arbitrary[Int]()` で `integers_of[DType.int64]()` を返すなど。
-- 異種の Strategy の組み合わせ（M2 で実装済み）: `Value` が同じ異なる型の Strategy は `one_of2(a, b)` で組み合わせる（[ADR-0010](../adr/0010-heterogeneous-one-of.md)）。等価性は trailing `where A.Value == B.Value` で保証され、不一致はコンパイルエラーになる。3 分岐以上は `one_of2` の入れ子、または分岐を 1 つの Strategy 型に寄せてから `one_of` を使う。
-- 再帰的な Strategy（M2 で実装済み）: 値レベルの再帰と実行時深さ制限で行う（[ADR-0011](../adr/0011-recursive-strategy-with-runtime-depth.md)）。`json_tree` が JSON 風の木を生成し、全選択 0 で `null` に縮小する。
+- Heterogeneous strategy composition (implemented in M2): strategies of different types with the same `Value` can be combined with `one_of2(a, b)` (see [ADR-0010](../adr/0010-heterogeneous-one-of.md)). Equality is enforced by the trailing `where A.Value == B.Value`; a mismatch is a compile error. For three or more branches, nest `one_of2` or convert the branches to one strategy type and use `one_of`.
+- Recursive strategies (implemented in M2): use value-level recursion with a runtime depth limit (see [ADR-0012](../adr/0012-recursive-strategy-with-runtime-depth.md)). `json_tree` generates JSON-like trees and shrinks to `null` when all choices are 0.

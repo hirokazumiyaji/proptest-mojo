@@ -1,39 +1,37 @@
-# ドキュメント運用ルール
+# Documentation Guidelines
 
-このリポジトリのドキュメントは、性質の異なる 3 種類に分けて管理します。
+This repository has three types of documentation, each with a distinct purpose.
 
-| 種類 | 置き場所 | 性質 | 更新方法 |
-|------|----------|------|----------|
-| 設計書（Specs） | `docs/specs/` | **現在** のシステムを表す | 実装変更と同じ PR で書き換える。過去の記述は残さない |
-| ADR | `docs/adr/` | **その時点** の判断の記録（履歴） | 判断ごとに新規ファイルを追加する。承認後は本文を書き換えない |
-| ガイド | `docs/guide/` | 利用者向けの使い方 | 公開 API が変わったら同じ PR で更新する。未実装は「計画中」と明記する |
+| Type | Location | Purpose | How to update |
+|------|----------|---------|---------------|
+| Specifications (Specs) | `docs/specs/` | Describe the **current** system | Update in the same PR as implementation changes. Remove outdated descriptions. |
+| ADRs | `docs/adr/` | Record decisions made **at a point in time** | Add a new file for each decision. Do not rewrite the decision after acceptance. |
+| Guides | `docs/guide/` | Explain how to use the project | Update in the same PR when the public API changes. Mark unimplemented features as planned. |
 
-## Specs（`docs/specs/`）
+## Specs (`docs/specs/`)
 
-- 常に `main` の実装と一致させます。実装と食い違う記述はバグとして扱います。
-- 未実装の機能は「計画中（Planned）」と明記して記述してよいです。実装時に表記を外します。
-- 判断の経緯や却下した代替案は書きません。経緯は ADR に書き、Specs からはリンクします。
+- Keep Specs consistent with the implementation on `main`. Treat conflicting descriptions as bugs.
+- Planned features may be documented as **Planned**. Remove that label when the feature is implemented.
+- Do not include decision history or rejected alternatives. Record those in ADRs and link to them from the Specs.
 
-## ADR（`docs/adr/`）
+## ADRs (`docs/adr/`)
 
-- ファイル名は `NNNN-kebab-case-title.md`（4 桁の連番）です。
-- 雛形は [`docs/adr/template.md`](adr/template.md) を使います。
-- 状態は `Proposed` → `Accepted` →（必要なら）`Superseded by ADR-NNNN` / `Deprecated` と遷移します。
-- 承認済み ADR で変更してよいのは「状態」行と、置き換え先へのリンクだけです。判断を変えるときは新しい ADR を起こします。
-- ADR を追加したら [`docs/adr/README.md`](adr/README.md) の索引に 1 行追加します。
+- Name files `NNNN-kebab-case-title.md`, using a four-digit sequence number.
+- Use the [ADR template](adr/template.md).
+- Statuses progress from `Proposed` to `Accepted`, and may later become `Superseded by ADR-NNNN` or `Deprecated`.
+- In an accepted ADR, only change the status line and links to its replacement. Record a changed decision in a new ADR.
+- When adding an ADR, add a row to the [ADR index](adr/README.md).
 
-## 一時的なドキュメント
+## Temporary documents
 
-作業メモ、TODO リスト、調査の下書き、スパイクのコードなどはコミットしません。
-次の場所に置けば `.gitignore` で除外されます。
+Do not commit work notes, TODO lists, research drafts, or spike code. Put them in one of these `.gitignore`d locations:
 
-- `tmp/`、`scratch/`
-- `tasks/`、`.claude/tasks/`
+- `tmp/`, `scratch/`
+- `tasks/`, `.claude/tasks/`
 - `*.local.md`
 
-残す価値がある結論は、Specs・ADR・GitHub Issue のいずれかに書き写してから破棄します。
+Move conclusions worth keeping into the Specs, an ADR, or a GitHub Issue before discarding the temporary document.
 
-## タスク管理
+## Task management
 
-タスクは GitHub Issues と Milestones で管理します。ドキュメント内に TODO リストは持ちません。
-Issue には関連する Specs / ADR へのリンクと受け入れ条件を書きます。
+Manage tasks with GitHub Issues and Milestones. Do not keep TODO lists in documentation. Include links to relevant Specs or ADRs and acceptance criteria in each issue.

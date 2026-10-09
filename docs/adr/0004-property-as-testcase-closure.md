@@ -1,34 +1,31 @@
-# ADR-0004: Property を `def(mut TestCase) raises` のクロージャで表現する
+# ADR-0004: Represent properties as `def(mut TestCase) raises` closures
 
-- 状態: Accepted
-- 日付: 2026-09-26
-- 関連: [specs/runner.md](../specs/runner.md)
+- Status: Accepted
+- Date: 2026-09-26
+- Related: [specs/runner.md](../specs/runner.md)
 
-## 文脈
+## Context
 
-テスト対象の性質（property）をどんな関数型で受け取るかを決める必要がある。
-候補は次の 2 つ。
+We needed to choose the function type used to receive the property under test. The two candidates were:
 
-1. **値を受け取る形**（proptest / Hypothesis の `@given`）: `for_all(strategy, prop)` で `prop: def(S.Value) raises`。
-2. **TestCase を受け取る形**（Hypothesis の `data()` / `st.data()`）: `for_all(prop)` で `prop: def(mut TestCase) raises`。property の中で `tc.draw(strategy)` を呼ぶ。
+1. **Receive values** (proptest / Hypothesis `@given`): `for_all(strategy, prop)` where `prop: def(S.Value) raises`.
+2. **Receive a TestCase** (Hypothesis `data()` / `st.data()`): `for_all(prop)` where `prop: def(mut TestCase) raises`. The property calls `tc.draw(strategy)`.
 
-スパイクの結果、1 は現行コンパイラで通らなかった。
-捕捉クロージャの型パラメータ `P: def(S.Value) raises -> None` に関連型 `S.Value` が含まれると、`def(xs: List[Int]) raises -> None` が `def(S.Value) raises -> None` に適合しないと判定される。
-2 は依存型を含まないため、捕捉クロージャのまま問題なく動作した。
+The spike showed that option 1 did not compile with the current compiler. When the type parameter for a capturing closure, `P: def(S.Value) raises -> None`, contains the associated type `S.Value`, the compiler reports that `def(xs: List[Int]) raises -> None` does not conform to `def(S.Value) raises -> None`. Option 2 contains no dependent type and works with capturing closures.
 
-## 決定
+## Decision
 
-- property は `def(mut TestCase) raises -> None` に適合するクロージャとし、ランナーは `for_all[P: def(mut TestCase) raises -> None](prop: P, settings: Settings = Settings())` の形で受け取る。
-- 値は property 内で `tc.draw(strategy, label)` によって取り出す。
-- property はローカル変数を捕捉してよい（`{imm x}` など）。
+- A property is a closure conforming to `def(mut TestCase) raises -> None`. The runner accepts it as `for_all[P: def(mut TestCase) raises -> None](prop: P, settings: Settings = Settings())`.
+- Draw values inside the property with `tc.draw(strategy, label)`.
+- Properties may capture local variables, for example `{imm x}`.
 
-## 検討した代替案
+## Alternatives Considered
 
-- 値を受け取る形: 上記の型推論の制約で実装できない。コンパイラが改善されたら、薄いラッパー（`for_all(strategy, prop)`）を追加で提供することを別 ADR で検討する。
+- Receive values directly: cannot be implemented due to the type inference limitation above. If the compiler improves, consider a thin `for_all(strategy, prop)` wrapper in a separate ADR.
 
-## 結果
+## Consequences
 
-- 前に引いた値に応じて次の Strategy を選ぶ依存的な生成が、`flat_map` なしで普通のコードとして書ける。
-- 反例の表示は `tc.draw` 時に記録したラベルと値の `Writable` 表現から組み立てる。
-- `assume` や `note` などのテスト中の操作も `tc` のメソッドとして自然に提供できる。
-- 引数の数が固定されないため、`@given(a=..., b=...)` のような宣言的な書き方はできない。
+- Dependent generation, where the next strategy depends on a previously drawn value, can be written as ordinary code without `flat_map`.
+- Counterexample output is assembled from the labels recorded during `tc.draw` and the `Writable` representation of the values.
+- Test-time operations such as `assume` and `note` can be exposed naturally as `tc` methods.
+- The API does not declare a fixed number of arguments, so declarative syntax such as `@given(a=..., b=...)` is unavailable.

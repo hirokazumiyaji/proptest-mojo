@@ -1,22 +1,22 @@
-# ADR-NNNN: タイトル（決めたことを短く）
+# ADR-NNNN: Short title describing the decision
 
-- 状態: Proposed | Accepted | Deprecated | Superseded by ADR-NNNN
-- 日付: YYYY-MM-DD
-- 関連: Issue #N、Specs へのリンク
+- Status: Proposed | Accepted | Deprecated | Superseded by ADR-NNNN
+- Date: YYYY-MM-DD
+- Related: Issue #N, links to Specs
 
-## 文脈
+## Context
 
-何が問題で、なぜ今判断が必要なのか。制約・前提・検証結果を書く。
+Describe the problem and why a decision is needed now. Include constraints, assumptions, and investigation results.
 
-## 決定
+## Decision
 
-何を決めたか。「〜する」と言い切る。
+State the decision directly.
 
-## 検討した代替案
+## Alternatives Considered
 
-- 案 A: 概要。採用しなかった理由。
-- 案 B: 概要。採用しなかった理由。
+- Option A: Summary and reason for not choosing it.
+- Option B: Summary and reason for not choosing it.
 
-## 結果
+## Consequences
 
-この決定で何が楽になり、何が難しくなるか。後続の作業や再検討の条件。
+Describe what this decision makes easier or harder, along with follow-up work or conditions for reconsidering it.

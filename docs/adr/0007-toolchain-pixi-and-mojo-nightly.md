@@ -1,28 +1,26 @@
-# ADR-0007: ツールチェーンに pixi と Mojo nightly を使う
+# ADR-0007: Use pixi and Mojo nightly for the toolchain
 
-- 状態: Accepted
-- 日付: 2026-09-26
-- 関連: Milestone M0
+- Status: Accepted
+- Date: 2026-09-26
+- Related: Milestone M0
 
-## 文脈
+## Context
 
-Mojo は言語仕様の変化が速く、安定版と nightly で構文や標準ライブラリが異なる。
-本プロジェクトは現行の構文（`def` のみ、`comptime`、統合クロージャ、`std.` import）を前提に設計している（ADR-0003〜0005 の検証は `mojo 1.2.0.dev2026092605` で行った）。
-また、`mojo test` サブコマンドは廃止されており、テストは `std.testing.TestSuite` を使う実行ファイルとして書く。
+Mojo's language specification changes rapidly, and syntax and standard-library APIs differ between stable and nightly releases. This project is designed around current syntax (`def` only, `comptime`, unified closures, and `std.` imports); experiments for ADR-0003 through ADR-0005 used `mojo 1.2.0.dev2026092605`. The `mojo test` subcommand has also been removed, so tests are written as executables using `std.testing.TestSuite`.
 
-## 決定
+## Decision
 
-- 環境管理に pixi を使い、チャネルは `https://conda.modular.com/max-nightly` と `conda-forge` とする。
-- `pixi.lock` をコミットし、Mojo のバージョンを固定する。更新は専用の PR で行い、全テストが通ることを確認する。
-- テストは `tests/` 以下の `test_*.mojo` を `mojo run -I src` で実行し、各ファイルは `TestSuite.discover_tests` で自身のテストを実行する。`pixi run test` タスクで全ファイルを実行する。
-- CI は GitHub Actions で Linux と macOS の両方で実行する。
+- Use pixi for environment management, with the `https://conda.modular.com/max-nightly` and `conda-forge` channels.
+- Commit `pixi.lock` to pin the Mojo version. Update it in a dedicated PR and verify that all tests pass.
+- Run `test_*.mojo` files under `tests/` with `mojo run -I src`. Each file runs its own tests using `TestSuite.discover_tests`. Run all files with the `pixi run test` task.
+- Run CI on both Linux and macOS using GitHub Actions.
 
-## 検討した代替案
+## Alternatives Considered
 
-- 安定版 Mojo を使う: 本設計で使う言語機能の一部が安定版にない、または構文が異なる。
-- uv（pip）でのインストール: pixi のほうが Modular の公式手順に沿い、ロックファイルでの固定が容易。
+- Use stable Mojo: some language features needed by this design are not available in stable, or use different syntax.
+- Install with uv (pip): pixi follows Modular's official workflow and makes version pinning with a lockfile straightforward.
 
-## 結果
+## Consequences
 
-- nightly の破壊的変更で壊れることがある。ロックファイルで固定し、更新を意図的に行うことで制御する。
-- 安定版がこのプロジェクトの要件を満たした時点で、安定版への移行を別 ADR で検討する。
+- Nightly breaking changes may cause failures. Pin the version in the lockfile and update it deliberately.
+- Consider moving to stable Mojo in a separate ADR once stable meets the project's requirements.

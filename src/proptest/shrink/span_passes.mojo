@@ -275,7 +275,10 @@ def _splice_swap(seq: ChoiceSequence, a: Span, b: Span) -> ChoiceSequence:
 
 
 def delete_spans(
-    seq: ChoiceSequence, spans: List[Span]
+    seq: ChoiceSequence,
+    spans: List[Span],
+    limit: Int = -1,
+    offset: Int = 0,
 ) -> List[ChoiceSequence]:
     """Single-span deletions, deepest-first.
 
@@ -289,15 +292,26 @@ def delete_spans(
     if n == 0:
         return out^
     var ranges = _valid_span_ranges(n, spans)
+    var skipped = 0
     for i in range(len(ranges.starts)):
+        if limit >= 0 and len(out) >= limit:
+            return out^
         var cand = seq.deleted(ranges.starts[i], ranges.ends[i])
         if len(cand) == 0:
+            continue
+        if skipped < offset:
+            skipped += 1
             continue
         out.append(cand^)
     return out^
 
 
-def zero_spans(seq: ChoiceSequence, spans: List[Span]) -> List[ChoiceSequence]:
+def zero_spans(
+    seq: ChoiceSequence,
+    spans: List[Span],
+    limit: Int = -1,
+    offset: Int = 0,
+) -> List[ChoiceSequence]:
     """Single-span zeroings, deepest-first.
 
     Each non-`discarded`, non-empty span contributes one candidate with
@@ -311,9 +325,15 @@ def zero_spans(seq: ChoiceSequence, spans: List[Span]) -> List[ChoiceSequence]:
     if n == 0:
         return out^
     var ranges = _valid_span_ranges(n, spans)
+    var skipped = 0
     for i in range(len(ranges.starts)):
+        if limit >= 0 and len(out) >= limit:
+            return out^
         var cand = seq.zeroed(ranges.starts[i], ranges.ends[i])
         if not is_shortlex_smaller(cand, seq):
+            continue
+        if skipped < offset:
+            skipped += 1
             continue
         out.append(cand^)
     return out^
