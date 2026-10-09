@@ -61,13 +61,14 @@ Tasks in `pixi.toml`:
 | Task | Description |
 |--------|------|
 | `test` | Run all `tests/**/test_*.mojo` files with `mojo run -I src` (returns non-zero if any fail) |
-| `format` | `mojo format src tests` |
+| `format` | `mojo format src tests conda.recipe/test.mojo` |
 | `format-check` | Run `mojo format` on a copy and diff against the working tree (does not modify the index) |
 | `build` | `mojo precompile src/proptest -o proptest.mojoc` (the artifact is gitignored) |
+| `test-consumer` | Precompile into a temporary `lib/mojo` path and run `conda.recipe/test.mojo` |
 
 Supported platforms are `osx-arm64` and `linux-64` (Linux/macOS CI assumptions in ADR-0007).
 
-On pull requests and pushes to `main`, CI (`.github/workflows/ci.yml`) runs `pixi run format-check` and `pixi run test` on both `ubuntu-24.04` and `macos-15` (using `prefix-dev/setup-pixi` with caching enabled).
+On pull requests and pushes to `main`, CI (`.github/workflows/ci.yml`) runs `pixi run format-check` and `pixi run test` on both `ubuntu-24.04` and `macos-15` (using `prefix-dev/setup-pixi` with caching enabled). Tag pushes matching `v*.*.*` run `.github/workflows/publish.yml` to build Mojo `1.1.0` conda packages, upload them to prefix.dev, and create a GitHub Release (ADR-0016).
 
 ## PRNG (`prng.mojo`)
 

@@ -11,6 +11,7 @@
 *.mojopkg
 *.mojoc
 /build/
+/output/
 
 # Example database written by the library at test time
 /.proptest-mojo/

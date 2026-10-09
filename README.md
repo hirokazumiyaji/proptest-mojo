@@ -59,6 +59,22 @@ pixi run mojo run -I src examples/combinators.mojo < /dev/null
 
 The `< /dev/null` redirection keeps execution consistent with CI. Example programs are under [`examples/`](examples/README.md).
 
+## Publishing
+
+Tag pushes matching `v*.*.*` run `.github/workflows/publish.yml`:
+
+1. Build conda packages for `linux-64` and `osx-arm64` with Mojo `1.1.0`
+2. Upload them to the configured prefix.dev channel
+3. Create a GitHub Release (using `docs/releases/<tag>.md` when present)
+
+Before publishing, set repository variable `PREFIX_CHANNEL` and secret `PREFIX_API_KEY`. Keep the tag version aligned with `pixi.toml`, `conda.recipe/recipe.yaml`, and `VERSION` in `src/proptest/__init__.mojo`.
+
+Local package smoke (after `pixi install`):
+
+```sh
+pixi run test-consumer
+```
+
 ## Documentation
 
 - [User guide](docs/guide/README.md): setup, properties, strategies, composition, shrinking, and replay
