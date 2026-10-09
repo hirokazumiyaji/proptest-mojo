@@ -358,9 +358,6 @@ def shrink[
 
         var n = len(best)
         for i in range(n):
-            if evaluations >= max_evaluations:
-                hit_budget = True
-                break
             if best.nodes[i].forced:
                 continue
             if best.nodes[i].value == UInt64(0):
@@ -376,6 +373,9 @@ def shrink[
                 zero_consumed = entries[idx].consumed.copy()
                 zero_spans = entries[idx].spans.copy()
             else:
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
                 evaluations += 1
                 var result = evaluate(trial^)
                 zero_interesting = result.is_interesting
@@ -396,12 +396,11 @@ def shrink[
                 break
             elif zero_interesting and zero_consumed == best:
                 best_spans = zero_spans^
+            if hit_budget:
+                break
             var candidate = UInt64(1)
             var changed = False
             while candidate < current:
-                if evaluations >= max_evaluations:
-                    hit_budget = True
-                    break
                 var probe = best.with_value_at(i, candidate)
                 var pidx = _lookup(entries, slots, probe)
                 var p_interesting = False
@@ -412,6 +411,9 @@ def shrink[
                     p_consumed = entries[pidx].consumed.copy()
                     p_spans = entries[pidx].spans.copy()
                 else:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
                     evaluations += 1
                     var presult = evaluate(probe^)
                     p_interesting = presult.is_interesting
@@ -1012,9 +1014,6 @@ def shrink_with[
 
         var n = len(best)
         for i in range(n):
-            if evaluations >= max_evaluations:
-                hit_budget = True
-                break
             if best.nodes[i].forced:
                 continue
             if best.nodes[i].value == UInt64(0):
@@ -1030,6 +1029,9 @@ def shrink_with[
                 zero_consumed = entries[idx].consumed.copy()
                 zero_spans = entries[idx].spans.copy()
             else:
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
                 evaluations += 1
                 var result = eval_fn(trial^)
                 zero_interesting = result.is_interesting
@@ -1050,12 +1052,11 @@ def shrink_with[
                 break
             elif zero_interesting and zero_consumed == best:
                 best_spans = zero_spans^
+            if hit_budget:
+                break
             var candidate = UInt64(1)
             var changed = False
             while candidate < current:
-                if evaluations >= max_evaluations:
-                    hit_budget = True
-                    break
                 var probe = best.with_value_at(i, candidate)
                 var pidx = _lookup(entries, slots, probe)
                 var p_interesting = False
@@ -1066,6 +1067,9 @@ def shrink_with[
                     p_consumed = entries[pidx].consumed.copy()
                     p_spans = entries[pidx].spans.copy()
                 else:
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
                     evaluations += 1
                     var presult = eval_fn(probe^)
                     p_interesting = presult.is_interesting
