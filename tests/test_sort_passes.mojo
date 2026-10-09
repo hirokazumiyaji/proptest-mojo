@@ -5,7 +5,12 @@ from proptest.choice import (
     Span,
     is_shortlex_smaller,
 )
+from proptest.encoding import decode_sequence
 from proptest.shrink.span_passes import sort_spans, swap_adjacent_spans
+from proptest.strategies.collections import lists
+from proptest.strategies.primitives import integers
+from proptest.strategies.tuples import tuples
+from proptest.testcase import TestCase
 from std.testing import TestSuite, assert_equal, assert_true
 
 comptime _ELEM_LABEL = UInt64(0x6C697374456C656D)
@@ -243,6 +248,112 @@ def test_swap_adjacent_spans_bubble_sorts_order_independent_failure() raises:
             break
         seq = cands[0].copy()
     _assert_values(seq.copy(), UInt64(1), UInt64(2), UInt64(3))
+
+
+def test_sort_spans_uses_recorded_list_enclosing_span() raises:
+    # Real TestCase.draw recordings interleave the enclosing list span
+    # between element siblings in global (start, end) order.
+    var tc = TestCase.replaying(decode_sequence("AQMBAQA="))
+    var drawn = tc.draw(lists(integers(0, 9), min_size=2, max_size=2))
+    assert_equal(len(drawn), 2)
+    assert_equal(drawn[0], 3)
+    assert_equal(drawn[1], 1)
+    var cands = sort_spans(tc.choices.copy(), tc.spans.copy())
+    assert_equal(len(cands), 1)
+    _assert_values(
+        cands[0].copy(), UInt64(1), UInt64(1), UInt64(1), UInt64(3), UInt64(0)
+    )
+    var replay = TestCase.replaying(cands[0].copy())
+    var sorted_list = replay.draw(lists(integers(0, 9), min_size=2, max_size=2))
+    assert_equal(sorted_list[0], 1)
+    assert_equal(sorted_list[1], 3)
+
+
+def test_swap_adjacent_spans_uses_recorded_list_enclosing_span() raises:
+    var tc = TestCase.replaying(decode_sequence("AQMBAQA="))
+    _ = tc.draw(lists(integers(0, 9), min_size=2, max_size=2))
+    var cands = swap_adjacent_spans(tc.choices.copy(), tc.spans.copy())
+    assert_equal(len(cands), 1)
+    _assert_values(
+        cands[0].copy(), UInt64(1), UInt64(1), UInt64(1), UInt64(3), UInt64(0)
+    )
+
+
+def _nested_list_of_pairs_prefix() -> ChoiceSequence:
+    var prefix = ChoiceSequence()
+    # List element 0: forced continue, tuple (3, 0)
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(1), UInt64(1), Bool(True))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(3), UInt64(9), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(0), UInt64(9), Bool(False))
+    )
+    # List element 1: forced continue, tuple (1, 0)
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(1), UInt64(1), Bool(True))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(1), UInt64(9), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(0), UInt64(9), Bool(False))
+    )
+    # Trailing stop
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(0), UInt64(1), Bool(True))
+    )
+    return prefix^
+
+
+def test_sort_spans_uses_recorded_nested_collection_spans() raises:
+    # Nested tuple field spans sit between outer list element siblings in
+    # global (start, end) order and must not split the outer sibling run.
+    # Deepest-first emission may also sort nested fields; one candidate must
+    # reorder the outer list elements.
+    var strategy = lists(
+        tuples(integers(0, 9), integers(0, 9)), min_size=2, max_size=2
+    )
+    var tc = TestCase.replaying(_nested_list_of_pairs_prefix())
+    var drawn = tc.draw(strategy)
+    assert_equal(drawn[0][0], 3)
+    assert_equal(drawn[1][0], 1)
+    var cands = sort_spans(tc.choices.copy(), tc.spans.copy())
+    assert_true(len(cands) >= 1, msg="nested recording must yield candidates")
+    var found_outer = False
+    for i in range(len(cands)):
+        var replay = TestCase.replaying(cands[i].copy())
+        var sorted_list = replay.draw(strategy)
+        if sorted_list[0][0] == 1 and sorted_list[1][0] == 3:
+            found_outer = True
+            break
+    assert_true(
+        found_outer,
+        msg="outer list siblings must sort despite nested field spans",
+    )
+
+
+def test_swap_adjacent_spans_uses_recorded_nested_collection_spans() raises:
+    var strategy = lists(
+        tuples(integers(0, 9), integers(0, 9)), min_size=2, max_size=2
+    )
+    var tc = TestCase.replaying(_nested_list_of_pairs_prefix())
+    _ = tc.draw(strategy)
+    var cands = swap_adjacent_spans(tc.choices.copy(), tc.spans.copy())
+    assert_true(len(cands) >= 1, msg="nested recording must yield swaps")
+    var found_outer = False
+    for i in range(len(cands)):
+        var replay = TestCase.replaying(cands[i].copy())
+        var swapped = replay.draw(strategy)
+        if swapped[0][0] == 1 and swapped[1][0] == 3:
+            found_outer = True
+            break
+    assert_true(
+        found_outer,
+        msg="outer list siblings must swap despite nested field spans",
+    )
 
 
 def main() raises:
