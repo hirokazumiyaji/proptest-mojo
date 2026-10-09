@@ -453,7 +453,12 @@ def zero_spans(
     return out^
 
 
-def sort_spans(seq: ChoiceSequence, spans: List[Span]) -> List[ChoiceSequence]:
+def sort_spans(
+    seq: ChoiceSequence,
+    spans: List[Span],
+    limit: Int = -1,
+    offset: Int = 0,
+) -> List[ChoiceSequence]:
     """Fully-sorted candidates, one per sibling run, deepest-first.
 
     Each maximal run of adjacent spans sharing one label, depth, and
@@ -461,7 +466,8 @@ def sort_spans(seq: ChoiceSequence, spans: List[Span]) -> List[ChoiceSequence]:
     ascending lexicographic order. Reordering preserves the length, so
     only strictly shortlex-smaller candidates are returned; already-sorted
     runs contribute nothing. Whole `ChoiceNode`s move, hence `forced`
-    values survive at their new positions.
+    values survive at their new positions. `limit`/`offset` bound eager
+    materialization the same way as the other enumeration passes.
     """
     var out = List[ChoiceSequence]()
     var n = len(seq)
@@ -471,7 +477,10 @@ def sort_spans(seq: ChoiceSequence, spans: List[Span]) -> List[ChoiceSequence]:
     var runs = _collect_sibling_runs(sorted)
     var order = _order_run_indices(runs, sorted)
     var values = seq.values()
+    var skipped = 0
     for k in range(len(order)):
+        if limit >= 0 and len(out) >= limit:
+            return out^
         var run = runs[order[k]].copy()
         var perm = _run_sort_order(values, sorted, run)
         if _is_identity(perm):
@@ -479,12 +488,18 @@ def sort_spans(seq: ChoiceSequence, spans: List[Span]) -> List[ChoiceSequence]:
         var cand = _splice_run(seq, sorted, run, perm^)
         if not is_shortlex_smaller(cand, seq):
             continue
+        if skipped < offset:
+            skipped += 1
+            continue
         out.append(cand^)
     return out^
 
 
 def swap_adjacent_spans(
-    seq: ChoiceSequence, spans: List[Span]
+    seq: ChoiceSequence,
+    spans: List[Span],
+    limit: Int = -1,
+    offset: Int = 0,
 ) -> List[ChoiceSequence]:
     """Adjacent-swap candidates, deepest-run-first then leftmost-first.
 
@@ -492,7 +507,9 @@ def swap_adjacent_spans(
     with its two blocks exchanged, so partially-ordered inputs descend
     one bubble-sort step at a time. Reordering preserves the length, so
     only strictly shortlex-smaller candidates are returned; swaps of
-    equal blocks or uphill swaps contribute nothing.
+    equal blocks or uphill swaps contribute nothing. `limit`/`offset`
+    bound eager materialization the same way as the other enumeration
+    passes.
     """
     var out = List[ChoiceSequence]()
     var n = len(seq)
@@ -501,15 +518,21 @@ def swap_adjacent_spans(
     var sorted = _valid_spans_sorted(spans, n)
     var runs = _collect_sibling_runs(sorted)
     var order = _order_run_indices(runs, sorted)
+    var skipped = 0
     for k in range(len(order)):
         var run = runs[order[k]].copy()
         for j in range(run.count() - 1):
+            if limit >= 0 and len(out) >= limit:
+                return out^
             var cand = _splice_swap(
                 seq,
                 sorted[run.indices[j]].span,
                 sorted[run.indices[j + 1]].span,
             )
             if not is_shortlex_smaller(cand, seq):
+                continue
+            if skipped < offset:
+                skipped += 1
                 continue
             out.append(cand^)
     return out^

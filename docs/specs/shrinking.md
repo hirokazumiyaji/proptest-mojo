@@ -55,8 +55,8 @@ Apply passes in order and restart from the first pass whenever one improves the 
 | `minimize_individual` | Adaptive | Replace each choice with 0, then enumerate smaller values in increasing order | `x = 1000` → `x = 101` | M1 |
 | `delete_spans` | Enumeration | Delete whole spans, starting with deeper spans | Remove a list element | M3 |
 | `zero_spans` | Enumeration | Set every choice in a span to 0 | Simplify an element to its simplest value | M3 |
-| `sort_spans` | Enumeration | Sort sibling spans with the same label, depth, and immediate parent by their choice sequences. Sibling runs ignore enclosing and nested spans that interleave them in global `(start, end)` order | `[3, 1, 2]` → `[1, 2, 3]` | M3 |
-| `swap_adjacent_spans` | Enumeration | Swap adjacent spans with the same label, using the same sibling grouping as `sort_spans` | Partial reordering | M3 |
+| `sort_spans` | Enumeration | Sort sibling spans with the same label, depth, and immediate parent by their choice sequences. Sibling runs ignore enclosing and nested spans that interleave them in global `(start, end)` order. Accepts `limit`/`offset` so the shrink loop pages by remaining evaluations | `[3, 1, 2]` → `[1, 2, 3]` | M3 |
+| `swap_adjacent_spans` | Enumeration | Swap adjacent spans with the same label, using the same sibling grouping and pagination as `sort_spans` | Partial reordering | M3 |
 | `redistribute` | Adaptive | Decrease one of two integer choices while increasing the other | Reduce `x + y > 10` to `x = 0, y = 11` | M3 |
 | `lower_duplicates` | Adaptive | Lower multiple choices with identical values together | Counterexamples that require `x == y` | M3 |
 | `simplify_floats` | Adaptive | Simplify floating-point choices toward integers and simple fractions | `1.3927...` → `1.0` | M3 |
