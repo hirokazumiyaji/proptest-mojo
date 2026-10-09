@@ -499,7 +499,10 @@ def shrink[
                     if nxt <= step:
                         break
                     step = nxt
-                if hit_budget or (changed and i >= len(best)):
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
                     break
                 # Ascending fill between geometric gaps for non-monotone islands.
                 var fill = UInt64(1)
@@ -546,7 +549,10 @@ def shrink[
                         best_spans = f_spans^
                         break
                     fill += UInt64(1)
-                if hit_budget or (changed and i >= len(best)):
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
                     break
                 var probes = float_fraction_probes(current)
                 for pi in range(len(probes)):
@@ -587,7 +593,10 @@ def shrink[
                         current = best.nodes[i].value
                     elif p_interesting and p_consumed == best:
                         best_spans = p_spans^
-                if hit_budget or (changed and i >= len(best)):
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
                     break
                 var hi = current
                 var lo = UInt64(0)
@@ -1388,7 +1397,10 @@ def shrink_with[
                     if nxt <= step:
                         break
                     step = nxt
-                if hit_budget or (changed and i >= len(best)):
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
                     break
                 # Ascending fill between geometric gaps for non-monotone islands.
                 var fill = UInt64(1)
@@ -1435,7 +1447,10 @@ def shrink_with[
                         best_spans = f_spans^
                         break
                     fill += UInt64(1)
-                if hit_budget or (changed and i >= len(best)):
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
                     break
                 var probes = float_fraction_probes(current)
                 for pi in range(len(probes)):
@@ -1476,7 +1491,10 @@ def shrink_with[
                         current = best.nodes[i].value
                     elif p_interesting and p_consumed == best:
                         best_spans = p_spans^
-                if hit_budget or (changed and i >= len(best)):
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
                     break
                 var hi = current
                 var lo = UInt64(0)

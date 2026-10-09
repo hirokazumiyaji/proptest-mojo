@@ -275,19 +275,29 @@ def test_shrink_prefers_unit_before_fractions_on_tight_budget() raises:
     assert_equal(runtime.best[0].value, UInt64(1))
 
 
-def _eval_interesting_empty_prefix(seq: ChoiceSequence) -> Evaluation:
-    _ = seq
-    return Evaluation(True, ChoiceSequence())
+def _eval_flaky_before_nonzero_float(seq: ChoiceSequence) -> Evaluation:
+    # Zero stays uninteresting so the float path runs; nonzero probes fail
+    # before the draw and return an empty interesting prefix.
+    if len(seq) == 0:
+        return Evaluation(True, seq.copy())
+    for i in range(len(seq)):
+        if seq.nodes[i].kind == ChoiceKind.FLOAT:
+            if seq.nodes[i].value == UInt64(0):
+                return Evaluation(False, seq.copy())
+            return Evaluation(True, ChoiceSequence())
+    return Evaluation(False, seq.copy())
 
 
 def test_shrink_float_shorter_prefix_does_not_crash() raises:
     var start = _float_seq(float_to_lex(2.0))
-    var result = shrink[_eval_interesting_empty_prefix](start.copy(), 5000)
+    var result = shrink[_eval_flaky_before_nonzero_float](start.copy(), 5000)
     assert_equal(len(result.best), 0)
+    assert_true(not result.hit_budget, msg="must finish after adopting empty")
     var runtime = shrink_with(
-        _eval_interesting_empty_prefix, start.copy(), 5000
+        _eval_flaky_before_nonzero_float, start.copy(), 5000
     )
     assert_equal(len(runtime.best), 0)
+    assert_true(not runtime.hit_budget, msg="shrink_with must finish")
 
 
 def _eval_div_assoc(seq: ChoiceSequence) -> Evaluation:
