@@ -23,11 +23,10 @@ from proptest.shrink.span_passes import (
     zero_spans,
 )
 
-# Ascending fill after geometric probes. When `current` is at most
-# FLOAT_FULL_ASCEND_MAX, fill the entire 1..current-1 range (cheap and
-# matches the old loop for small codes). Larger currents keep a short
-# gap fill so fraction/binary search can still reach ordinary thresholds.
-comptime FLOAT_GAP_FILL_BOUND = UInt64(256)
+# Ascending fill after geometric probes. Always explore 1..min(current-1,
+# FLOAT_FULL_ASCEND_MAX) so non-monotone subnormal islands remain reachable
+# from large starting codes, while leaving budget for fraction/binary search
+# on ordinary magnitude thresholds.
 comptime FLOAT_FULL_ASCEND_MAX = UInt64(4096)
 
 
@@ -508,11 +507,12 @@ def shrink[
                     improved = True
                     break
                 # Ascending fill between geometric gaps for non-monotone islands.
-                var fill_cap = FLOAT_GAP_FILL_BOUND
-                if current <= FLOAT_FULL_ASCEND_MAX:
-                    fill_cap = current
                 var fill = UInt64(1)
-                while fill < current and fill <= fill_cap and i < len(best):
+                while (
+                    fill < current
+                    and fill <= FLOAT_FULL_ASCEND_MAX
+                    and i < len(best)
+                ):
                     var fprobe = best.with_value_at(i, fill)
                     var fidx = _lookup(entries, slots, fprobe)
                     var f_interesting = False
@@ -1405,11 +1405,12 @@ def shrink_with[
                     improved = True
                     break
                 # Ascending fill between geometric gaps for non-monotone islands.
-                var fill_cap = FLOAT_GAP_FILL_BOUND
-                if current <= FLOAT_FULL_ASCEND_MAX:
-                    fill_cap = current
                 var fill = UInt64(1)
-                while fill < current and fill <= fill_cap and i < len(best):
+                while (
+                    fill < current
+                    and fill <= FLOAT_FULL_ASCEND_MAX
+                    and i < len(best)
+                ):
                     var fprobe = best.with_value_at(i, fill)
                     var fidx = _lookup(entries, slots, fprobe)
                     var f_interesting = False

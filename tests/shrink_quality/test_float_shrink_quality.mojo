@@ -39,5 +39,17 @@ def test_scaled_div_assoc_shrinks_past_gap_fill_bound() raises:
     assert_true(not runtime.hit_budget, msg="shrink_with must finish in budget")
 
 
+def test_scaled_div_assoc_from_above_full_ascend_max() raises:
+    # Starting above FLOAT_FULL_ASCEND_MAX must still find code 257 via the
+    # bounded ascending fill rather than stopping at the original magnitude.
+    var start = _float_seq(UInt64(4353))
+    var result = shrink[_eval_scaled_div_assoc](start.copy(), 5000)
+    assert_equal(result.best[0].value, UInt64(257))
+    assert_true(not result.hit_budget, msg="must finish within budget")
+    var runtime = shrink_with(_eval_scaled_div_assoc, start.copy(), 5000)
+    assert_equal(runtime.best[0].value, UInt64(257))
+    assert_true(not runtime.hit_budget, msg="shrink_with must finish in budget")
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

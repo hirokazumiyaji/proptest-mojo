@@ -181,8 +181,8 @@ def test_shrink_nan_code_terminates_without_hang() raises:
     assert_true(isnan(lex_to_float(result.best[0].value)))
     assert_true(not result.hit_budget, msg="must finish within budget")
     assert_true(
-        result.evaluations < 1000,
-        msg="safe search should finish well under budget, got "
+        result.evaluations < 5000,
+        msg="safe search must not exhaust the default budget, got "
         + String(result.evaluations),
     )
 
