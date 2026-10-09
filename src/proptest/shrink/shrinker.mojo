@@ -14,6 +14,7 @@ from proptest.choice import (
     Span,
     is_shortlex_smaller,
 )
+from proptest.shrink.float_passes import float_fraction_probes
 from proptest.shrink.passes import delete_chunks, zero_chunks
 from proptest.shrink.span_passes import (
     delete_spans,
@@ -21,6 +22,12 @@ from proptest.shrink.span_passes import (
     swap_adjacent_spans,
     zero_spans,
 )
+
+# Ascending fill after geometric probes. Always explore 1..min(current-1,
+# FLOAT_FULL_ASCEND_MAX) so non-monotone subnormal islands remain reachable
+# from large starting codes, while leaving budget for fraction/binary search
+# on ordinary magnitude thresholds.
+comptime FLOAT_FULL_ASCEND_MAX = UInt64(4096)
 
 
 def _clip_spans(spans: List[Span], max_len: Int) -> List[Span]:
@@ -398,8 +405,251 @@ def shrink[
                 best_spans = zero_spans^
             if hit_budget:
                 break
-            var candidate = UInt64(1)
             var changed = False
+            if best.nodes[i].kind == ChoiceKind.FLOAT:
+                # Float-aware path: geometric probes, gap fill, fractions,
+                # then binary search. Restart when a shorter consumed prefix
+                # removes index `i` (flaky failures before this draw).
+                var geo_lo = UInt64(0)
+                var step = UInt64(1)
+                while step < current:
+                    var gprobe = best.with_value_at(i, step)
+                    var gidx = _lookup(entries, slots, gprobe)
+                    var g_interesting = False
+                    var g_consumed = gprobe.copy()
+                    var g_spans = best_spans.copy()
+                    if gidx >= 0:
+                        g_interesting = entries[gidx].is_interesting
+                        g_consumed = entries[gidx].consumed.copy()
+                        g_spans = entries[gidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var gresult = evaluate(gprobe^)
+                        g_interesting = gresult.is_interesting
+                        g_consumed = gresult.consumed.copy()
+                        g_spans = gresult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            gprobe,
+                            g_interesting,
+                            g_consumed,
+                            g_spans,
+                        )
+                    if g_interesting and is_shortlex_smaller(g_consumed, best):
+                        best = g_consumed^
+                        best_spans = g_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
+                        var g_hi = current
+                        var g_lo = geo_lo
+                        while g_hi - g_lo > UInt64(1):
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            var g_mid = g_lo + (g_hi - g_lo) // UInt64(2)
+                            var mprobe = best.with_value_at(i, g_mid)
+                            var midx = _lookup(entries, slots, mprobe)
+                            var m_interesting = False
+                            var m_consumed = mprobe.copy()
+                            var m_spans = best_spans.copy()
+                            if midx >= 0:
+                                m_interesting = entries[midx].is_interesting
+                                m_consumed = entries[midx].consumed.copy()
+                                m_spans = entries[midx].spans.copy()
+                            else:
+                                evaluations += 1
+                                var mresult = evaluate(mprobe^)
+                                m_interesting = mresult.is_interesting
+                                m_consumed = mresult.consumed.copy()
+                                m_spans = mresult.spans.copy()
+                                _append_cache_entry(
+                                    entries,
+                                    slots,
+                                    mprobe,
+                                    m_interesting,
+                                    m_consumed,
+                                    m_spans,
+                                )
+                            if m_interesting and is_shortlex_smaller(
+                                m_consumed, best
+                            ):
+                                best = m_consumed^
+                                best_spans = m_spans^
+                                changed = True
+                                if i >= len(best):
+                                    break
+                                g_hi = g_mid
+                                current = g_mid
+                            elif m_interesting and m_consumed == best:
+                                best_spans = m_spans^
+                                g_hi = g_mid
+                            else:
+                                g_lo = g_mid
+                        break
+                    elif g_interesting and g_consumed == best:
+                        best_spans = g_spans^
+                        break
+                    else:
+                        geo_lo = step
+                    var nxt = step * UInt64(2)
+                    if nxt <= step:
+                        break
+                    step = nxt
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
+                    break
+                # Ascending fill between geometric gaps for non-monotone islands.
+                var fill = UInt64(1)
+                while (
+                    fill < current
+                    and fill <= FLOAT_FULL_ASCEND_MAX
+                    and i < len(best)
+                ):
+                    var fprobe = best.with_value_at(i, fill)
+                    var fidx = _lookup(entries, slots, fprobe)
+                    var f_interesting = False
+                    var f_consumed = fprobe.copy()
+                    var f_spans = best_spans.copy()
+                    if fidx >= 0:
+                        f_interesting = entries[fidx].is_interesting
+                        f_consumed = entries[fidx].consumed.copy()
+                        f_spans = entries[fidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var fresult = evaluate(fprobe^)
+                        f_interesting = fresult.is_interesting
+                        f_consumed = fresult.consumed.copy()
+                        f_spans = fresult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            fprobe,
+                            f_interesting,
+                            f_consumed,
+                            f_spans,
+                        )
+                    if f_interesting and is_shortlex_smaller(f_consumed, best):
+                        best = f_consumed^
+                        best_spans = f_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
+                        break
+                    elif f_interesting and f_consumed == best:
+                        best_spans = f_spans^
+                        break
+                    fill += UInt64(1)
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
+                    break
+                var probes = float_fraction_probes(current)
+                for pi in range(len(probes)):
+                    if i >= len(best):
+                        break
+                    var probe = best.with_value_at(i, probes[pi])
+                    var pidx = _lookup(entries, slots, probe)
+                    var p_interesting = False
+                    var p_consumed = probe.copy()
+                    var p_spans = best_spans.copy()
+                    if pidx >= 0:
+                        p_interesting = entries[pidx].is_interesting
+                        p_consumed = entries[pidx].consumed.copy()
+                        p_spans = entries[pidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var presult = evaluate(probe^)
+                        p_interesting = presult.is_interesting
+                        p_consumed = presult.consumed.copy()
+                        p_spans = presult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            probe,
+                            p_interesting,
+                            p_consumed,
+                            p_spans,
+                        )
+                    if p_interesting and is_shortlex_smaller(p_consumed, best):
+                        best = p_consumed^
+                        best_spans = p_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
+                    elif p_interesting and p_consumed == best:
+                        best_spans = p_spans^
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
+                    break
+                var hi = current
+                var lo = UInt64(0)
+                while hi - lo > UInt64(1) and i < len(best):
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
+                    var mid = lo + (hi - lo) // UInt64(2)
+                    var probe = best.with_value_at(i, mid)
+                    var pidx = _lookup(entries, slots, probe)
+                    var p_interesting = False
+                    var p_consumed = probe.copy()
+                    var p_spans = best_spans.copy()
+                    if pidx >= 0:
+                        p_interesting = entries[pidx].is_interesting
+                        p_consumed = entries[pidx].consumed.copy()
+                        p_spans = entries[pidx].spans.copy()
+                    else:
+                        evaluations += 1
+                        var presult = evaluate(probe^)
+                        p_interesting = presult.is_interesting
+                        p_consumed = presult.consumed.copy()
+                        p_spans = presult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            probe,
+                            p_interesting,
+                            p_consumed,
+                            p_spans,
+                        )
+                    if p_interesting and is_shortlex_smaller(p_consumed, best):
+                        best = p_consumed^
+                        best_spans = p_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
+                        hi = mid
+                        current = mid
+                    elif p_interesting and p_consumed == best:
+                        best_spans = p_spans^
+                        hi = mid
+                    else:
+                        lo = mid
+                if hit_budget:
+                    break
+                if changed:
+                    improved = True
+                    break
+                continue
+            var candidate = UInt64(1)
             while candidate < current:
                 var probe = best.with_value_at(i, candidate)
                 var pidx = _lookup(entries, slots, probe)
@@ -1054,8 +1304,250 @@ def shrink_with[
                 best_spans = zero_spans^
             if hit_budget:
                 break
-            var candidate = UInt64(1)
             var changed = False
+            if best.nodes[i].kind == ChoiceKind.FLOAT:
+                # Float-aware path: same geometric / gap-fill / fraction /
+                # binary search order as `shrink`. Restart on shorter prefixes.
+                var geo_lo = UInt64(0)
+                var step = UInt64(1)
+                while step < current:
+                    var gprobe = best.with_value_at(i, step)
+                    var gidx = _lookup(entries, slots, gprobe)
+                    var g_interesting = False
+                    var g_consumed = gprobe.copy()
+                    var g_spans = best_spans.copy()
+                    if gidx >= 0:
+                        g_interesting = entries[gidx].is_interesting
+                        g_consumed = entries[gidx].consumed.copy()
+                        g_spans = entries[gidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var gresult = eval_fn(gprobe^)
+                        g_interesting = gresult.is_interesting
+                        g_consumed = gresult.consumed.copy()
+                        g_spans = gresult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            gprobe,
+                            g_interesting,
+                            g_consumed,
+                            g_spans,
+                        )
+                    if g_interesting and is_shortlex_smaller(g_consumed, best):
+                        best = g_consumed^
+                        best_spans = g_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
+                        var g_hi = current
+                        var g_lo = geo_lo
+                        while g_hi - g_lo > UInt64(1):
+                            if evaluations >= max_evaluations:
+                                hit_budget = True
+                                break
+                            var g_mid = g_lo + (g_hi - g_lo) // UInt64(2)
+                            var mprobe = best.with_value_at(i, g_mid)
+                            var midx = _lookup(entries, slots, mprobe)
+                            var m_interesting = False
+                            var m_consumed = mprobe.copy()
+                            var m_spans = best_spans.copy()
+                            if midx >= 0:
+                                m_interesting = entries[midx].is_interesting
+                                m_consumed = entries[midx].consumed.copy()
+                                m_spans = entries[midx].spans.copy()
+                            else:
+                                evaluations += 1
+                                var mresult = eval_fn(mprobe^)
+                                m_interesting = mresult.is_interesting
+                                m_consumed = mresult.consumed.copy()
+                                m_spans = mresult.spans.copy()
+                                _append_cache_entry(
+                                    entries,
+                                    slots,
+                                    mprobe,
+                                    m_interesting,
+                                    m_consumed,
+                                    m_spans,
+                                )
+                            if m_interesting and is_shortlex_smaller(
+                                m_consumed, best
+                            ):
+                                best = m_consumed^
+                                best_spans = m_spans^
+                                changed = True
+                                if i >= len(best):
+                                    break
+                                g_hi = g_mid
+                                current = g_mid
+                            elif m_interesting and m_consumed == best:
+                                best_spans = m_spans^
+                                g_hi = g_mid
+                            else:
+                                g_lo = g_mid
+                        break
+                    elif g_interesting and g_consumed == best:
+                        best_spans = g_spans^
+                        break
+                    else:
+                        geo_lo = step
+                    var nxt = step * UInt64(2)
+                    if nxt <= step:
+                        break
+                    step = nxt
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
+                    break
+                # Ascending fill between geometric gaps for non-monotone islands.
+                var fill = UInt64(1)
+                while (
+                    fill < current
+                    and fill <= FLOAT_FULL_ASCEND_MAX
+                    and i < len(best)
+                ):
+                    var fprobe = best.with_value_at(i, fill)
+                    var fidx = _lookup(entries, slots, fprobe)
+                    var f_interesting = False
+                    var f_consumed = fprobe.copy()
+                    var f_spans = best_spans.copy()
+                    if fidx >= 0:
+                        f_interesting = entries[fidx].is_interesting
+                        f_consumed = entries[fidx].consumed.copy()
+                        f_spans = entries[fidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var fresult = eval_fn(fprobe^)
+                        f_interesting = fresult.is_interesting
+                        f_consumed = fresult.consumed.copy()
+                        f_spans = fresult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            fprobe,
+                            f_interesting,
+                            f_consumed,
+                            f_spans,
+                        )
+                    if f_interesting and is_shortlex_smaller(f_consumed, best):
+                        best = f_consumed^
+                        best_spans = f_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
+                        break
+                    elif f_interesting and f_consumed == best:
+                        best_spans = f_spans^
+                        break
+                    fill += UInt64(1)
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
+                    break
+                var probes = float_fraction_probes(current)
+                for pi in range(len(probes)):
+                    if i >= len(best):
+                        break
+                    var probe = best.with_value_at(i, probes[pi])
+                    var pidx = _lookup(entries, slots, probe)
+                    var p_interesting = False
+                    var p_consumed = probe.copy()
+                    var p_spans = best_spans.copy()
+                    if pidx >= 0:
+                        p_interesting = entries[pidx].is_interesting
+                        p_consumed = entries[pidx].consumed.copy()
+                        p_spans = entries[pidx].spans.copy()
+                    else:
+                        if evaluations >= max_evaluations:
+                            hit_budget = True
+                            break
+                        evaluations += 1
+                        var presult = eval_fn(probe^)
+                        p_interesting = presult.is_interesting
+                        p_consumed = presult.consumed.copy()
+                        p_spans = presult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            probe,
+                            p_interesting,
+                            p_consumed,
+                            p_spans,
+                        )
+                    if p_interesting and is_shortlex_smaller(p_consumed, best):
+                        best = p_consumed^
+                        best_spans = p_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
+                        current = best.nodes[i].value
+                    elif p_interesting and p_consumed == best:
+                        best_spans = p_spans^
+                if hit_budget:
+                    break
+                if changed and i >= len(best):
+                    improved = True
+                    break
+                var hi = current
+                var lo = UInt64(0)
+                while hi - lo > UInt64(1) and i < len(best):
+                    if evaluations >= max_evaluations:
+                        hit_budget = True
+                        break
+                    var mid = lo + (hi - lo) // UInt64(2)
+                    var probe = best.with_value_at(i, mid)
+                    var pidx = _lookup(entries, slots, probe)
+                    var p_interesting = False
+                    var p_consumed = probe.copy()
+                    var p_spans = best_spans.copy()
+                    if pidx >= 0:
+                        p_interesting = entries[pidx].is_interesting
+                        p_consumed = entries[pidx].consumed.copy()
+                        p_spans = entries[pidx].spans.copy()
+                    else:
+                        evaluations += 1
+                        var presult = eval_fn(probe^)
+                        p_interesting = presult.is_interesting
+                        p_consumed = presult.consumed.copy()
+                        p_spans = presult.spans.copy()
+                        _append_cache_entry(
+                            entries,
+                            slots,
+                            probe,
+                            p_interesting,
+                            p_consumed,
+                            p_spans,
+                        )
+                    if p_interesting and is_shortlex_smaller(p_consumed, best):
+                        best = p_consumed^
+                        best_spans = p_spans^
+                        changed = True
+                        if i >= len(best):
+                            break
+                        hi = mid
+                        current = mid
+                    elif p_interesting and p_consumed == best:
+                        best_spans = p_spans^
+                        hi = mid
+                    else:
+                        lo = mid
+                if hit_budget:
+                    break
+                if changed:
+                    improved = True
+                    break
+                continue
+            var candidate = UInt64(1)
             while candidate < current:
                 var probe = best.with_value_at(i, candidate)
                 var pidx = _lookup(entries, slots, probe)
