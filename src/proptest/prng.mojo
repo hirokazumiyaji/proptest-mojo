@@ -97,6 +97,16 @@ struct Xoshiro256StarStar(Copyable, Movable):
         var mantissa = self.next_u64() >> UInt64(11)
         return Float64(mantissa) * FLOAT_SCALE
 
+    def next_at_most(mut self, max_value: UInt64) raises -> UInt64:
+        """Unbiased integer in `[0, max_value]`.
+
+        Avoids the overflow in `next_below(max_value + 1)` when
+        `max_value == UInt64.MAX`.
+        """
+        if max_value == UInt64(0xFFFFFFFFFFFFFFFF):
+            return self.next_u64()
+        return self.next_below(max_value + UInt64(1))
+
 
 def derive(run_seed: UInt64, index: UInt64) -> Xoshiro256StarStar:
     """Purely derive a per-example PRNG from `(run_seed, example_index)`.

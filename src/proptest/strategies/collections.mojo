@@ -6,7 +6,9 @@ Implements the collection rows of `docs/specs/strategies.md`
 Each element draws a continue flag inside its own span, so span deletion
 removes one element. Bounds use `forced_integer`, keeping them out of
 shrinking. Smaller choices yield shorter lists of simpler elements;
-all-zero choices draw `min_size` minimal elements.
+all-zero choices draw `min_size` minimal elements. The continue
+probability scales with `tc.size_scale()`, so early examples draw
+shorter lists; replay reuses recorded flags and ignores the scale.
 """
 
 from std.math import max, min
@@ -34,9 +36,7 @@ struct ListOf[E: Strategy](Strategy):
     var average_size: Float64
 
     def span_label(self) -> UInt64:
-        # Propagated: this wrapper draws what its inner
-        # strategy draws, so the blocks are interchangeable.
-        return self.elements.span_label()
+        return kind_label("lists")
 
     def draw(self, mut tc: TestCase) raises -> List[Self.E.Value]:
         # Validated here too: `ListOf` is re-exported, so `@fieldwise_init`
@@ -48,8 +48,12 @@ struct ListOf[E: Strategy](Strategy):
             raise Error("lists: max_size must be >= min_size")
         var out = List[Self.E.Value]()
         var p_continue: Float64 = 0.0
-        if self.average_size > 0.0:
-            p_continue = self.average_size / (1.0 + self.average_size)
+        var optional_average = (
+            max(self.average_size - Float64(self.min_size), 0.0)
+            * tc.size_scale()
+        )
+        if optional_average > 0.0:
+            p_continue = optional_average / (1.0 + optional_average)
         while True:
             tc.start_span(_LIST_ELEMENT_LABEL)
             try:
@@ -86,7 +90,8 @@ def lists[
 
     Each element draws a continue flag inside its own span; the flag is
     forced to 1 below `min_size` and to 0 at `max_size`. The continue
-    probability is `average_size / (1 + average_size)`; a negative
+    optional suffix has mean `max(average_size - min_size, 0)`, with
+    continuation probability `suffix / (1 + suffix)`. A negative
     `average_size` selects the spec default
     `min(max(min_size * 2, min_size + 5), (min_size + max_size) / 2)`.
     All-zero choices draw `min_size` minimal elements. Raises when the

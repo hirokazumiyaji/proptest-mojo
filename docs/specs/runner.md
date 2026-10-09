@@ -47,6 +47,12 @@ def main() raises:
 
 環境変数 `PROPTEST_MAX_EXAMPLES` と `PROPTEST_SEED` は、`Settings` の既定値を上書きする（CI で回数を増やす用途）。コードで明示した値が優先される。
 
+`max_examples` はコンストラクタで `Optional[Int]` として受け取り、明示されたかどうか（`max_examples_set`）を値とは別に保持する。既定値 100 との一致で「省略された」と判定すると、`Settings(max_examples=100)` が環境変数で上書きされてしまうため。
+
+`max_examples` は正の値に限る。0 以下では生成ループの条件が偽のままで property が一度も実行されず、テストが黙って成功してしまうため、`effective_max_examples` が検証して `Error` にする（コンストラクタではなく。`for_all` の既定引数 `Settings()` から raise できないため）。`PROPTEST_MAX_EXAMPLES` も同様。
+
+`PROPTEST_SEED` は `UInt64` として桁ごとに読む。符号付き `Int` を経由すると `Int.MAX` より大きい（報告される seed の半分の範囲）正当な seed を拒否してしまう。範囲外や数値でない値は `Error` にする。
+
 ## フェーズ
 
 ```text
@@ -64,6 +70,12 @@ def main() raises:
 
 - **端値の優先**: 生成モードの `draw_integer` は、一定の確率で `0`・`1`・`max_value`・`max_value - 1` などの端値を返す。追加の選択を消費しないため、縮小に影響しない。
 - **サイズの漸増**: 序盤の example ほどコレクションの平均長を小さくし、単純な反例を早く見つける。
+
+### 標的生成（M5）
+
+- `tc.target(score)` を呼ぶと、その実行の最高スコアが記録される（NaN と無限大は無視）。
+- ランナーは `VALID` な実行の最高スコア選択列を保持し、`VALID` が `max_examples` の半数に達した後の生成では、その選択列の変異体（各非 `forced` 選択を確率 0.1 で一様に置き換え、少なくとも 1 箇所は変異）を `derive(seed, attempt)` の PRNG で作って再生する。
+- `target` を使わない実行の生成経路・再現性は変わらない。
 
 ## ヘルスチェック（M4）
 
@@ -94,4 +106,4 @@ Reproduce with: Settings(replay="AAECAQ==")
 - `settings.name` が空でなければ、縮小後の選択列を `{database_dir}/{sha256(name)の先頭16桁}/{選択列のハッシュ}` に保存する。
 - 次回の実行では、生成の前にそのディレクトリ内の選択列をすべて再生する。`INTERESTING` でなくなったものは削除する。
 - `.proptest-mojo/` はユーザーのリポジトリで `.gitignore` するか、回帰テストとしてコミットするかを選べる。
-- `name` の既定値を呼び出し位置から自動で導出できるか（Mojo の `call_location` 相当の機能の有無）は M4 で調査する。
+- `name` は呼び出し側が明示指定する。呼び出し位置からの自動導出は、Mojo 1.2.0.dev2026092605 の stdlib に `call_location` 相当の機能がないため行わない（[ADR-0011](../adr/0011-example-database-persistence.md)）。

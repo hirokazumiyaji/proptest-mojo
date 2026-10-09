@@ -39,17 +39,16 @@ Pure Mojo で、Python の Hypothesis と Rust の proptest に匹敵する Prop
 | 文字列・バイト列 | `text`, `binary` | 正規表現, `vec(u8)` | `text`, `bytes` | Planned (M2) |
 | コレクション | `lists`, `sets`, `dictionaries` | `vec`, `hash_set`, `hash_map` | `lists`, `unique_lists`, `dicts` | Planned (M2) |
 | タプル・Optional | `tuples`, `none() \| x` | タプル, `option::of` | `tuples`, `optionals` | Planned (M2) |
-| 選択 | `one_of`, `sampled_from`, `just` | `prop_oneof!`, `select`, `Just` | `just` | Implemented (M1) |
-| 選択（複数候補） | `one_of`, `sampled_from` | `prop_oneof!`, `select` | `one_of`, `sampled_from` | Planned (M2) |
+| 選択 | `one_of`, `sampled_from`, `just` | `prop_oneof!`, `select`, `Just` | `just`, `one_of`, `sampled_from` | Implemented (M1) |
 | 変換 | `.map`, `.filter`, `.flatmap` | `prop_map`, `prop_filter`, `prop_flat_map` | `map[f]`, `filter[p]`, `flat_map[f]` | Planned (M2) |
 | 合成 | `@composite`, `data()` | `prop_compose!` | 合成 Strategy struct、`tc.draw` | Implemented (M1) |
 | 前提条件 | `assume` | `prop_assume!` | `tc.assume` | Implemented (M1) |
-| 縮小 | 内部縮小 | 値ツリー | 内部縮小 | Planned (M1, M3) |
+| 縮小 | 内部縮小 | 値ツリー | 内部縮小 | M1 実装済み、M3 は計画中 |
 | 端値の優先生成 | あり | 一部 | あり | Planned (M4) |
-| 再現 | `@seed`, `@reproduce_failure` | 失敗の永続化ファイル | `Settings(seed=...)`, `Settings(replay=...)` | Planned (M4) |
-| 反例の永続化 | example database | `proptest-regressions/` | example database | Planned (M4) |
+| 再現 | `@seed`, `@reproduce_failure` | 失敗の永続化ファイル | `Settings(seed=...)`, `Settings(replay=...)` | Implemented (M4) |
+| 反例の永続化 | example database | `proptest-regressions/` | example database | Implemented (M4) |
 | ヘルスチェック | あり | 一部 | あり | Planned (M4) |
-| 状態機械テスト | `RuleBasedStateMachine` | `proptest-state-machine` | `StateMachine` トレイト | Planned (M5) |
+| 状態機械テスト | `RuleBasedStateMachine` | `proptest-state-machine` | `StateMachine` トレイト | Implemented (M5) |
 | 再帰的データ | `recursive` | `prop_recursive` | 調査中 | Planned (M5) |
 | 型からの導出 | `from_type` | `Arbitrary` | `Arbitrary` トレイト | Planned (M5) |
 | Targeted PBT | `target` | なし | `tc.target` | Planned (M5) |
