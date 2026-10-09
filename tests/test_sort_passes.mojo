@@ -8,7 +8,7 @@ from proptest.choice import (
 from proptest.encoding import decode_sequence
 from proptest.shrink.span_passes import sort_spans, swap_adjacent_spans
 from proptest.strategies.collections import lists
-from proptest.strategies.primitives import booleans, integers
+from proptest.strategies.primitives import booleans, integers, just
 from proptest.strategies.tuples import optionals, tuples
 from proptest.testcase import TestCase
 from std.testing import TestSuite, assert_equal, assert_true
@@ -353,6 +353,29 @@ def test_swap_adjacent_spans_uses_recorded_nested_collection_spans() raises:
     assert_true(
         found_outer,
         msg="outer list siblings must swap despite nested field spans",
+    )
+
+
+def test_sibling_runs_keep_equal_range_ancestors() raises:
+    # `just` consumes no choices, so nested tuple spans share their child's
+    # range and disappear under range dedupe; parent identity must still
+    # come from the original hierarchy.
+    var prefix = ChoiceSequence()
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(3), UInt64(9), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(1), UInt64(9), Bool(False))
+    )
+    var strategy = tuples(
+        tuples(just(0), integers(0, 9)),
+        tuples(integers(0, 9), just(0), just(0)),
+    )
+    var tc = TestCase.replaying(prefix^)
+    _ = tc.draw(strategy)
+    assert_equal(len(sort_spans(tc.choices.copy(), tc.spans.copy())), 0)
+    assert_equal(
+        len(swap_adjacent_spans(tc.choices.copy(), tc.spans.copy())), 0
     )
 
 
