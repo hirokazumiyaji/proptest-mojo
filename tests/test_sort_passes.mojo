@@ -239,6 +239,85 @@ def test_swap_adjacent_spans_skips_discarded() raises:
     assert_equal(len(swap_adjacent_spans(seq.copy(), spans^)), 0)
 
 
+def test_swap_adjacent_spans_unequal_width_prefix_blocks() raises:
+    # Proper-prefix siblings: compare concatenations, not the blocks alone.
+    var seq = _seq(UInt64(1), UInt64(1), UInt64(0))
+    var spans = List[Span]()
+    spans.append(_span(0, 1, 1))
+    spans.append(_span(1, 3, 1))
+    var cands = swap_adjacent_spans(seq.copy(), spans^)
+    assert_equal(len(cands), 1)
+    _assert_values(cands[0].copy(), UInt64(1), UInt64(0), UInt64(1))
+
+
+def test_sort_spans_offset_skips_only_eligible_candidates() raises:
+    # First gap-separated run is already sorted (no candidate); the second
+    # is unsorted. offset=1 must be exhausted, not replay the only candidate.
+    var seq = _seq(
+        UInt64(1),
+        UInt64(2),
+        UInt64(0),
+        UInt64(2),
+        UInt64(1),
+    )
+    var spans = List[Span]()
+    spans.append(_span(0, 1, 1))
+    spans.append(_span(1, 2, 1))
+    spans.append(_span(3, 4, 1))
+    spans.append(_span(4, 5, 1))
+    var all = sort_spans(seq.copy(), spans.copy())
+    assert_equal(len(all), 1)
+    _assert_values(
+        all[0].copy(), UInt64(1), UInt64(2), UInt64(0), UInt64(1), UInt64(2)
+    )
+    var page = sort_spans(seq.copy(), spans.copy(), 1, 1)
+    assert_equal(len(page), 0)
+
+
+def test_swap_adjacent_spans_pages_large_sibling_runs() raises:
+    # A descending run of n siblings yields n-1 downhill swaps; without a
+    # limit that eagerly copies every full sequence.
+    var n = 200
+    var seq = ChoiceSequence()
+    for i in range(n):
+        seq.append(_node(UInt64(n - i)))
+    var all = swap_adjacent_spans(seq.copy(), _width1_spans(n))
+    assert_equal(len(all), n - 1)
+    var page = swap_adjacent_spans(seq.copy(), _width1_spans(n), 1, 0)
+    assert_equal(len(page), 1)
+    var next_page = swap_adjacent_spans(seq.copy(), _width1_spans(n), 1, 1)
+    assert_equal(len(next_page), 1)
+    assert_true(
+        page[0].values() != next_page[0].values(),
+        msg="offset must advance to a different swap candidate",
+    )
+
+
+def test_sort_spans_pages_independent_runs() raises:
+    # Many length-2 unsorted runs separated by gaps: unbounded sort would
+    # copy one full sequence per run before the first evaluation.
+    var runs = 100
+    var seq = ChoiceSequence()
+    var spans = List[Span]()
+    for r in range(runs):
+        var base = r * 3
+        seq.append(_node(UInt64(2)))
+        seq.append(_node(UInt64(1)))
+        seq.append(_node(UInt64(0)))
+        spans.append(_span(base, base + 1, 1))
+        spans.append(_span(base + 1, base + 2, 1))
+    var all = sort_spans(seq.copy(), spans.copy())
+    assert_equal(len(all), runs)
+    var page = sort_spans(seq.copy(), spans.copy(), 3, 0)
+    assert_equal(len(page), 3)
+    var next_page = sort_spans(seq.copy(), spans.copy(), 3, 3)
+    assert_equal(len(next_page), 3)
+    assert_true(
+        page[0].values() != next_page[0].values(),
+        msg="offset must page through independent sort candidates",
+    )
+
+
 def test_swap_adjacent_spans_bubble_sorts_order_independent_failure() raises:
     # Repeated downhill swaps converge like bubble sort when any
     # permutation stays interesting.

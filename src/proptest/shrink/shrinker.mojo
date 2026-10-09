@@ -750,54 +750,83 @@ def shrink[
         if improved:
             continue
 
-        # sort_spans
-        var span_sorts = sort_spans(best.copy(), best_spans.copy())
-        for j in range(len(span_sorts)):
+        # sort_spans: fixed-size pages amortize sibling ancestry rebuilds.
+        # Evaluation still stops at the remaining budget; cache hits do not.
+        var sort_fetched = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = span_sorts[j].copy()
-            if _lookup(entries, slots, cand) >= 0:
-                continue
-            evaluations += 1
-            var result = evaluate(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            var cspans = result.spans.copy()
-            _append_cache_entry(
-                entries, slots, cand, interesting, consumed, cspans
+            var span_sorts = sort_spans(
+                best.copy(), best_spans.copy(), CANDIDATE_BATCH, sort_fetched
             )
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                best_spans = cspans^
-                improved = True
+            var index = 0
+            while index < len(span_sorts):
+                var cand = span_sorts[index].copy()
+                index += 1
+                sort_fetched += 1
+                if _lookup(entries, slots, cand) >= 0:
+                    continue
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
+                evaluations += 1
+                var result = evaluate(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _append_cache_entry(
+                    entries, slots, cand, interesting, consumed, cspans
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_sorts) < CANDIDATE_BATCH:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        # swap_adjacent_spans
-        var span_swaps = swap_adjacent_spans(best.copy(), best_spans.copy())
-        for j in range(len(span_swaps)):
+        # swap_adjacent_spans: same fixed-page amortization as sort_spans.
+        var swap_fetched = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = span_swaps[j].copy()
-            if _lookup(entries, slots, cand) >= 0:
-                continue
-            evaluations += 1
-            var result = evaluate(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            var cspans = result.spans.copy()
-            _append_cache_entry(
-                entries, slots, cand, interesting, consumed, cspans
+            var span_swaps = swap_adjacent_spans(
+                best.copy(), best_spans.copy(), CANDIDATE_BATCH, swap_fetched
             )
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                best_spans = cspans^
-                improved = True
+            var index = 0
+            while index < len(span_swaps):
+                var cand = span_swaps[index].copy()
+                index += 1
+                swap_fetched += 1
+                if _lookup(entries, slots, cand) >= 0:
+                    continue
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
+                evaluations += 1
+                var result = evaluate(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _append_cache_entry(
+                    entries, slots, cand, interesting, consumed, cspans
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_swaps) < CANDIDATE_BATCH:
                 break
         if hit_budget:
             break
@@ -1648,54 +1677,82 @@ def shrink_with[
         if improved:
             continue
 
-        # sort_spans
-        var span_sorts = sort_spans(best.copy(), best_spans.copy())
-        for j in range(len(span_sorts)):
+        # sort_spans: fixed-size pages amortize sibling ancestry rebuilds.
+        var sort_fetched = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = span_sorts[j].copy()
-            if _lookup(entries, slots, cand) >= 0:
-                continue
-            evaluations += 1
-            var result = eval_fn(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            var cspans = result.spans.copy()
-            _append_cache_entry(
-                entries, slots, cand, interesting, consumed, cspans
+            var span_sorts = sort_spans(
+                best.copy(), best_spans.copy(), CANDIDATE_BATCH, sort_fetched
             )
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                best_spans = cspans^
-                improved = True
+            var index = 0
+            while index < len(span_sorts):
+                var cand = span_sorts[index].copy()
+                index += 1
+                sort_fetched += 1
+                if _lookup(entries, slots, cand) >= 0:
+                    continue
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
+                evaluations += 1
+                var result = eval_fn(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _append_cache_entry(
+                    entries, slots, cand, interesting, consumed, cspans
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_sorts) < CANDIDATE_BATCH:
                 break
         if hit_budget:
             break
         if improved:
             continue
 
-        # swap_adjacent_spans
-        var span_swaps = swap_adjacent_spans(best.copy(), best_spans.copy())
-        for j in range(len(span_swaps)):
+        # swap_adjacent_spans: same fixed-page amortization as sort_spans.
+        var swap_fetched = 0
+        while True:
             if evaluations >= max_evaluations:
                 hit_budget = True
                 break
-            var cand = span_swaps[j].copy()
-            if _lookup(entries, slots, cand) >= 0:
-                continue
-            evaluations += 1
-            var result = eval_fn(cand^)
-            var interesting = result.is_interesting
-            var consumed = result.consumed.copy()
-            var cspans = result.spans.copy()
-            _append_cache_entry(
-                entries, slots, cand, interesting, consumed, cspans
+            var span_swaps = swap_adjacent_spans(
+                best.copy(), best_spans.copy(), CANDIDATE_BATCH, swap_fetched
             )
-            if interesting and is_shortlex_smaller(consumed, best):
-                best = consumed^
-                best_spans = cspans^
-                improved = True
+            var index = 0
+            while index < len(span_swaps):
+                var cand = span_swaps[index].copy()
+                index += 1
+                swap_fetched += 1
+                if _lookup(entries, slots, cand) >= 0:
+                    continue
+                if evaluations >= max_evaluations:
+                    hit_budget = True
+                    break
+                evaluations += 1
+                var result = eval_fn(cand^)
+                var interesting = result.is_interesting
+                var consumed = result.consumed.copy()
+                var cspans = result.spans.copy()
+                _append_cache_entry(
+                    entries, slots, cand, interesting, consumed, cspans
+                )
+                if interesting and is_shortlex_smaller(consumed, best):
+                    best = consumed^
+                    best_spans = cspans^
+                    improved = True
+                    break
+            if improved or hit_budget:
+                break
+            if len(span_swaps) < CANDIDATE_BATCH:
                 break
         if hit_budget:
             break
