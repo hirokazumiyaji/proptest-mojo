@@ -25,6 +25,9 @@ comptime EDGE_BIAS_U64_THRESHOLD = UInt64(0x1999999999999999)
 comptime FLOAT_INF_BITS = UInt64(0x7FF0000000000000)
 comptime FLOAT_NAN_BITS = UInt64(0x7FF8000000000000)
 comptime FLOAT_MAX_FINITE_BITS = UInt64(0x7FEFFFFFFFFFFFFF)
+# IEEE-754 bit pattern of +1.0; float magnitude codes are bit patterns, not
+# numeric values, so the unity edge must use this code (not `UInt64(1)`).
+comptime FLOAT_ONE_BITS = UInt64(0x3FF0000000000000)
 
 
 @fieldwise_init
@@ -195,7 +198,7 @@ struct TestCase(Sized, Writable):
                 if slot == 0:
                     value = UInt64(0)
                 elif slot == 1:
-                    value = UInt64(1)
+                    value = FLOAT_ONE_BITS
                 elif slot == 2:
                     value = FLOAT_MAX_FINITE_BITS
                 elif slot == 3:

@@ -1,7 +1,10 @@
 """Generation tweaks: edge bias and size ramp (runner.md M4)."""
 
 from proptest import Settings, TestCase, for_all, integers, lists
-from proptest.prng import derive
+from proptest.choice import ChoiceKind
+from proptest.prng import Xoshiro256StarStar, derive
+from proptest.strategies.floats import lex_to_float
+from proptest.testcase import FLOAT_ONE_BITS
 from std.testing import TestSuite, assert_equal, assert_true
 
 
@@ -70,6 +73,28 @@ def test_bias_records_single_choice_and_replays() raises:
     for i in range(8):
         assert_equal(replay.draw_integer(UInt64(1000)), values[i])
     assert_equal(replay.choices, gen.choices)
+
+
+def test_float_edge_slot_one_is_numeric_unity() raises:
+    # Deterministic PRNG state that selects the biased path and edge slot 1.
+    # Slot 1 must encode +1.0's magnitude bits, not UInt64(1) (subnormal).
+    var tc = TestCase.generating(
+        Xoshiro256StarStar(
+            s0=UInt64(72057594037927936),
+            s1=UInt64(0),
+            s2=UInt64(0),
+            s3=UInt64(0),
+        )
+    )
+    var code = tc.draw_float_bits()
+    assert_equal(code, FLOAT_ONE_BITS)
+    assert_equal(lex_to_float(code), 1.0)
+    assert_equal(len(tc.choices), 1)
+    assert_equal(tc.choices[0].kind, ChoiceKind.FLOAT)
+    assert_equal(tc.choices[0].value, FLOAT_ONE_BITS)
+    var replay = TestCase.replaying(tc.choices.copy())
+    assert_equal(replay.draw_float_bits(), FLOAT_ONE_BITS)
+    assert_equal(replay.choices, tc.choices)
 
 
 def test_size_scale_ramps_with_example_index() raises:

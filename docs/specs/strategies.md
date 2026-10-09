@@ -86,7 +86,7 @@ As with Hypothesis `many`, draw a boolean for whether to continue for each eleme
 
 ### Floating-Point Encoding (M2)
 
-Use the same lexicographic encoding as Hypothesis. Smaller 64-bit choices correspond to simpler floating-point values in this order: 0.0, small non-negative integers, values with small denominators, …, infinity, and NaN. The sign is a separate boolean choice.
+Use the same lexicographic encoding as Hypothesis. Smaller 64-bit choices correspond to simpler floating-point values in this order: 0.0, small non-negative integers, values with small denominators, …, infinity, and NaN. The sign is a separate boolean choice. Generation biases magnitude draws toward numeric edges; the unity edge is the IEEE-754 bit pattern of `+1.0` (`0x3FF0000000000000`), not the integer code `1` (smallest positive subnormal).
 
 ## Combinators
 
