@@ -170,6 +170,13 @@ struct IntegersOf[dtype: DType](Strategy):
         return kind_label("integers_of")
 
     def draw(self, mut tc: TestCase) raises -> Scalar[Self.dtype]:
+        # Validated here too: `IntegersOf` is re-exported, so `@fieldwise_init`
+        # lets an inverted range reach `draw`, where the unsigned biased-width
+        # subtraction would wrap to a near-`UInt64` maximum. Validation cannot
+        # live in the constructor because strategy types are built from
+        # non-raising thin functions (`flat_map`'s parameter).
+        if self.maximum < self.minimum:
+            raise Error("integers_of: maximum must be >= minimum")
         var width = _biased_of[Self.dtype](self.maximum) - _biased_of[
             Self.dtype
         ](self.minimum)
