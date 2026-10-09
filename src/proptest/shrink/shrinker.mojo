@@ -394,6 +394,8 @@ def shrink[
                 best_spans = zero_spans^
                 improved = True
                 break
+            elif zero_interesting and zero_consumed == best:
+                best_spans = zero_spans^
             var lo = UInt64(0)
             var hi = current
             var changed = False
@@ -430,6 +432,9 @@ def shrink[
                     best = p_consumed^
                     best_spans = p_spans^
                     changed = True
+                elif p_interesting and p_consumed == best:
+                    best_spans = p_spans^
+                    break
                 elif not p_interesting:
                     lo = mid
                 else:
@@ -607,6 +612,8 @@ def shrink[
                 best_spans = c0_spans^
                 improved = True
                 break
+            elif c0_int and c0_cons == best:
+                best_spans = c0_spans^
             var lo = UInt64(0)
             var hi = v
             var dup_changed = False
@@ -641,6 +648,8 @@ def shrink[
                         best = p_cons^
                         best_spans = p_spans^
                         dup_changed = True
+                    elif p_cons == best:
+                        best_spans = p_spans^
                 else:
                     lo = mid
             if hit_budget:
@@ -787,6 +796,8 @@ def shrink[
                         redist_changed = True
                         improved = True
                         break
+                    elif pj0_int and pj0_cons == best:
+                        best_spans = pj0_spans^
 
                     var lo_j = UInt64(0)
                     var hi_j = max_j
@@ -830,6 +841,8 @@ def shrink[
                                 best_j_cand = pj_cons^
                                 best_j_spans = pj_spans^
                                 had_j_cand = True
+                            elif pj_cons == best:
+                                best_j_spans = pj_spans^
                         else:
                             lo_j = mid_j
                     if had_j_cand:
@@ -871,6 +884,8 @@ def shrink[
                             redist_changed = True
                             improved = True
                             break
+                        elif ph_int and ph_cons == best:
+                            best_spans = ph_spans^
                     if hit_budget:
                         break
         if hit_budget:
@@ -1041,6 +1056,8 @@ def shrink_with[
                 best_spans = zero_spans^
                 improved = True
                 break
+            elif zero_interesting and zero_consumed == best:
+                best_spans = zero_spans^
             var lo = UInt64(0)
             var hi = current
             var changed = False
@@ -1077,6 +1094,9 @@ def shrink_with[
                     best = p_consumed^
                     best_spans = p_spans^
                     changed = True
+                elif p_interesting and p_consumed == best:
+                    best_spans = p_spans^
+                    break
                 elif not p_interesting:
                     lo = mid
                 else:
@@ -1254,6 +1274,8 @@ def shrink_with[
                 best_spans = c0_spans^
                 improved = True
                 break
+            elif c0_int and c0_cons == best:
+                best_spans = c0_spans^
             var lo = UInt64(0)
             var hi = v
             var dup_changed = False
@@ -1288,6 +1310,8 @@ def shrink_with[
                         best = p_cons^
                         best_spans = p_spans^
                         dup_changed = True
+                    elif p_cons == best:
+                        best_spans = p_spans^
                 else:
                     lo = mid
             if hit_budget:
@@ -1434,6 +1458,8 @@ def shrink_with[
                         redist_changed = True
                         improved = True
                         break
+                    elif pj0_int and pj0_cons == best:
+                        best_spans = pj0_spans^
 
                     var lo_j = UInt64(0)
                     var hi_j = max_j
@@ -1477,6 +1503,8 @@ def shrink_with[
                                 best_j_cand = pj_cons^
                                 best_j_spans = pj_spans^
                                 had_j_cand = True
+                            elif pj_cons == best:
+                                best_j_spans = pj_spans^
                         else:
                             lo_j = mid_j
                     if had_j_cand:
@@ -1518,6 +1546,8 @@ def shrink_with[
                             redist_changed = True
                             improved = True
                             break
+                        elif ph_int and ph_cons == best:
+                            best_spans = ph_spans^
                     if hit_budget:
                         break
         if hit_budget:
