@@ -485,11 +485,13 @@ def sort_spans(
         var perm = _run_sort_order(values, sorted, run)
         if _is_identity(perm):
             continue
-        var cand = _splice_run(seq, sorted, run, perm^)
-        if not is_shortlex_smaller(cand, seq):
-            continue
+        # Count and skip before splicing so paged fetches do not recreate
+        # every earlier full-sequence candidate.
         if skipped < offset:
             skipped += 1
+            continue
+        var cand = _splice_run(seq, sorted, run, perm^)
+        if not is_shortlex_smaller(cand, seq):
             continue
         out.append(cand^)
     return out^
@@ -518,21 +520,26 @@ def swap_adjacent_spans(
     var sorted = _valid_spans_sorted(spans, n)
     var runs = _collect_sibling_runs(sorted)
     var order = _order_run_indices(runs, sorted)
+    var values = seq.values()
     var skipped = 0
     for k in range(len(order)):
         var run = runs[order[k]].copy()
         for j in range(run.count() - 1):
             if limit >= 0 and len(out) >= limit:
                 return out^
-            var cand = _splice_swap(
-                seq,
-                sorted[run.indices[j]].span,
-                sorted[run.indices[j + 1]].span,
-            )
-            if not is_shortlex_smaller(cand, seq):
+            var left = sorted[run.indices[j]].span.copy()
+            var right = sorted[run.indices[j + 1]].span.copy()
+            # Downhill iff the right block is lexicographically smaller;
+            # decide before copying the whole sequence for pagination.
+            if not _block_less(
+                values, right.start, right.end, left.start, left.end
+            ):
                 continue
             if skipped < offset:
                 skipped += 1
+                continue
+            var cand = _splice_swap(seq, left, right)
+            if not is_shortlex_smaller(cand, seq):
                 continue
             out.append(cand^)
     return out^
