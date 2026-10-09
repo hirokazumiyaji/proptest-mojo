@@ -171,14 +171,16 @@ def _collect_sibling_runs(sorted: List[Span]) -> List[_SiblingRun]:
         var run_depth = sorted[i].depth
         var prev_end = sorted[i].end
         for j in range(i + 1, len(sorted)):
-            if used[j]:
-                continue
             var start = sorted[j].start
             if start > prev_end:
                 break
             if start < prev_end:
                 # Nested or overlapping span inside the current block.
                 continue
+            # `start == prev_end`: keep used spans visible so an earlier
+            # sibling run at this boundary still separates parents.
+            if used[j]:
+                break
             if sorted[j].label == run_label and sorted[j].depth == run_depth:
                 indices.append(j)
                 prev_end = sorted[j].end

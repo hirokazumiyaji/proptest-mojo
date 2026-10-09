@@ -8,7 +8,7 @@ from proptest.choice import (
 from proptest.encoding import decode_sequence
 from proptest.shrink.span_passes import sort_spans, swap_adjacent_spans
 from proptest.strategies.collections import lists
-from proptest.strategies.primitives import integers
+from proptest.strategies.primitives import booleans, integers
 from proptest.strategies.tuples import tuples
 from proptest.testcase import TestCase
 from std.testing import TestSuite, assert_equal, assert_true
@@ -354,6 +354,55 @@ def test_swap_adjacent_spans_uses_recorded_nested_collection_spans() raises:
         found_outer,
         msg="outer list siblings must swap despite nested field spans",
     )
+
+
+def test_sibling_runs_keep_used_boundary_separators() raises:
+    # After a deeper boolean run marks `[3,4)`, that span must still separate
+    # tuple blocks under different parents so they are not joined.
+    var prefix = ChoiceSequence()
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(0), UInt64(20), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.BOOLEAN, UInt64(1), UInt64(1), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.BOOLEAN, UInt64(1), UInt64(1), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.BOOLEAN, UInt64(0), UInt64(1), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(9), UInt64(20), Bool(False))
+    )
+    prefix.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(0), UInt64(20), Bool(False))
+    )
+    var strategy = tuples(
+        tuples(integers(0, 20), tuples(booleans(), booleans())),
+        tuples(tuples(booleans(), integers(0, 20)), integers(0, 20)),
+    )
+    var tc = TestCase.replaying(prefix^)
+    _ = tc.draw(strategy)
+    var bad = List[UInt64]()
+    bad.append(UInt64(0))
+    bad.append(UInt64(0))
+    bad.append(UInt64(9))
+    bad.append(UInt64(1))
+    bad.append(UInt64(1))
+    bad.append(UInt64(0))
+    var sorts = sort_spans(tc.choices.copy(), tc.spans.copy())
+    for i in range(len(sorts)):
+        assert_true(
+            sorts[i].values() != bad,
+            msg="must not splice cross-parent tuple spans",
+        )
+    var swaps = swap_adjacent_spans(tc.choices.copy(), tc.spans.copy())
+    for i in range(len(swaps)):
+        assert_true(
+            swaps[i].values() != bad,
+            msg="must not swap cross-parent tuple spans",
+        )
 
 
 def main() raises:
