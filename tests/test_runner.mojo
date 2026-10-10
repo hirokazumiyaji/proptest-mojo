@@ -278,13 +278,22 @@ def test_overrun_ratio_checked_after_valid_attempts() raises:
     )
 
 
+def test_failure_that_never_replays_is_reported_flaky() raises:
+    var calls = List[Int]()
+
+    def prop(mut tc: TestCase) raises {ref calls}:
+        _ = tc.draw(integers(0, 10), "x")
+        calls.append(1)
+        if len(calls) == 1:
+            raise Error("only the first call fails")
+
+    var report = String("")
+    try:
+        for_all(prop, Settings(seed=UInt64(1)))
+    except e:
+        report = String(e)
+    assert_true("Flaky" in report, msg="expected a flaky report: " + report)
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()
-
-
-def _overruns_twice_then_passes(mut tc: TestCase) raises:
-    # Two overruns among the first attempts, then valid executions, so the
-    # ratio check has to run again once the loop completes.
-    if tc.example_index < UInt64(2):
-        _ = tc.draw_integer(UInt64(1 << 20))
-        _ = tc.draw_integer(UInt64(1 << 20))

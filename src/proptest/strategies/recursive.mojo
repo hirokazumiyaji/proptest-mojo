@@ -126,7 +126,11 @@ struct JsonTree(Strategy):
                 kids.append(ArcPointer[JsonValue](child^))
                 tc.stop_span()
             except e:
-                tc.stop_span()
+                # Mark the child span `discarded` so span-based shrink
+                # passes do not reorder a failed partial draw with its
+                # successful siblings — matching the pattern used in
+                # `strategies/collections.mojo` and `strategies/text.mojo`.
+                tc.stop_span(discard=True)
                 raise e
         return JsonValue(2, 0, kids^)
 

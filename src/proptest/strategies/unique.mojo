@@ -20,6 +20,7 @@ from std.io import Writer
 from std.math import max
 
 from proptest.strategies.collections import _default_average_size
+from proptest.strategies.combinators import _truncate_draw_records
 from proptest.strategy import Strategy, kind_label
 from proptest.testcase import TestCase
 
@@ -28,13 +29,6 @@ comptime _UNIQUE_ATTEMPT_LABEL = UInt64(0x756E697154727921)
 comptime _DICT_ENTRY_LABEL = UInt64(0x64696374456E7472)
 comptime _DICT_ATTEMPT_LABEL = UInt64(0x6469637454727921)
 comptime _MAX_DUPLICATE_ATTEMPTS = 32
-
-
-def _truncate_draw_records(mut tc: TestCase, labels: Int, values: Int):
-    while len(tc.draw_labels) > labels:
-        _ = tc.draw_labels.pop()
-    while len(tc.draw_values) > values:
-        _ = tc.draw_values.pop()
 
 
 @fieldwise_init

@@ -238,6 +238,31 @@ def test_fixed_property_prunes_stale_entries() raises:
     _clean_db(dir, name)
 
 
+def test_entry_over_max_choices_is_kept() raises:
+    var dir = _fresh_dir("over-budget")
+    var name = String("over-budget")
+    _clean_db(dir, name)
+    try:
+        for_all(
+            _fails_at_1000,
+            Settings(seed=UInt64(1), name=name, database_dir=dir),
+        )
+    except:
+        pass
+    assert_equal(len(_saved_files(dir, name)), 1)
+    try:
+        for_all(
+            _fails_at_1000,
+            Settings(
+                seed=UInt64(1), max_choices=0, name=name, database_dir=dir
+            ),
+        )
+    except:
+        pass
+    assert_equal(len(_saved_files(dir, name)), 1)
+    _clean_db(dir, name)
+
+
 def test_corrupt_files_are_skipped_and_pruned() raises:
     var dir = _fresh_dir("corrupt")
     var name = String("corrupt")
@@ -302,12 +327,37 @@ def test_remove_file_rejects_path_traversal() raises:
     var dir = _fresh_dir("traversal")
     var name = String("traversal")
     var db = ExampleDatabase(dir, name)
-    # None of these should raise or delete anything outside
+    # A saved entry gives `remove_file` a legitimate file to measure
+    # against: if any traversal attempt silently found and deleted it,
+    # the listing after would be shorter.
+    db.save("AQ==")
+    var listed_before = _saved_files(dir, name)
+    assert_equal(
+        len(listed_before),
+        1,
+        msg="precondition: the saved entry should be listed",
+    )
+    # Place a sentinel outside the name_dir but inside the parent db dir
+    # so the `../outside.txt` form (if the guard regressed) would resolve
+    # to and remove it.
+    var sentinel = dir + "/outside.txt"
+    Path(sentinel).write_text("sentinel")
     db.remove_file("../outside.txt")
     db.remove_file("nested/file.txt")
     db.remove_file(".")
     db.remove_file("..")
     db.remove_file("")
+    assert_true(
+        Path(sentinel).is_file(),
+        msg="path-traversal `..` must not delete files outside the name dir",
+    )
+    var listed_after = _saved_files(dir, name)
+    assert_equal(
+        len(listed_after),
+        len(listed_before),
+        msg="no listed entry must disappear from a traversal attempt",
+    )
+    remove(sentinel)
 
 
 def main() raises:

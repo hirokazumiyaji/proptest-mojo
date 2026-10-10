@@ -74,7 +74,7 @@ Parse `PROPTEST_SEED` digit by digit as a `UInt64`. Parsing through signed `Int`
 ### Targeted generation (M5)
 
 - Calling `tc.target(score)` records the highest score for that execution (ignoring NaN and infinity).
-- The runner retains the choice sequence with the highest score from a `VALID` execution. After half of `max_examples` executions are `VALID`, generation mutates that sequence and replays it: each non-`forced` choice is replaced with a uniform value with probability 0.1, with at least one mutation. The mutations are generated with the PRNG from `derive(seed, attempt)`.
+- The runner retains the choice sequence with the highest score from a `VALID` execution. After half of `max_examples` executions are `VALID`, generation mutates that sequence and replays it: each non-`forced` choice is replaced with a uniform value with probability 0.1. One such choice is always changed to a different uniform value, so a mutant never repeats its parent. The mutations are generated with the PRNG from `derive(seed, attempt)`.
 - Runs that do not use `target` keep the existing generation path and reproducibility.
 
 ## Health checks (M4)
@@ -100,10 +100,11 @@ Reproduce with: Settings(replay="AAECAQ==")
 - List counterexamples in the order recorded by `tc.draw`, as `label = value`. If a label is omitted, number the entries as `draw #1`, and so on.
 - Show `tc.note` messages only when replaying a counterexample.
 - Add a line to the report if shrinking stopped because of the evaluation budget.
+- If a generated failure does not fail again when its shrunk or original sequence is replayed, raise a `Flaky` error with the example index, the failure message, and the seed instead of continuing generation (see [ADR-0017](../adr/0017-report-flaky-failures.md)). The budget line is omitted when the report falls back to the original sequence.
 
 ## Example database (M4)
 
 - If `settings.name` is non-empty, save the shrunk choice sequence to `{database_dir}/{first 16 digits of sha256(name)}/{choice-sequence hash}`.
-- On the next run, replay all sequences in that directory before generation. Delete any sequence that is no longer `INTERESTING`.
+- On the next run, replay all sequences in that directory before generation. Delete any sequence that is no longer `INTERESTING`. Sequences longer than the current `max_choices` are skipped and kept, because they may still reproduce under a larger budget.
 - In their repository, users can either add `.proptest-mojo/` to `.gitignore` or commit it as a regression test.
 - Callers must set `name` explicitly. Automatic derivation from the call site is not supported because the stdlib in Mojo 1.2.0.dev2026092605 has no `call_location` equivalent (see [ADR-0011](../adr/0011-example-database-persistence.md)).

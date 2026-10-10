@@ -12,20 +12,15 @@ character and shrinking drives text toward `min_size` copies of the
 alphabet's first character.
 """
 
-from std.math import max, min
+from std.math import max
 
+from proptest.strategies.collections import _default_average_size
 from proptest.strategy import Strategy, kind_label
 from proptest.testcase import TestCase
 
 comptime _TEXT_ELEMENT_LABEL = UInt64(0x74657874456C656D)
 comptime _BYTES_ELEMENT_LABEL = UInt64(0x62797465456C656D)
 comptime _MAX_CODEPOINT_RANK = UInt64(1112063)
-
-
-def _default_average_size(min_size: Int, max_size: Int) -> Float64:
-    var lo = Float64(max(min_size * 2, min_size + 5))
-    var mid = Float64(min_size + max_size) / 2.0
-    return min(lo, mid)
 
 
 def decode_codepoint_choice(choice: UInt64) -> Int:

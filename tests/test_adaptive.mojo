@@ -41,10 +41,6 @@ def _equal_and_over_100(seq: ChoiceSequence) -> Bool:
     return x == y and x > UInt64(100)
 
 
-def _never_interesting(seq: ChoiceSequence) -> Bool:
-    return len(seq) < 0
-
-
 def test_redistribute_moves_value_right() raises:
     var seq = _seq(UInt64(5), UInt64(7))
     var best = redistribute[_sum_over_10](seq.copy())

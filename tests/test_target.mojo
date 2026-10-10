@@ -1,7 +1,9 @@
 """Targeted PBT: tc.target score maximization (choice-sequence.md M5)."""
 
 from proptest import Settings, TestCase, for_all, integers
+from proptest.choice import ChoiceKind, ChoiceNode, ChoiceSequence
 from proptest.prng import derive
+from proptest.runner import _mutate_target_sequence
 from std.testing import TestSuite, assert_equal, assert_true
 
 
@@ -98,6 +100,18 @@ def test_targeted_report_is_deterministic() raises:
 
 def test_target_passing_property_raises_nothing() raises:
     for_all(_targeted_passes, Settings(max_examples=20, seed=UInt64(1)))
+
+
+def test_target_mutant_always_differs_from_best() raises:
+    var best = ChoiceSequence()
+    best.append(
+        ChoiceNode(ChoiceKind.INTEGER, UInt64(1), UInt64(1), Bool(False))
+    )
+    for attempt in range(32):
+        var mutant = _mutate_target_sequence(
+            best, derive(UInt64(7), UInt64(attempt))
+        )
+        assert_equal(mutant[0].value, UInt64(0))
 
 
 def main() raises:
