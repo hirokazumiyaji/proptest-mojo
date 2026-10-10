@@ -188,7 +188,7 @@ def floats(
                     "floats: max_value=-inf requires allow_infinity=True"
                 )
             hi = finite_max
-    var nan_ok = False
+    var nan_ok: Bool
     if allow_nan is not None:
         nan_ok = allow_nan.value()
         if nan_ok and bounded:

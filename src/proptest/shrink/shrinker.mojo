@@ -372,9 +372,9 @@ def shrink[
             var current = best.nodes[i].value
             var trial = best.with_value_at(i, UInt64(0))
             var idx = _lookup(entries, slots, trial)
-            var zero_interesting = False
-            var zero_consumed = trial.copy()
-            var zero_spans = best_spans.copy()
+            var zero_interesting: Bool
+            var zero_consumed: ChoiceSequence
+            var zero_spans: List[Span]
             if idx >= 0:
                 zero_interesting = entries[idx].is_interesting
                 zero_consumed = entries[idx].consumed.copy()
@@ -415,9 +415,9 @@ def shrink[
                 while step < current:
                     var gprobe = best.with_value_at(i, step)
                     var gidx = _lookup(entries, slots, gprobe)
-                    var g_interesting = False
-                    var g_consumed = gprobe.copy()
-                    var g_spans = best_spans.copy()
+                    var g_interesting: Bool
+                    var g_consumed: ChoiceSequence
+                    var g_spans: List[Span]
                     if gidx >= 0:
                         g_interesting = entries[gidx].is_interesting
                         g_consumed = entries[gidx].consumed.copy()
@@ -455,9 +455,9 @@ def shrink[
                             var g_mid = g_lo + (g_hi - g_lo) // UInt64(2)
                             var mprobe = best.with_value_at(i, g_mid)
                             var midx = _lookup(entries, slots, mprobe)
-                            var m_interesting = False
-                            var m_consumed = mprobe.copy()
-                            var m_spans = best_spans.copy()
+                            var m_interesting: Bool
+                            var m_consumed: ChoiceSequence
+                            var m_spans: List[Span]
                             if midx >= 0:
                                 m_interesting = entries[midx].is_interesting
                                 m_consumed = entries[midx].consumed.copy()
@@ -515,9 +515,9 @@ def shrink[
                 ):
                     var fprobe = best.with_value_at(i, fill)
                     var fidx = _lookup(entries, slots, fprobe)
-                    var f_interesting = False
-                    var f_consumed = fprobe.copy()
-                    var f_spans = best_spans.copy()
+                    var f_interesting: Bool
+                    var f_consumed: ChoiceSequence
+                    var f_spans: List[Span]
                     if fidx >= 0:
                         f_interesting = entries[fidx].is_interesting
                         f_consumed = entries[fidx].consumed.copy()
@@ -562,9 +562,9 @@ def shrink[
                         break
                     var probe = best.with_value_at(i, probes[pi])
                     var pidx = _lookup(entries, slots, probe)
-                    var p_interesting = False
-                    var p_consumed = probe.copy()
-                    var p_spans = best_spans.copy()
+                    var p_interesting: Bool
+                    var p_consumed: ChoiceSequence
+                    var p_spans: List[Span]
                     if pidx >= 0:
                         p_interesting = entries[pidx].is_interesting
                         p_consumed = entries[pidx].consumed.copy()
@@ -609,9 +609,9 @@ def shrink[
                     var mid = lo + (hi - lo) // UInt64(2)
                     var probe = best.with_value_at(i, mid)
                     var pidx = _lookup(entries, slots, probe)
-                    var p_interesting = False
-                    var p_consumed = probe.copy()
-                    var p_spans = best_spans.copy()
+                    var p_interesting: Bool
+                    var p_consumed: ChoiceSequence
+                    var p_spans: List[Span]
                     if pidx >= 0:
                         p_interesting = entries[pidx].is_interesting
                         p_consumed = entries[pidx].consumed.copy()
@@ -637,7 +637,6 @@ def shrink[
                         if i >= len(best):
                             break
                         hi = mid
-                        current = mid
                     elif p_interesting and p_consumed == best:
                         best_spans = p_spans^
                         hi = mid
@@ -653,9 +652,9 @@ def shrink[
             while candidate < current:
                 var probe = best.with_value_at(i, candidate)
                 var pidx = _lookup(entries, slots, probe)
-                var p_interesting = False
-                var p_consumed = probe.copy()
-                var p_spans = best_spans.copy()
+                var p_interesting: Bool
+                var p_consumed: ChoiceSequence
+                var p_spans: List[Span]
                 if pidx >= 0:
                     p_interesting = entries[pidx].is_interesting
                     p_consumed = entries[pidx].consumed.copy()
@@ -963,12 +962,8 @@ def shrink[
                 var probe0 = j_maxed.with_value_at(i, UInt64(0))
                 var idx0 = _lookup(entries, slots, probe0)
                 var p0_int: Bool
-                var p0_cons: ChoiceSequence
-                var p0_spans: List[Span]
                 if idx0 >= 0:
                     p0_int = entries[idx0].is_interesting
-                    p0_cons = entries[idx0].consumed.copy()
-                    p0_spans = entries[idx0].spans.copy()
                 else:
                     if evaluations >= max_evaluations:
                         hit_budget = True
@@ -976,8 +971,8 @@ def shrink[
                     evaluations += 1
                     var res = evaluate(probe0^)
                     p0_int = res.is_interesting
-                    p0_cons = res.consumed.copy()
-                    p0_spans = res.spans.copy()
+                    var p0_cons = res.consumed.copy()
+                    var p0_spans = res.spans.copy()
                     _append_cache_entry(
                         entries, slots, probe0, p0_int, p0_cons, p0_spans
                     )
@@ -998,12 +993,8 @@ def shrink[
                         var probe_i = j_maxed.with_value_at(i, mid_i)
                         var idx_i = _lookup(entries, slots, probe_i)
                         var pi_int: Bool
-                        var pi_cons: ChoiceSequence
-                        var pi_spans: List[Span]
                         if idx_i >= 0:
                             pi_int = entries[idx_i].is_interesting
-                            pi_cons = entries[idx_i].consumed.copy()
-                            pi_spans = entries[idx_i].spans.copy()
                         else:
                             if evaluations >= max_evaluations:
                                 hit_budget = True
@@ -1011,8 +1002,8 @@ def shrink[
                             evaluations += 1
                             var res = evaluate(probe_i^)
                             pi_int = res.is_interesting
-                            pi_cons = res.consumed.copy()
-                            pi_spans = res.spans.copy()
+                            var pi_cons = res.consumed.copy()
+                            var pi_spans = res.spans.copy()
                             _append_cache_entry(
                                 entries,
                                 slots,
@@ -1300,9 +1291,9 @@ def shrink_with[
             var current = best.nodes[i].value
             var trial = best.with_value_at(i, UInt64(0))
             var idx = _lookup(entries, slots, trial)
-            var zero_interesting = False
-            var zero_consumed = trial.copy()
-            var zero_spans = best_spans.copy()
+            var zero_interesting: Bool
+            var zero_consumed: ChoiceSequence
+            var zero_spans: List[Span]
             if idx >= 0:
                 zero_interesting = entries[idx].is_interesting
                 zero_consumed = entries[idx].consumed.copy()
@@ -1342,9 +1333,9 @@ def shrink_with[
                 while step < current:
                     var gprobe = best.with_value_at(i, step)
                     var gidx = _lookup(entries, slots, gprobe)
-                    var g_interesting = False
-                    var g_consumed = gprobe.copy()
-                    var g_spans = best_spans.copy()
+                    var g_interesting: Bool
+                    var g_consumed: ChoiceSequence
+                    var g_spans: List[Span]
                     if gidx >= 0:
                         g_interesting = entries[gidx].is_interesting
                         g_consumed = entries[gidx].consumed.copy()
@@ -1382,9 +1373,9 @@ def shrink_with[
                             var g_mid = g_lo + (g_hi - g_lo) // UInt64(2)
                             var mprobe = best.with_value_at(i, g_mid)
                             var midx = _lookup(entries, slots, mprobe)
-                            var m_interesting = False
-                            var m_consumed = mprobe.copy()
-                            var m_spans = best_spans.copy()
+                            var m_interesting: Bool
+                            var m_consumed: ChoiceSequence
+                            var m_spans: List[Span]
                             if midx >= 0:
                                 m_interesting = entries[midx].is_interesting
                                 m_consumed = entries[midx].consumed.copy()
@@ -1442,9 +1433,9 @@ def shrink_with[
                 ):
                     var fprobe = best.with_value_at(i, fill)
                     var fidx = _lookup(entries, slots, fprobe)
-                    var f_interesting = False
-                    var f_consumed = fprobe.copy()
-                    var f_spans = best_spans.copy()
+                    var f_interesting: Bool
+                    var f_consumed: ChoiceSequence
+                    var f_spans: List[Span]
                     if fidx >= 0:
                         f_interesting = entries[fidx].is_interesting
                         f_consumed = entries[fidx].consumed.copy()
@@ -1489,9 +1480,9 @@ def shrink_with[
                         break
                     var probe = best.with_value_at(i, probes[pi])
                     var pidx = _lookup(entries, slots, probe)
-                    var p_interesting = False
-                    var p_consumed = probe.copy()
-                    var p_spans = best_spans.copy()
+                    var p_interesting: Bool
+                    var p_consumed: ChoiceSequence
+                    var p_spans: List[Span]
                     if pidx >= 0:
                         p_interesting = entries[pidx].is_interesting
                         p_consumed = entries[pidx].consumed.copy()
@@ -1536,9 +1527,9 @@ def shrink_with[
                     var mid = lo + (hi - lo) // UInt64(2)
                     var probe = best.with_value_at(i, mid)
                     var pidx = _lookup(entries, slots, probe)
-                    var p_interesting = False
-                    var p_consumed = probe.copy()
-                    var p_spans = best_spans.copy()
+                    var p_interesting: Bool
+                    var p_consumed: ChoiceSequence
+                    var p_spans: List[Span]
                     if pidx >= 0:
                         p_interesting = entries[pidx].is_interesting
                         p_consumed = entries[pidx].consumed.copy()
@@ -1564,7 +1555,6 @@ def shrink_with[
                         if i >= len(best):
                             break
                         hi = mid
-                        current = mid
                     elif p_interesting and p_consumed == best:
                         best_spans = p_spans^
                         hi = mid
@@ -1580,9 +1570,9 @@ def shrink_with[
             while candidate < current:
                 var probe = best.with_value_at(i, candidate)
                 var pidx = _lookup(entries, slots, probe)
-                var p_interesting = False
-                var p_consumed = probe.copy()
-                var p_spans = best_spans.copy()
+                var p_interesting: Bool
+                var p_consumed: ChoiceSequence
+                var p_spans: List[Span]
                 if pidx >= 0:
                     p_interesting = entries[pidx].is_interesting
                     p_consumed = entries[pidx].consumed.copy()
@@ -1889,12 +1879,8 @@ def shrink_with[
                 var probe0 = j_maxed.with_value_at(i, UInt64(0))
                 var idx0 = _lookup(entries, slots, probe0)
                 var p0_int: Bool
-                var p0_cons: ChoiceSequence
-                var p0_spans: List[Span]
                 if idx0 >= 0:
                     p0_int = entries[idx0].is_interesting
-                    p0_cons = entries[idx0].consumed.copy()
-                    p0_spans = entries[idx0].spans.copy()
                 else:
                     if evaluations >= max_evaluations:
                         hit_budget = True
@@ -1902,8 +1888,8 @@ def shrink_with[
                     evaluations += 1
                     var res = eval_fn(probe0^)
                     p0_int = res.is_interesting
-                    p0_cons = res.consumed.copy()
-                    p0_spans = res.spans.copy()
+                    var p0_cons = res.consumed.copy()
+                    var p0_spans = res.spans.copy()
                     _append_cache_entry(
                         entries, slots, probe0, p0_int, p0_cons, p0_spans
                     )
@@ -1924,12 +1910,8 @@ def shrink_with[
                         var probe_i = j_maxed.with_value_at(i, mid_i)
                         var idx_i = _lookup(entries, slots, probe_i)
                         var pi_int: Bool
-                        var pi_cons: ChoiceSequence
-                        var pi_spans: List[Span]
                         if idx_i >= 0:
                             pi_int = entries[idx_i].is_interesting
-                            pi_cons = entries[idx_i].consumed.copy()
-                            pi_spans = entries[idx_i].spans.copy()
                         else:
                             if evaluations >= max_evaluations:
                                 hit_budget = True
@@ -1937,8 +1919,8 @@ def shrink_with[
                             evaluations += 1
                             var res = eval_fn(probe_i^)
                             pi_int = res.is_interesting
-                            pi_cons = res.consumed.copy()
-                            pi_spans = res.spans.copy()
+                            var pi_cons = res.consumed.copy()
+                            var pi_spans = res.spans.copy()
                             _append_cache_entry(
                                 entries,
                                 slots,
