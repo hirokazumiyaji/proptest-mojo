@@ -55,7 +55,7 @@ def _is_valid_utf8(s: String) -> Bool:
         if b < 0x80:
             i += 1
             continue
-        var extra = 0
+        var extra: Int
         var lo = 0x80
         var hi = 0xBF
         if b < 0xC2:

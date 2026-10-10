@@ -1,7 +1,17 @@
 from proptest import Settings, TestCase, for_all, integers
-from std.os import getenv, setenv
+from std.os import getenv, setenv, unsetenv
 from std.time import perf_counter_ns
 from std.testing import TestSuite, assert_equal, assert_true
+
+
+def _restore_env(name: String, saved: String):
+    # Mojo's setenv("", ...) is not a reliable empty C string on Linux
+    # (glibc copies until '\\0' from as_c_string_span), so restore
+    # absence with unsetenv rather than setenv(name, "").
+    if saved.byte_length() == 0:
+        _ = unsetenv(name)
+    else:
+        _ = setenv(name, saved)
 
 
 def _always_passes(mut tc: TestCase) raises:
@@ -61,11 +71,11 @@ def test_settings_defaults_match_spec() raises:
 
 def test_default_seed_keeps_clock_resolution() raises:
     var saved_seed = getenv("PROPTEST_SEED")
-    _ = setenv("PROPTEST_SEED", "")
+    _ = unsetenv("PROPTEST_SEED")
     var before = UInt64(abs(perf_counter_ns()))
     var seed = Settings().effective_seed()
     var after = UInt64(abs(perf_counter_ns()))
-    _ = setenv("PROPTEST_SEED", saved_seed)
+    _restore_env("PROPTEST_SEED", saved_seed)
     assert_true(
         before <= seed and seed <= after,
         msg="the default seed must retain the native clock resolution",
@@ -91,8 +101,8 @@ def test_settings_explicit_values_win_over_env() raises:
         explicit_count = explicit.effective_max_examples()
     except e:
         failure = String(e)
-    _ = setenv("PROPTEST_SEED", saved_seed)
-    _ = setenv("PROPTEST_MAX_EXAMPLES", saved_count)
+    _restore_env("PROPTEST_SEED", saved_seed)
+    _restore_env("PROPTEST_MAX_EXAMPLES", saved_count)
     if failure.byte_length() > 0:
         raise Error(failure)
     assert_equal(default_seed, UInt64(777))
@@ -116,7 +126,7 @@ def test_explicit_default_max_examples_beats_env() raises:
         omitted = Settings().effective_max_examples()
     except e:
         failure = String(e)
-    _ = setenv("PROPTEST_MAX_EXAMPLES", saved_count)
+    _restore_env("PROPTEST_MAX_EXAMPLES", saved_count)
     if failure.byte_length() > 0:
         raise Error(failure)
     assert_equal(explicit_default, 100)
@@ -140,7 +150,7 @@ def test_env_seed_covers_full_u64_range() raises:
         above_int_max = Settings().effective_seed()
     except e:
         failure = String(e)
-    _ = setenv("PROPTEST_SEED", saved)
+    _restore_env("PROPTEST_SEED", saved)
     if failure.byte_length() > 0:
         raise Error(failure)
     assert_equal(parsed, UInt64(0xFFFFFFFFFFFFFFFF))
@@ -158,7 +168,7 @@ def test_env_seed_rejects_invalid_values() raises:
             _ = Settings().effective_seed()
         except:
             failures += 1
-    _ = setenv("PROPTEST_SEED", saved)
+    _restore_env("PROPTEST_SEED", saved)
     assert_equal(failures, 3)
 
 
@@ -185,7 +195,7 @@ def test_nonpositive_env_max_examples_raises() raises:
         _ = Settings().effective_max_examples()
     except e:
         failure = String(e)
-    _ = setenv("PROPTEST_MAX_EXAMPLES", saved)
+    _restore_env("PROPTEST_MAX_EXAMPLES", saved)
     assert_true(failure.byte_length() > 0, msg="zero must raise")
 
 
@@ -276,5 +286,5 @@ def _overruns_twice_then_passes(mut tc: TestCase) raises:
     # Two overruns among the first attempts, then valid executions, so the
     # ratio check has to run again once the loop completes.
     if tc.example_index < UInt64(2):
-        tc.draw_integer(UInt64(1 << 20))
-        tc.draw_integer(UInt64(1 << 20))
+        _ = tc.draw_integer(UInt64(1 << 20))
+        _ = tc.draw_integer(UInt64(1 << 20))

@@ -375,7 +375,7 @@ def delete_chunks(
             if limit >= 0 and len(out) >= limit:
                 return out^
             var start = ordered[k]
-            out.append(seq.deleted(start, start + group_sizes[i])^)
+            out.append(seq.deleted(start, start + group_sizes[i]))
     return out^
 
 

@@ -185,7 +185,7 @@ struct ExampleDatabase(Copyable, Movable):
             var full = self._dir + "/" + filename
             if not Path(full).is_file():
                 continue
-            var content = String("")
+            var content: String
             try:
                 content = Path(full).read_text()
             except:

@@ -113,8 +113,8 @@ struct Settings(Copyable, Movable, Writable):
             # Parsed digit by digit: routing through signed `Int`
             # rejects valid seeds above `Int.MAX`, which is half the
             # domain `Settings.seed` and the reports accept.
-            var ok = False
-            var parsed = UInt64(0)
+            var ok: Bool
+            var parsed: UInt64
             ok, parsed = _parse_u64(from_env)
             if not ok:
                 raise Error(
@@ -133,7 +133,7 @@ struct Settings(Copyable, Movable, Writable):
             return self.max_examples
         var from_env = getenv(MAX_EXAMPLES_ENV_VAR)
         if from_env.byte_length() > 0:
-            var parsed = 0
+            var parsed: Int
             try:
                 parsed = Int(from_env)
             except:
@@ -340,7 +340,7 @@ def _replay_database[
     for i in range(len(saved)):
         var entry = saved[i].copy()
         var token = entry.replay.copy()
-        var saved_seq = ChoiceSequence()
+        var saved_seq: ChoiceSequence
         try:
             saved_seq = decode_sequence(token)
         except:
