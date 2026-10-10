@@ -328,28 +328,27 @@ def delete_chunks(
     var group_sizes = List[Int]()
     var group_starts = List[List[Int]]()
     for size in _chunk_sizes():
-        if size > n:
+        # `_chunk_sizes()` yields positive sizes, and `range(n - size + 1)`
+        # keeps `start <= n - size`, so `size <= n - start`: no clamping
+        # or `removed == 0 / == n` guard is reachable here. The outer
+        # `size > n` filter handles the whole-sequence case.
+        if size > n or size == n:
             continue
         for start in range(n - size + 1):
-            var removed = size
-            if n - start < removed:
-                removed = n - start
             var has_forced = False
-            for k in range(start, start + removed):
+            for k in range(start, start + size):
                 if seq.nodes[k].forced:
                     has_forced = True
                     break
             if has_forced:
                 continue
-            if removed == 0 or removed == n:
-                continue
             var gi = -1
             for i in range(len(group_sizes)):
-                if group_sizes[i] == removed:
+                if group_sizes[i] == size:
                     gi = i
                     break
             if gi < 0:
-                group_sizes.append(removed)
+                group_sizes.append(size)
                 group_starts.append(List[Int]())
                 gi = len(group_sizes) - 1
             group_starts[gi].append(start)
@@ -358,9 +357,7 @@ def delete_chunks(
     var skipped = 0
     for i in range(len(group_sizes)):
         # A group dropping `r` nodes has length `n - r`; shortlex is
-        # length-first, so emit the shortest groups first.
-        if group_sizes[i] == 0 or group_sizes[i] == n:
-            continue
+        # length-first, so emit the largest-drop groups first.
         var ordered = _deletion_order(
             values.copy(), group_starts[i].copy(), group_sizes[i]
         )

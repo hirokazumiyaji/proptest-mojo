@@ -286,8 +286,12 @@ struct TestCase(Sized, Writable):
             self.draw_values[slot] = String(value)
             return value^
         except e:
+            # Leaked inner spans and the strategy's own outer span mark
+            # aborted work, so they must be `discarded`: span-based shrink
+            # passes skip discarded spans and must not reorder siblings
+            # with a draw that never produced a value.
             while len(self.open_spans) > depth:
-                self.stop_span()
+                self.stop_span(discard=True)
             # Drop the reserved slot, not the tail: nested `tc.draw`
             # calls in `strategy` appended records after it, and those
             # draws succeeded, so their entries must survive.

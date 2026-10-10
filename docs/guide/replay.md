@@ -25,9 +25,24 @@ Override the default `max_examples` value (100) with `PROPTEST_MAX_EXAMPLES`. Th
 PROPTEST_MAX_EXAMPLES=1000 pixi run test
 ```
 
-## Planned features
+## Directly replaying a choice sequence
 
-- `Settings(replay=...)`: directly replay a reported choice sequence (M4). For now, reproduce failures by fixing the seed.
-- Example database (`.proptest-mojo/`): retry previously found counterexamples first on the next run (M4). For now, save found counterexamples separately as regression tests and run them with `just` or `for_all` using a fixed seed.
+The counterexample report ends with a `Reproduce with:` line that quotes the exact choice sequence as a replay token. Pass it to `Settings(replay=...)` to run only that sequence; generation and shrinking are skipped and the same counterexample is raised.
 
-See [Specs: Runner](../specs/runner.md) for the latest status.
+```mojo
+for_all(prop, Settings(replay="AAECAQ=="))
+```
+
+A replay that no longer fails raises instead of searching for a new counterexample.
+
+## Example database
+
+Give the test a database name to persist shrunken counterexamples across runs. The next run replays every saved sequence under `.proptest-mojo/` before generating, so a regression that reappears is reported immediately; sequences that no longer fail are deleted.
+
+```mojo
+for_all(prop, Settings(name="my-property"))
+```
+
+Either add `.proptest-mojo/` to `.gitignore` or commit it as a regression corpus.
+
+See [Specs: Runner](../specs/runner.md) for the full behavior.

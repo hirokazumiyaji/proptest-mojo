@@ -56,6 +56,7 @@ def run_state_machine[
         raise Error("run_state_machine: max_ops must be >= 0")
     var count = tc.draw(integers(0, max_ops), "ops")
     for step in range(count):
+        var depth = len(tc.open_spans)
         tc.start_span(_STEP_SPAN_LABEL)
         try:
             var rule = tc.draw(integers(0, rules - 1), "rule")
@@ -64,6 +65,12 @@ def run_state_machine[
             machine.check_invariants()
             tc.stop_span()
         except e:
-            tc.stop_span()
+            # Close every span opened under this step, marking them
+            # `discarded` so shrink passes do not reorder them with
+            # successful siblings. `run_rule` or `check_invariants` may
+            # leave inner spans open, so mirror `TestCase.draw`'s depth
+            # loop instead of closing a single span.
+            while len(tc.open_spans) > depth:
+                tc.stop_span(discard=True)
             raise e
     return machine^

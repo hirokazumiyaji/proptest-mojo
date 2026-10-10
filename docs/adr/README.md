@@ -21,3 +21,4 @@ To add an ADR, copy [template.md](template.md).
 | [0014](0014-distribution-and-release-process.md) | Define source distribution and release process for v0.1.0 | Superseded by ADR-0016 | 2026-09-30 |
 | [0015](0015-arbitrary-default-strategies.md) | Define type-based default strategy dispatch | Accepted | 2026-10-08 |
 | [0016](0016-conda-and-github-release-distribution.md) | Distribute via conda packages and GitHub Releases | Accepted | 2026-10-09 |
+| [0017](0017-report-flaky-failures.md) | Report failures that do not replay as flaky | Accepted | 2026-10-10 |

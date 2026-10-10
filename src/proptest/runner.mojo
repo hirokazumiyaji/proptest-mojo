@@ -211,7 +211,8 @@ def for_all[
     failure raises nothing. The first `INTERESTING` execution is
     shrunk with `shrink_with`, replayed to collect draw records, and
     reported as an `Error` carrying the records, notes, the failure
-    message, the seed, and the replay string. When `settings.name` is
+    message, the seed, and the replay string. A failure that does not
+    fail again on replay raises a `Flaky` error instead. When `settings.name` is
     set, saved counterexamples replay before generation and the shrunk
     result is persisted. When `settings.replay` is set, only those choices
     run once: a reproduced failure is reported as-is with no generation or
@@ -278,7 +279,12 @@ def for_all[
             continue
         if tc.status == Status.OVERRUN:
             overrun_count += 1
-            if overrun_count * 5 > examples_run:
+            # Require a minimum sample before the 20% ratio can fail the
+            # run. Without this guard, a single early OVERRUN (one draw
+            # that oversized a collection with the empty-prefix i=0 run)
+            # trips `5 > 1` and aborts before generation has data to
+            # judge the rate.
+            if examples_run >= 10 and overrun_count * 5 > examples_run:
                 raise Error(
                     _too_many_overruns_message(
                         examples_run,
@@ -288,10 +294,10 @@ def for_all[
                     )
                 )
             continue
-        # Rechecked after a VALID attempt too: overruns that happened
-        # while `examples_run < 10` would otherwise escape the ratio
-        # check entirely when the last required valid example completes
-        # the loop, silently passing a run that mostly overran.
+        # Rechecked after a VALID attempt too: once the OVERRUN branch
+        # above holds overruns under the min-sample guard, a run that
+        # mostly overran early could otherwise reach `max_examples` VALID
+        # and exit silently without the ratio ever being evaluated.
         if (
             examples_run >= 10
             and not raised
@@ -323,7 +329,9 @@ def for_all[
             message,
             db,
         ):
-            continue
+            # Continuing would retry forever when every fresh run fails but
+            # no replay does, since no counter in this loop advances.
+            raise Error(_flaky_message(examples_run, message, seed))
 
 
 def _replay_database[
@@ -346,8 +354,8 @@ def _replay_database[
         except:
             db.remove_file(entry.filename.copy())
             continue
+        # Kept on disk: the entry still reproduces under a larger budget.
         if len(saved_seq) > settings.max_choices:
-            db.remove_file(entry.filename.copy())
             continue
         var tc = TestCase.replaying(saved_seq.copy(), settings.max_choices)
         var raised = False
@@ -430,8 +438,10 @@ def _shrink_and_raise[
         replay_message = String(e)
 
     var report_failed = report_raised and report_tc.status == Status.RUNNING
+    var hit_budget = shrink_result.hit_budget
 
     if not report_failed:
+        hit_budget = False
         report_tc = TestCase.replaying(failing.copy(), settings.max_choices)
         report_raised = False
         replay_message = failure_message.copy()
@@ -465,7 +475,7 @@ def _shrink_and_raise[
             report_tc.notes.copy(),
             replay_message^,
             Optional[UInt64](seed),
-            shrink_result.hit_budget,
+            hit_budget,
             replay_token^,
         )
     )
@@ -492,7 +502,12 @@ def _replay_only[
     except e:
         raised = True
         message = String(e)
-    if not raised or tc.status != Status.RUNNING:
+    # Classify a replay that reached the end without raising as VALID so
+    # the error message mirrors the main generation loop; otherwise the
+    # user sees `status=RUNNING`, which no spec-documented status is.
+    if tc.status == Status.RUNNING:
+        tc.status = Status.INTERESTING if raised else Status.VALID
+    if not raised or tc.status != Status.INTERESTING:
         raise Error(
             "replay did not reproduce a failure (status="
             + String(tc.status)
@@ -570,7 +585,10 @@ def _mutate_target_sequence(
         var mutate = (i == mandatory_idx) or (
             prng.next_float64() < TARGET_MUTATION_PROBABILITY
         )
-        if mutate:
+        if i == mandatory_idx:
+            var rolled = prng.next_at_most(node.max_value - UInt64(1))
+            node.value = rolled + UInt64(1) if rolled >= node.value else rolled
+        elif mutate:
             node.value = prng.next_at_most(node.max_value)
         out.append(node^)
     return out^
@@ -657,6 +675,18 @@ def _too_many_overruns_message(
         "overran max_choices=" + String(max_choices),
         "overrun",
         "generated data too large",
+    )
+
+
+def _flaky_message(examples_run: Int, message: String, seed: UInt64) -> String:
+    """Failure for a property that failed once but not when replayed."""
+    return (
+        "Flaky: example "
+        + String(examples_run)
+        + " failed but did not fail when replayed\nError: "
+        + message
+        + "\nSeed: "
+        + String(seed)
     )
 
 

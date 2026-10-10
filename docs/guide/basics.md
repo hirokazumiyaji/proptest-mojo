@@ -60,6 +60,4 @@ Execution parameters for `for_all`. `Settings` is an immutable value type constr
 | `max_choices` | `Int` | `8192` | Maximum choices allowed in one run. An example that exceeds this is discarded as `OVERRUN` |
 | `max_shrink_evaluations` | `Int` | `5000` | Maximum number of executions during shrinking |
 
-Set `PROPTEST_MAX_EXAMPLES` to override the default number of generated examples ([setup](setup.md)). See [replay](replay.md) for reproducing failures.
-
-Direct `replay` (replaying a choice sequence) and an example database are planned for M4 ([Specs: Runner](../specs/runner.md)).
+Set `PROPTEST_MAX_EXAMPLES` to override the default number of generated examples ([setup](setup.md)). See [replay](replay.md) for reproducing failures with `Settings(replay=...)` or the example database (`Settings(name=...)` under `.proptest-mojo/`).

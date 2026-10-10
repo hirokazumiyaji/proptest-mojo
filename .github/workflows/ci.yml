@@ -46,7 +46,13 @@ jobs:
 
       - name: Examples
         run: |
-          for f in $(find examples -type f -name '*.mojo' | sort); do
+          set -euo pipefail
+          n=0
+          while IFS= read -r f; do
+            n=$((n+1))
             echo "Running $f"
             pixi run mojo run -I src "$f" < /dev/null
-          done
+          done < <(find examples -type f -name '*.mojo' | sort)
+          # Fail loudly if `examples/` is renamed or empty: without this
+          # guard the step silently passes while no example ran.
+          test "$n" -gt 0 || { echo "No example files found under examples/" >&2; exit 1; }

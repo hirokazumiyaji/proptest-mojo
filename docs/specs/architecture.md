@@ -49,7 +49,7 @@ src/proptest/
     shrinker.mojo            shrinking loop (accepts an evaluation function)
   runner.mojo                for_all, Settings, Report
   database.mojo              ExampleDatabase
-  stateful.mojo              StateMachine (Planned: M5)
+  stateful.mojo              StateMachine, run_state_machine
 tests/
   test_*.mojo                unit tests and property tests
   shrink_quality/            shrinking quality regression tests
@@ -77,7 +77,7 @@ Value type; no global state (ADR-0006).
 | API | Role |
 |-----|------|
 | `SplitMix64` | For seed expansion: `next_u64()`. |
-| `Xoshiro256StarStar` | For generation: `from_seed` / `next_u64` / `next_below` / `next_float64` |
+| `Xoshiro256StarStar` | For generation: `from_seed` / `next_u64` / `next_below` / `next_at_most` / `next_float64`. `next_at_most(UInt64.MAX)` short-circuits to `next_u64` so the `max_value + 1` form never overflows |
 | `derive(run_seed, index)` | Purely derives the PRNG for each example |
 
 `std.random` is not used by the library.

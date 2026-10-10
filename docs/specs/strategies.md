@@ -230,7 +230,7 @@ def stack_prop(mut tc: TestCase) raises:
 
 The buggy stack above shrinks to three operations: `push(0), push(1), pop`. A shorter sequence cannot create a state with at least two elements, so this counterexample is minimal.
 
-## Planned
+## Related topics
 
-- Heterogeneous strategy composition (implemented in M2): strategies of different types with the same `Value` can be combined with `one_of2(a, b)` (see [ADR-0010](../adr/0010-heterogeneous-one-of.md)). Equality is enforced by the trailing `where A.Value == B.Value`; a mismatch is a compile error. For three or more branches, nest `one_of2` or convert the branches to one strategy type and use `one_of`.
-- Recursive strategies (implemented in M2): use value-level recursion with a runtime depth limit (see [ADR-0012](../adr/0012-recursive-strategy-with-runtime-depth.md)). `json_tree` generates JSON-like trees and shrinks to `null` when all choices are 0.
+- Heterogeneous strategy composition (M2): strategies of different types with the same `Value` can be combined with `one_of2(a, b)` (see [ADR-0010](../adr/0010-heterogeneous-one-of.md)). Equality is enforced by the trailing `where A.Value == B.Value`; a mismatch is a compile error. For three or more branches, nest `one_of2` or convert the branches to one strategy type and use `one_of`.
+- Recursive strategies (M2): value-level recursion with a runtime depth limit (see [ADR-0012](../adr/0012-recursive-strategy-with-runtime-depth.md)). `json_tree` generates JSON-like trees and shrinks to `null` when all choices are 0.
